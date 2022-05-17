@@ -32,13 +32,12 @@ $ cmake --build ./build
 
 4. Use the plugin with `opt`
 
-Note: Since this plugin still uses the legacy pass manager, you need to pass `--enable-new-pm=false` to `opt`.
+Note: Since most of passes other than `func-merging` still use the legacy pass manager, you need to pass `--enable-new-pm=false` and `--load` instead of `--load-pass-plugin` to `opt`.
 
 ```console
-opt --enable-new-pm=false \
-  --load ./build/lib/Transforms/IPO/LLVMNextFM.so \
+opt --load-pass-plugin ./build/lib/Transforms/IPO/LLVMNextFM.so \
   -S ./test/Transforms/NextFM/basic.ll \
-  --func-merging
+  --passes=func-merging
 ```
 
 ## Optimization passes
