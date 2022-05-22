@@ -5,6 +5,7 @@ add_llvm_pass_plugin(LLVMNextFM
   MatchingUtils.h
   MergeSimilarFunctions.cpp
   MinSizeAttr.cpp
+  MultipleSequenceAlignment.cpp
   NextFMLoader.cpp)
 
 if(NOT LLVM_ENABLE_RTTI)
