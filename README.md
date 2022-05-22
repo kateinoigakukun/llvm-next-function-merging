@@ -17,7 +17,7 @@ $ cd llvm-next-function-merging
 
 2. Configure build directory
 
-You need LLVM 13 or later to build this plugin.
+You need LLVM 13 to build this plugin.
 Please add `-DLLVM_DIR:PATH=/path/to/lib/cmake/llvm` to the CMake configuration in the case of pkg-config cannot find LLVM.
 
 ```console
