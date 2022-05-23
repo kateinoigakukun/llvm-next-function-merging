@@ -201,11 +201,6 @@ private:
   // int CountOpReorder = 0;
   // int CountBinOps = 0;
 
-  enum LinearizationKind { LK_Random, LK_Canonical };
-
-  void linearize(Function *F, SmallVectorImpl<Value *> &FVec,
-                 LinearizationKind LK = LinearizationKind::LK_Canonical);
-
   static bool matchInstructions(Instruction *I1, Instruction *I2,
                                 const FunctionMergingOptions &Options = {});
   static bool matchWholeBlocks(Value *V1, Value *V2);
@@ -230,6 +225,11 @@ public:
       IntPtrTy = DL->getIntPtrType(*ContextPtr);
     }
   }
+
+  enum LinearizationKind { LK_Random, LK_Canonical };
+
+  void linearize(Function *F, SmallVectorImpl<Value *> &FVec,
+                 LinearizationKind LK = LinearizationKind::LK_Canonical);
 
   bool validMergeTypes(Function *F1, Function *F2,
                        const FunctionMergingOptions &Options = {});
