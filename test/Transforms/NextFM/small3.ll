@@ -29,6 +29,13 @@ define internal i64 @Cfunc(i32* %P, i32* %Q) {
   ret i64 0
 }
 
+define void @public_call(i32* %P, i32* %Q) {
+  call i64 @Afunc(i32* %P, i32* %Q)
+  call i64 @Bfunc(i32* %P, i32* %Q)
+  call i64 @Cfunc(i32* %P, i32* %Q)
+  ret void
+}
+
 ; CHECK-LABEL: define internal i64 @_m_f_{{.*}}(i1 %0, i1 %1, i32* %2, i32* %3) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %4 = select i1 %1, i32 2, i32 4

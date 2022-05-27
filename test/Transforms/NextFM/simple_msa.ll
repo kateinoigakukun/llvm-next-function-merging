@@ -5,33 +5,39 @@ declare void @extern_func_1()
 declare void @extern_func_2()
 ; Afunc and Bfunc differ only in that one returns 0, the other 42.
 ; These should be merged.
-define internal i64 @Afunc(i32* %P, i32* %Q) {
+define internal i64 @Afunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
   store i32 4, i32* %P
   call void @extern_func_1()
   store i32 6, i32* %Q
-  store i32 6, i32* %Q
-  store i32 6, i32* %Q
+  store i32 7, i32* %R
+  store i32 8, i32* %S
   ret i64 0
 }
 
-define internal i64 @Bfunc(i32* %P, i32* %Q) {
+define internal i64 @Bfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
   store i32 4, i32* %P
   call void @extern_func_2()
   store i32 6, i32* %Q
-  store i32 6, i32* %Q
-  store i32 6, i32* %Q
-  store i32 6, i32* %Q
+  store i32 7, i32* %R
+  store i32 8, i32* %S
   ret i64 42
 }
 
-define internal i64 @Cfunc(i32* %P, i32* %Q) {
+define internal i64 @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
   store i32 2, i32* %P
+  call void @extern_func_2()
+  call void @extern_func_2()
   store i32 6, i32* %Q
-  store i32 6, i32* %Q
-  store i32 6, i32* %Q
-  store i32 6, i32* %Q
-  store i32 6, i32* %Q
+  store i32 7, i32* %R
+  store i32 8, i32* %S
   ret i64 0
+}
+
+define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
+  call i64 @Afunc(i32* %P, i32* %Q, i32* %R, i32* %S)
+  call i64 @Bfunc(i32* %P, i32* %Q, i32* %R, i32* %S)
+  call i64 @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S)
+  ret void
 }
 
 ; CHECK-LABEL: define internal i64 @_m_f_{{.*}}(i1 %0, i1 %1, i32* %2, i32* %3) {
