@@ -2740,56 +2740,15 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
   if (ReportStats)
     return ErrorResponse;
 
-  // errs() << "Code Gen\n";
-#ifdef ENABLE_DEBUG_CODE
-  if (Verbose) {
-    for (auto &Entry : AlignedSeq) {
-      if (Entry.match()) {
-        errs() << "1: ";
-        if (isa<BasicBlock>(Entry.get(0)))
-          errs() << "BB " << GetValueName(Entry.get(0)) << "\n";
-        else
-          Entry.get(0)->dump();
-        errs() << "2: ";
-        if (isa<BasicBlock>(Entry.get(1)))
-          errs() << "BB " << GetValueName(Entry.get(1)) << "\n";
-        else
-          Entry.get(1)->dump();
-        errs() << "----\n";
-      } else {
-        if (Entry.get(0)) {
-          errs() << "1: ";
-          if (isa<BasicBlock>(Entry.get(0)))
-            errs() << "BB " << GetValueName(Entry.get(0)) << "\n";
-          else
-            Entry.get(0)->dump();
-          errs() << "2: -\n";
-        } else if (Entry.get(1)) {
-          errs() << "1: -\n";
-          errs() << "2: ";
-          if (isa<BasicBlock>(Entry.get(1)))
-            errs() << "BB " << GetValueName(Entry.get(1)) << "\n";
-          else
-            Entry.get(1)->dump();
-        }
-        errs() << "----\n";
-      }
-    }
-  }
-#endif
-
 #ifdef TIME_STEPS_DEBUG
   TimeParam.startTimer();
 #endif
-
-  // errs() << "Creating function type\n";
 
   // Merging parameters
   std::map<unsigned, unsigned> ParamMap1;
   std::map<unsigned, unsigned> ParamMap2;
   std::vector<Type *> Args;
 
-  // errs() << "Merging arguments\n";
   MergeArguments(Context, F1, F2, AlignedSeq, ParamMap1, ParamMap2, Args,
                  Options);
 
@@ -2798,10 +2757,6 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
   Type *ReturnType = nullptr;
 
   bool RequiresUnifiedReturn = false;
-
-  // Value *RetUnifiedAddr = nullptr;
-  // Value *RetAddr1 = nullptr;
-  // Value *RetAddr2 = nullptr;
 
   if (validMergeTypes(F1, F2, Options)) {
     // errs() << "Simple return types\n";
