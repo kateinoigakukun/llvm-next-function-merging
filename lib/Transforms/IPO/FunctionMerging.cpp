@@ -108,6 +108,7 @@
 
 #include "llvm/Analysis/InlineSizeEstimatorAnalysis.h"
 
+#include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 #include <algorithm>
 #include <array>

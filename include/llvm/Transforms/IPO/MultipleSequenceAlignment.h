@@ -5,6 +5,17 @@
 
 namespace llvm {
 
+class MSAAlignmentEntry {
+  std::vector<Value *> Instrs;
+  bool IsMatched;
+
+public:
+  MSAAlignmentEntry(std::vector<Value *> Instrs, bool IsMatched)
+      : Instrs(Instrs), IsMatched(IsMatched) {}
+
+  bool match() const;
+};
+
 class MultipleFunctionMergingPass
     : public PassInfoMixin<MultipleFunctionMergingPass> {
 public:

@@ -1,3 +1,4 @@
+#include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/ADT/SmallVector.h"
@@ -5,7 +6,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
-#include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
+#include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -17,16 +18,6 @@
 namespace llvm {
 
 struct MSAFunctionMergeResult {};
-
-class MSAAlignmentEntry {
-  std::vector<Value *> Instrs;
-  bool IsMatched;
-
-public:
-  MSAAlignmentEntry(std::vector<Value *> Instrs, bool IsMatched) : Instrs(Instrs), IsMatched(IsMatched) {}
-
-  bool match() const;
-};
 
 /// \brief This pass merges multiple functions into a single function by
 /// multiple sequence alignment algorithm.
