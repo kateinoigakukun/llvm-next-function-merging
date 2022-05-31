@@ -1,17 +1,25 @@
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SequenceAlignment.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/Attributes.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/ValueMap.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
+#include "llvm/Transforms/Utils/ValueMapper.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <functional>
 #include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -36,8 +44,28 @@ public:
   void align(const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
              std::vector<MSAAlignmentEntry> &Alignment);
   MSAFunctionMergeResult merge(ArrayRef<Function *> Functions);
-  void merge(const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
+  void merge(ArrayRef<Function *> Functions,
+             const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
              const std::vector<MSAAlignmentEntry> &Alignment);
+};
+
+class MSAGenFunction {
+  Module *M;
+  const std::vector<MSAAlignmentEntry> &Alignment;
+  const ArrayRef<Function *> &Functions;
+
+  IRBuilder<> Builder;
+
+public:
+  MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
+                 const ArrayRef<Function *> &Functions)
+      : M(M), Alignment(Alignment), Functions(Functions),
+        Builder(M->getContext()){};
+
+  void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
+                        ValueMap<Argument *, unsigned> &ArgToMergedIndex);
+
+  void emit(const FunctionMergingOptions &Options = {});
 };
 
 }; // namespace llvm
@@ -229,7 +257,7 @@ MSAFunctionMerger::merge(ArrayRef<Function *> Functions) {
   std::vector<MSAAlignmentEntry> Alignment;
   align(InstrVecRefList, Alignment);
 
-  merge(InstrVecRefList, Alignment);
+  merge(Functions, InstrVecRefList, Alignment);
 
   return MSAFunctionMergeResult();
 }
@@ -273,75 +301,12 @@ bool MSAAlignmentEntry::match() const {
 }
 
 void MSAFunctionMerger::merge(
+    ArrayRef<Function *> Functions,
     const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
     const std::vector<MSAAlignmentEntry> &Alignment) {
-  // Create a new function.
-  Function *F =
-      Function::Create(nullptr, GlobalValue::LinkageTypes::PrivateLinkage);
 
-  for (auto &Entry : Alignment) {
-    if (Entry.match()) {
-
-      // auto *I1 = dyn_cast<Instruction>(Entry.get(0));
-      // auto *I2 = dyn_cast<Instruction>(Entry.get(1));
-
-      // std::string BBName =
-      //     (I1 == nullptr) ? "m.label.bb"
-      //                     : (I1->isTerminator() ? "m.term.bb" : "m.inst.bb");
-
-      // BasicBlock *MergedBB =
-      //     BasicBlock::Create(F->getContext(), BBName, MergedFunc);
-
-      // MaterialNodes[Entry.get(0)] = MergedBB;
-      // MaterialNodes[Entry.get(1)] = MergedBB;
-
-      // if (I1 != nullptr && I2 != nullptr) {
-      //   IRBuilder<> Builder(MergedBB);
-      //   Instruction *NewI = CloneInst(Builder, MergedFunc, I1);
-
-      //   VMap[I1] = NewI;
-      //   VMap[I2] = NewI;
-      //   BlocksF1[MergedBB] = I1->getParent();
-      //   BlocksF2[MergedBB] = I2->getParent();
-      // } else {
-      //   assert(isa<BasicBlock>(Entry.get(0)) && isa<BasicBlock>(Entry.get(1))
-      //   &&
-      //          "Both nodes must be basic blocks!");
-      //   auto *BB1 = dyn_cast<BasicBlock>(Entry.get(0));
-      //   auto *BB2 = dyn_cast<BasicBlock>(Entry.get(1));
-
-      //   VMap[BB1] = MergedBB;
-      //   VMap[BB2] = MergedBB;
-      //   BlocksF1[MergedBB] = BB1;
-      //   BlocksF2[MergedBB] = BB2;
-
-      //   // IMPORTANT: make sure any use in a blockaddress constant
-      //   // operation is updated correctly
-      //   for (User *U : BB1->users()) {
-      //     if (auto *BA = dyn_cast<BlockAddress>(U)) {
-      //       VMap[BA] = BlockAddress::get(MergedFunc, MergedBB);
-      //     }
-      //   }
-      //   for (User *U : BB2->users()) {
-      //     if (auto *BA = dyn_cast<BlockAddress>(U)) {
-      //       VMap[BA] = BlockAddress::get(MergedFunc, MergedBB);
-      //     }
-      //   }
-
-      //   IRBuilder<> Builder(MergedBB);
-      //   for (Instruction &I : *BB1) {
-      //     if (isa<PHINode>(&I)) {
-      //       VMap[&I] = Builder.CreatePHI(I.getType(), 0);
-      //     }
-      //   }
-      //   for (Instruction &I : *BB2) {
-      //     if (isa<PHINode>(&I)) {
-      //       VMap[&I] = Builder.CreatePHI(I.getType(), 0);
-      //     }
-      //   }
-      // } // end if(instruction)-else
-    }
-  }
+  MSAGenFunction Generator(M, Alignment, Functions);
+  Generator.emit();
 }
 
 namespace {
@@ -387,4 +352,76 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   }
 
   return PreservedAnalyses::none();
+}
+
+/// Layout the merged function parameters while minimizing the length.
+void MSAGenFunction::layoutParameters(
+    std::vector<std::pair<Type *, AttributeSet>> &Args,
+    ValueMap<Argument *, unsigned> &ArgToMergedIndex) {
+  assert(Functions.size() <= (1 << 8) && "Too many functions!");
+  assert(Functions.size() > 0 && "No functions to merge!");
+  Args.emplace_back(IntegerType::get(M->getContext(), 8), AttributeSet());
+
+  auto FindReusableArg = [&](Argument *NewArg, AttributeSet NewAttr,
+                             const std::set<unsigned> &reusedArgs) -> Optional<int> {
+    // TODO(katei): Find the best argument to reuse based on the uses to minimize selections.
+    // Ex:
+    // ```
+    // void @f(i32 %a, i8 %b, i32 %c) {
+    //   %x = add i32 %a, 1
+    // }
+    // void @g(i32 %d) {
+    //   %x = add i32 %d, 1
+    // }
+    // ```
+    //
+    // In the above example, %d can be reused with both %c and %a,
+    // but %a is better to avoid additonal select.
+
+    for (size_t i = 0; i < Args.size(); i++) {
+      Type *ty;
+      AttributeSet attr;
+      std::tie(ty, attr) = Args[i];
+
+      if(ty != NewArg->getType())
+        continue;
+      if (attr != NewAttr)
+        continue;
+      // If the argument is already reused, we can't reuse it again for the function.
+      if (reusedArgs.find(i) != reusedArgs.end())
+        continue;
+
+      return i;
+    }
+    return None;
+  };
+
+  auto MergeArgs = [&](Function *F) {
+    auto attrList = F->getAttributes();
+    std::set<unsigned> reusedArgIndices;
+
+    for (auto &arg : F->args()) {
+      auto argAttr = attrList.getParamAttributes(arg.getArgNo());
+      if (auto found = FindReusableArg(&arg, argAttr, reusedArgIndices)) {
+        ArgToMergedIndex[&arg] = *found;
+        auto inserted = reusedArgIndices.insert(*found).second;
+        assert(inserted && "Argument already reused!");
+      } else {
+        Args.emplace_back(arg.getType(), argAttr);
+        ArgToMergedIndex[&arg] = Args.size() - 1;
+      }
+    }
+    return true;
+  };
+
+  for (auto &F : Functions) {
+    MergeArgs(F);
+  }
+}
+
+void MSAGenFunction::emit(const FunctionMergingOptions &Options) {
+  std::vector<std::pair<Type *, AttributeSet>> Args;
+  ValueMap<Argument *, unsigned> ArgToMergedIndex;
+
+  layoutParameters(Args, ArgToMergedIndex);
 }
