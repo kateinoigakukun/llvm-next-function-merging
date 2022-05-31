@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#define DEBUG_TYPE "multiple-func-merging"
+
 namespace llvm {
 
 struct MSAFunctionMergeResult {};
@@ -94,8 +96,9 @@ template <typename T> class TensorTable {
                   bool NegativeOffset) const {
     size_t Index = 0;
     for (size_t dim = 0; dim < Shape.size(); dim++) {
+      assert(Point[dim] < Shape[dim] && "Point out of bounds");
       size_t Term = 1;
-      for (size_t i = dim; i < Shape.size() - 1; i++) {
+      for (size_t i = 0; i < dim; i++) {
         Term *= Shape[i];
       }
       Term *= Point[dim] + (NegativeOffset ? -Offset[dim] : Offset[dim]);
@@ -131,6 +134,22 @@ public:
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
 
+  void set(const std::vector<size_t> &Point, std::vector<size_t> Offset,
+           bool NegativeOffset, T NewValue) {
+    Data[getIndex(Point, Offset, NegativeOffset)] = NewValue;
+  }
+
+  bool contains(const std::vector<size_t> &Point, std::vector<size_t> Offset) const {
+    assert(Point.size() == Shape.size() && "Point and shape have different "
+                                            "dimensions");
+    for (size_t i = 0; i < Shape.size(); i++) {
+      if (Point[i] + Offset[i] >= Shape[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   const std::vector<size_t> &getShape() const { return Shape; }
 
   bool advance(std::vector<size_t> &Point) const {
@@ -142,6 +161,7 @@ using TransitionOffset = std::vector<size_t>;
 using TransitionEntry = std::pair<TransitionOffset, /*Match*/ bool>;
 
 static void initScoreTable(TensorTable<int32_t> &ScoreTable,
+                           TensorTable<TransitionEntry> &BestTransTable,
                            ScoringSystem &Scoring) {
   auto &Shape = ScoreTable.getShape();
   for (size_t dim = 0; dim < Shape.size(); dim++) {
@@ -149,6 +169,9 @@ static void initScoreTable(TensorTable<int32_t> &ScoreTable,
     for (size_t i = 0; i < Shape[dim]; i++) {
       Point[dim] = i;
       ScoreTable[Point] = Scoring.getGapPenalty() * i;
+      TransitionOffset transOffset(Shape.size(), 0);
+      transOffset[dim] = 1;
+      BestTransTable[Point] = std::make_pair(transOffset, false);
     }
   }
 }
@@ -160,15 +183,36 @@ static void computeBestTransition(
     const std::function<bool(std::vector<size_t> Point)> Match) {
 
   // Build a virtual tensor table for transition scores.
-  std::vector<int32_t> TransScore{Scoring.getMatchProfit(),
-                                  Scoring.getGapPenalty()};
-  std::vector<size_t> TransTableShape(ScoreTable.getShape().size(),
-                                      TransScore.size());
-  // The current visiting point
+  // e.g. If the shape is (3, 3), the virtual tensor table is:
+  //
+  //       +-----------+-----------+
+  //      / (0, 0, 1) / (0, 1, 1) /|
+  //     /           /           / |
+  //    +-----------+-----------+  |
+  //   /           /           /|  +
+  //  /           /           / | /|
+  // +-----------+-----------+  |/ |
+  // |           |           |  +  |
+  // | (0, 0, 0) | (0, 1, 0) | /|  +
+  // |           |           |/ | /
+  // +-----------+-----------+  |/
+  // |           |           |  +
+  // | (1, 0, 0) | (1, 1, 0) | /
+  // |           |           |/
+  // +-----------+-----------+
+  const std::vector<int32_t> TransScore{Scoring.getMatchProfit(),
+                                        Scoring.getGapPenalty()};
+  const std::vector<size_t> TransTableShape(ScoreTable.getShape().size(),
+                                            TransScore.size());
+  // The current visiting point in the virtual tensor table.
   std::vector<size_t> TransOffset(ScoreTable.getShape().size(), 0);
 
   // Visit all possible transitions except for the current point itself.
   while (advancePointInShape(TransOffset, TransTableShape)) {
+    if (!ScoreTable.contains(Point, TransOffset))
+      continue;
+
+    LLVM_DEBUG(dbgs() << "TransOffset: "; for (auto v : TransOffset) { dbgs() << v << " "; } dbgs() << "\n");
     int32_t Similarity =
         std::accumulate(TransOffset.begin(), TransOffset.end(), 0,
                         [&TransScore](int32_t Acc, size_t Val) {
@@ -183,12 +227,12 @@ static void computeBestTransition(
                                 : Scoring.getMismatchPenalty();
     }
     int32_t FromScore =
-        ScoreTable.get(Point, /*Offset*/ TransOffset, /*NegativeOffset*/ true);
+        ScoreTable.get(Point, /*Offset*/ TransOffset, /*NegativeOffset*/ false);
     int32_t Score = FromScore + Similarity;
     int32_t MaxScore = std::max(ScoreTable[Point], Score);
-    ScoreTable[Point] = MaxScore;
+    ScoreTable.set(Point, TransOffset, false, MaxScore);
     if (MaxScore == Score) {
-      BestTransTable[Point] = std::make_pair(TransOffset, IsMatched);
+      BestTransTable.set(Point, TransOffset, false, std::make_pair(TransOffset, IsMatched));
     }
   }
 }
@@ -225,6 +269,7 @@ static void buildAlignment(
   }
 
   while (true) {
+    LLVM_DEBUG(dbgs() << "BackCursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
     // If the current point is the start edge of the table, we are done.
     if (std::all_of(Cursor.begin(), Cursor.end(),
                     [](size_t v) { return v == 0; })) {
@@ -233,10 +278,12 @@ static void buildAlignment(
 
     auto &Entry = BestTransTable[Cursor];
     auto &Offset = Entry.first;
-    assert(!Offset.empty() && "not visited yet!?");
+    assert(!Offset.empty() && "not transitioned yet!?");
     Alignment.emplace_back(
         buildAlignmentEntry(Entry, Cursor, InstrVecRefList));
     for (size_t dim = 0; dim < MaxDim; dim++) {
+      assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
+                                           "table!");
       Cursor[dim] -= Offset[dim];
     }
   }
@@ -273,10 +320,12 @@ void MSAFunctionMerger::align(
   }
   TensorTable<int32_t> ScoreTable(Shape, 0);
   TensorTable<TransitionEntry> BestTransTable(Shape, {});
-  initScoreTable(ScoreTable, Scoring);
+  initScoreTable(ScoreTable, BestTransTable, Scoring);
+  LLVM_DEBUG(dbgs() << "Shape: "; for (auto v : Shape) { dbgs() << v << " "; } dbgs() << "\n");
 
   std::vector<size_t> Cursor(Shape.size(), 1);
   do {
+    LLVM_DEBUG(dbgs() << "Cursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
     computeBestTransition(
         ScoreTable, BestTransTable, Cursor, Scoring,
         [&InstrVecRefList](std::vector<size_t> Point) {
@@ -290,6 +339,7 @@ void MSAFunctionMerger::align(
           return true;
         });
   } while (ScoreTable.advance(Cursor));
+  LLVM_DEBUG(dbgs() << "Cursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
 
   buildAlignment(BestTransTable, InstrVecRefList, Alignment);
 
@@ -344,7 +394,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     auto &Rank = MatchFinder->get_matches(F1);
     MatchFinder->remove_candidate(F1);
 
-    SmallVector<Function *, 16> Functions;
+    SmallVector<Function *, 16> Functions{F1};
     for (auto &Match : Rank) {
       Functions.push_back(Match.candidate);
     }
