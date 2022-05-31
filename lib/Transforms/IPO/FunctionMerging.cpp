@@ -2475,49 +2475,6 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
     return ErrorResponse;
   }
 
-  unsigned NumMatches = 0;
-  unsigned TotalEntries = 0;
-  AcrossBlocks = false;
-  BasicBlock *CurrBB0 = nullptr;
-  BasicBlock *CurrBB1 = nullptr;
-  for (auto &Entry : AlignedSeq) {
-    TotalEntries++;
-    if (Entry.match()) {
-      NumMatches++;
-      if (isa<BasicBlock>(Entry.get(1))) {
-        CurrBB1 = dyn_cast<BasicBlock>(Entry.get(1));
-      } else if (auto *I = dyn_cast<Instruction>(Entry.get(1))) {
-        if (CurrBB1 == nullptr)
-          CurrBB1 = I->getParent();
-        else if (CurrBB1 != I->getParent()) {
-          AcrossBlocks = true;
-        }
-      }
-      if (isa<BasicBlock>(Entry.get(0))) {
-        CurrBB0 = dyn_cast<BasicBlock>(Entry.get(0));
-      } else if (auto *I = dyn_cast<Instruction>(Entry.get(0))) {
-        if (CurrBB0 == nullptr)
-          CurrBB0 = I->getParent();
-        else if (CurrBB0 != I->getParent()) {
-          AcrossBlocks = true;
-        }
-      }
-    } else {
-      if (isa_and_nonnull<BasicBlock>(Entry.get(0)))
-        CurrBB1 = nullptr;
-      if (isa_and_nonnull<BasicBlock>(Entry.get(1)))
-        CurrBB0 = nullptr;
-    }
-  }
-  if (AcrossBlocks) {
-    if (Verbose) {
-      errs() << "Across Basic Blocks\n";
-    }
-  }
-  if (Verbose || ReportStats) {
-    errs() << "Matches: " << NumMatches << ", " << TotalEntries << ", " << ( (double) NumMatches/ (double) TotalEntries) << "\n";
-  }
-  
   if (ReportStats)
     return ErrorResponse;
 
