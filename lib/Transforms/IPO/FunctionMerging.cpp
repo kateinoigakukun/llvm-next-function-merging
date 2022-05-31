@@ -1277,11 +1277,6 @@ static void MergeArguments(LLVMContext &Context, Function *F1, Function *F2,
                            std::vector<Type *> &Args,
                            const FunctionMergingOptions &Options) {
 
-  std::vector<Argument *> ArgsList1;
-  for (Argument &arg : F1->args()) {
-    ArgsList1.push_back(&arg);
-  }
-
   Args.push_back(IntegerType::get(Context, 1)); // push the function Id argument
   unsigned ArgId = 0;
   for (auto I = F1->arg_begin(), E = F1->arg_end(); I != E; I++) {
@@ -1300,10 +1295,10 @@ static void MergeArguments(LLVMContext &Context, Function *F1, Function *F2,
     std::map<unsigned, int> MatchingScore;
     // first try to find an argument with the same name/type
     // otherwise try to match by type only
-    for (unsigned i = 0; i < ArgsList1.size(); i++) {
-      if (ArgsList1[i]->getType() == (*I).getType()) {
+    for (unsigned i = 0; i < F1->arg_size(); i++) {
+      if (F1->getArg(i)->getType() == (*I).getType()) {
 
-        auto AttrSet1 = AttrList1.getParamAttributes(ArgsList1[i]->getArgNo());
+        auto AttrSet1 = AttrList1.getParamAttributes(F1->getArg(i)->getArgNo());
         auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
         if (AttrSet1 != AttrSet2)
           continue;
@@ -1331,7 +1326,7 @@ static void MergeArguments(LLVMContext &Context, Function *F1, Function *F2,
           if (I1 != nullptr && I2 != nullptr) { // test both for sanity
             for (unsigned i = 0; i < I1->getNumOperands(); i++) {
               for (auto KV : MatchingScore) {
-                if (I1->getOperand(i) == ArgsList1[KV.first]) {
+                if (I1->getOperand(i) == F1->getArg(KV.first)) {
                   if (i < I2->getNumOperands() && I2->getOperand(i) == &(*I)) {
                     MatchingScore[KV.first]++;
                   }
