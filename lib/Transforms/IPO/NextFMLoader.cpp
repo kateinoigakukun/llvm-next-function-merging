@@ -9,6 +9,7 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
+#include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 
 using namespace llvm;
 
@@ -20,6 +21,10 @@ llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
                    ArrayRef<PassBuilder::PipelineElement>) {
                   if (Name == "func-merging") {
                     PM.addPass(FunctionMergingPass());
+                    return true;
+                  }
+                  if (Name == "multiple-func-merging") {
+                    PM.addPass(MultipleFunctionMergingPass());
                     return true;
                   }
                   return false;

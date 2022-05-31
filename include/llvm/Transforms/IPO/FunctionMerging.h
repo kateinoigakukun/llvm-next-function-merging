@@ -392,6 +392,41 @@ public:
   };
 };
 
+template <class T> class MatchInfo {
+public:
+  T candidate{nullptr};
+  size_t Size{0};
+  size_t OtherSize{0};
+  size_t MergedSize{0};
+  size_t Magnitude{0};
+  size_t OtherMagnitude{0};
+  float Distance{0};
+  bool Valid{false};
+  bool Profitable{false};
+
+
+  MatchInfo() = default;
+  MatchInfo(T candidate) : candidate(candidate) {};
+  MatchInfo(T candidate, size_t Size) : candidate(candidate), Size(Size) {};
+};
+
+template <class T> class Matcher {
+public:
+  Matcher() = default;
+  virtual ~Matcher() = default;
+
+  virtual void add_candidate(T candidate, size_t size) = 0;
+  virtual void remove_candidate(T candidate) = 0;
+  virtual T next_candidate() = 0;
+  virtual std::vector<MatchInfo<T>> &get_matches(T candidate) = 0;
+  virtual size_t size() = 0;
+  virtual void print_stats() = 0;
+};
+
+
+std::unique_ptr<Matcher<Function *>>
+createMatcherLSH(FunctionMerger &FM, FunctionMergingOptions &Options, size_t rows, size_t bands);
+
 FunctionMergeResult MergeFunctions(Function *F1, Function *F2,
                                    const FunctionMergingOptions &Options = {});
 

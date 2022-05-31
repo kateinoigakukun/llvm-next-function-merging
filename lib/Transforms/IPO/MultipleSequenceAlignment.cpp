@@ -3,7 +3,9 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
+#include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -37,6 +39,8 @@ public:
   MSAFunctionMerger(Module *M)
       : PairMerger(M), Scoring(/*Gap*/ -1, /*Match*/ 0, /*Mismatch*/ -1), M(M) {
   }
+
+  FunctionMerger &getPairMerger() { return PairMerger; }
 
   void align(const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
              std::vector<MSAAlignmentEntry> &Alignment);
@@ -347,4 +351,49 @@ void MSAFunctionMerger::merge(
       // } // end if(instruction)-else
     }
   }
+}
+
+namespace {
+
+struct MSAOptions : public FunctionMergingOptions {
+  size_t LSHRows = 2;
+  size_t LSHBands = 100;
+
+  MSAOptions() : FunctionMergingOptions() {}
+};
+
+}
+
+size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
+
+PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
+                                                   ModuleAnalysisManager &MAM) {
+
+  FunctionAnalysisManager &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  MSAFunctionMerger FM(&M);
+  auto Options = MSAOptions();
+
+  std::unique_ptr<Matcher<Function *>> MatchFinder = createMatcherLSH(
+      FM.getPairMerger(), Options, /*LSHRows*/ 2, /*LSHBands*/ 100);
+
+  size_t count = 0;
+  for (auto &F : M) {
+    MatchFinder->add_candidate(&F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
+    count++;
+  }
+
+  while (MatchFinder->size() > 0) {
+    Function *F1 = MatchFinder->next_candidate();
+    auto &Rank = MatchFinder->get_matches(F1);
+    MatchFinder->remove_candidate(F1);
+
+    SmallVector<Function *, 16> Functions;
+    for (auto &Match : Rank) {
+      Functions.push_back(Match.candidate);
+    }
+    FM.merge(Functions);
+  }
+
+  return PreservedAnalyses::none();
 }
