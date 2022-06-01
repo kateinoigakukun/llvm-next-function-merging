@@ -291,13 +291,20 @@ static void buildAlignment(
 
 }; // namespace
 
+/// Check whether \p F is eligible to be a function merging candidate.
+static bool isEligibleToBeMergeCandidate(Function &F) {
+  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
+}
+
 MSAFunctionMergeResult
 MSAFunctionMerger::merge(ArrayRef<Function *> Functions) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   SmallVector<SmallVectorImpl<Value *> *, 16> InstrVecRefList;
 
   for (size_t i = 0; i < Functions.size(); i++) {
-    PairMerger.linearize(Functions[i], InstrVecList[i]);
+    auto &F = *Functions[i];
+    if (!isEligibleToBeMergeCandidate(F)) continue;
+    PairMerger.linearize(&F, InstrVecList[i]);
     InstrVecRefList.push_back(&InstrVecList[i]);
   }
 
