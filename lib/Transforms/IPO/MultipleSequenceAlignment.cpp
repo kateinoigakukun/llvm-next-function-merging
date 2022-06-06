@@ -387,7 +387,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   auto Options = MSAOptions();
 
   std::unique_ptr<Matcher<Function *>> MatchFinder = createMatcherLSH(
-      FM.getPairMerger(), Options, /*LSHRows*/ 2, /*LSHBands*/ 100);
+      FM.getPairMerger(), Options, Options.LSHRows, Options.LSHBands);
 
   size_t count = 0;
   for (auto &F : M) {
