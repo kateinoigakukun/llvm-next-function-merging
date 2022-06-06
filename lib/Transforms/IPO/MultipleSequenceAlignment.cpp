@@ -13,6 +13,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/Support/Casting.h"
@@ -66,6 +67,7 @@ class MSAGenFunction {
   const std::vector<MSAAlignmentEntry> &Alignment;
   const ArrayRef<Function *> &Functions;
   Optional<std::string> NameCache;
+  IntegerType *DiscriminatorTy;
 
   IRBuilder<> Builder;
 
@@ -75,7 +77,7 @@ public:
   MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
                  const ArrayRef<Function *> &Functions)
       : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),
-        Builder(C){};
+        DiscriminatorTy(IntegerType::getInt32Ty(C)), Builder(C){};
 
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex);
@@ -93,17 +95,23 @@ class MSAGenFunctionBody {
   const MSAGenFunction &Parent;
   Function *MergedFunc;
 
+  Value *Discriminator;
   ValueToValueMapTy &VMap;
+  // FIXME(katei): Better name?
+  DenseMap<Value *, BasicBlock *> MaterialNodes;
   DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
-  DenseMap<BasicBlock *, std::vector<BasicBlock *>> MergedBBToBB;
+  std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
 
 public:
-  MSAGenFunctionBody(const MSAGenFunction &Parent, ValueToValueMapTy &VMap,
-                     Function *MergedF)
-      : Parent(Parent), MergedFunc(MergedF), VMap(VMap), BBToMergedBB(),
-        MergedBBToBB(){};
+  MSAGenFunctionBody(const MSAGenFunction &Parent, Value *Discriminator,
+                     ValueToValueMapTy &VMap, Function *MergedF)
+      : Parent(Parent), MergedFunc(MergedF), Discriminator(Discriminator),
+        VMap(VMap), MaterialNodes(), BBToMergedBB(),
+        MergedBBToBB(Parent.Functions.size()){};
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
-  void layoutBasicBlocks();
+  BasicBlock *cloneBasicBlock(IRBuilder<> &Builder, BasicBlock *I);
+
+  void layoutSharedBasicBlocks();
   void chainBasicBlocks();
 
   void emit();
@@ -474,7 +482,7 @@ void MSAGenFunction::layoutParameters(
     ValueMap<Argument *, unsigned> &ArgToMergedIndex) {
   assert(Functions.size() <= (1 << 8) && "Too many functions!");
   assert(Functions.size() > 0 && "No functions to merge!");
-  Args.emplace_back(IntegerType::get(M->getContext(), 8), AttributeSet());
+  Args.emplace_back(DiscriminatorTy, AttributeSet());
 
   auto FindReusableArg =
       [&](Argument *NewArg, AttributeSet NewAttr,
@@ -603,7 +611,7 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
     }
   }
 
-  MSAGenFunctionBody BodyEmitter(*this, VMap, MergedF);
+  MSAGenFunctionBody BodyEmitter(*this, discriminator, VMap, MergedF);
   BodyEmitter.emit();
 
   MergedF->dump();
@@ -639,10 +647,7 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
 }
 
 // Corresponding to `CodeGen` in SALSSACodeGen.cpp
-void MSAGenFunctionBody::layoutBasicBlocks() {
-
-  // FIXME(katei): Better name?
-  DenseMap<Value *, BasicBlock *> MaterialNodes;
+void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 
   auto &Alignment = Parent.Alignment;
   for (auto it = Alignment.rbegin(), end = Alignment.rend(); it != end; ++it) {
@@ -680,9 +685,9 @@ void MSAGenFunctionBody::layoutBasicBlocks() {
       }
     } else {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
-      std::vector<BasicBlock *> BBs;
-      for (auto *V : Entry.getValues()) {
-        auto *BB = dyn_cast<BasicBlock>(V);
+      auto Vs = Entry.getValues();
+      for (size_t i = 0, e = Vs.size(); i < e; ++i) {
+        auto *BB = dyn_cast<BasicBlock>(Vs[i]);
         VMap[BB] = MergedBB;
 
         // IMPORTANT: make sure any use in a blockaddress constant
@@ -698,30 +703,106 @@ void MSAGenFunctionBody::layoutBasicBlocks() {
           }
         }
 
-        BBs.push_back(BB);
+        MergedBBToBB[i][MergedBB] = BB;
       }
-      MergedBBToBB[MergedBB] = BBs;
     }
   }
 }
 
 void MSAGenFunctionBody::chainBasicBlocks() {
-  auto ChainBlocks = [](BasicBlock *SrcBB, BasicBlock *TargetBB,
-                        Value *IsFunc1) {
+
+  auto *BlackholeBB =
+      BasicBlock::Create(Parent.C, "switch.unreachable", MergedFunc);
+  {
+    IRBuilder<> B(BlackholeBB);
+    B.CreateUnreachable();
+  }
+
+  auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
+                         size_t FuncId) {
     IRBuilder<> Builder(SrcBB);
+    SwitchInst *Switch;
     if (SrcBB->getTerminator() == nullptr) {
-      Builder.CreateBr(TargetBB);
+      Switch = Builder.CreateSwitch(Discriminator, BlackholeBB);
     } else {
-      auto *Br = dyn_cast<BranchInst>(SrcBB->getTerminator());
-      assert(Br && Br->isUnconditional() &&
-             "Branch should be unconditional at this point!");
-      BasicBlock *SuccBB = Br->getSuccessor(0);
-      // if (SuccBB != TargetBB) {
-      Br->eraseFromParent();
-      Builder.CreateCondBr(IsFunc1, SuccBB, TargetBB);
-      //}
+      Switch = dyn_cast<SwitchInst>(SrcBB->getTerminator());
+    }
+    auto *Var = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
+    Switch->addCase(Var, TargetBB);
+  };
+
+  auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
+                               DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
+                               size_t FuncId) {
+    BasicBlock *LastMergedBB = nullptr;
+    BasicBlock *NewBB = nullptr;
+    auto FoundMerged = MaterialNodes.find(SrcBB);
+    if (FoundMerged != MaterialNodes.end()) {
+      LastMergedBB = FoundMerged->second;
+    } else {
+      std::string BBName = std::string("src.bb");
+      NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
+      VMap[SrcBB] = NewBB;
+      BlocksFX[NewBB] = SrcBB;
+
+      // IMPORTANT: make sure any use in a blockaddress constant
+      // operation is updated correctly
+      for (User *U : SrcBB->users()) {
+        if (auto *BA = dyn_cast<BlockAddress>(U)) {
+          VMap[BA] = BlockAddress::get(MergedFunc, NewBB);
+        }
+      }
+
+      IRBuilder<> Builder(NewBB);
+      for (Instruction &I : *SrcBB) {
+        if (auto *PI = dyn_cast<PHINode>(&I)) {
+          VMap[PI] = Builder.CreatePHI(PI->getType(), 0);
+        }
+      }
+    }
+    for (Instruction &I : *SrcBB) {
+      if (isa<LandingPadInst>(&I))
+        continue;
+      if (isa<PHINode>(&I))
+        continue;
+
+      bool HasBeenMerged = MaterialNodes.find(&I) != MaterialNodes.end();
+      if (HasBeenMerged) {
+        BasicBlock *NodeBB = MaterialNodes[&I];
+        if (LastMergedBB) {
+          ChainBlocks(LastMergedBB, NodeBB, FuncId);
+        } else {
+          IRBuilder<> Builder(NewBB);
+          Builder.CreateBr(NodeBB);
+        }
+        // end keep track
+        LastMergedBB = NodeBB;
+      } else {
+        if (LastMergedBB) {
+          std::string BBName = "split.bb";
+          NewBB =
+              BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
+          ChainBlocks(LastMergedBB, NewBB, FuncId);
+          BlocksFX[NewBB] = SrcBB;
+        }
+        LastMergedBB = nullptr;
+
+        IRBuilder<> Builder(NewBB);
+        Instruction *NewI = this->cloneInstruction(Builder, &I);
+        VMap[&I] = NewI;
+      }
     }
   };
+
+  for (size_t i = 0, e = Parent.Functions.size(); i < e; ++i) {
+    auto *F = Parent.Functions[i];
+    for (auto &BB : *F) {
+      ProcessBasicBlock(&BB, MergedBBToBB[i], i);
+    }
+  }
 }
 
-void MSAGenFunctionBody::emit() { layoutBasicBlocks(); }
+void MSAGenFunctionBody::emit() {
+  layoutSharedBasicBlocks();
+  chainBasicBlocks();
+}
