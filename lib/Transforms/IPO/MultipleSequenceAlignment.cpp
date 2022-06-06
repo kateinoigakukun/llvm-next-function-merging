@@ -46,8 +46,7 @@ class MSAFunctionMerger {
 
 public:
   MSAFunctionMerger(Module *M)
-      : PairMerger(M), Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1), M(M) {
-  }
+      : PairMerger(M), Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1), M(M) {}
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
@@ -81,8 +80,9 @@ public:
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex);
   bool layoutReturnType(Type *&RetTy);
-  FunctionType *createFunctionType(
-      ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy);
+  FunctionType *
+  createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args,
+                     Type *RetTy);
 
   StringRef getFunctionName();
 
@@ -178,9 +178,10 @@ public:
     Data[getIndex(Point, Offset, NegativeOffset)] = NewValue;
   }
 
-  bool contains(const std::vector<size_t> &Point, std::vector<size_t> Offset) const {
+  bool contains(const std::vector<size_t> &Point,
+                std::vector<size_t> Offset) const {
     assert(Point.size() == Shape.size() && "Point and shape have different "
-                                            "dimensions");
+                                           "dimensions");
     for (size_t i = 0; i < Shape.size(); i++) {
       if (Point[i] + Offset[i] >= Shape[i]) {
         return false;
@@ -261,8 +262,8 @@ static void computeBestTransition(
     if (std::all_of(TransOffset.begin(), TransOffset.end(),
                     [](size_t v) { return v == 1; })) {
       IsMatched = Match(Point);
-      similarity = IsMatched ? Scoring.getMatchProfit()
-                                : Scoring.getMismatchPenalty();
+      similarity =
+          IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
     }
     int32_t fromCost = ScoreTable[Point];
     assert(fromCost != INT32_MAX && "non-visited point");
@@ -270,7 +271,8 @@ static void computeBestTransition(
     int32_t minCost = std::min(ScoreTable.get(Point, TransOffset, false), cost);
     if (minCost == cost) {
       ScoreTable.set(Point, TransOffset, false, minCost);
-      BestTransTable.set(Point, TransOffset, false, std::make_pair(TransOffset, IsMatched));
+      BestTransTable.set(Point, TransOffset, false,
+                         std::make_pair(TransOffset, IsMatched));
     }
   }
 }
@@ -317,8 +319,7 @@ static void buildAlignment(
     auto &Entry = BestTransTable[Cursor];
     auto &Offset = Entry.first;
     assert(!Offset.empty() && "not transitioned yet!?");
-    Alignment.emplace_back(
-        buildAlignmentEntry(Entry, Cursor, InstrVecRefList));
+    Alignment.emplace_back(buildAlignmentEntry(Entry, Cursor, InstrVecRefList));
     for (size_t dim = 0; dim < MaxDim; dim++) {
       assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
                                            "table!");
@@ -383,14 +384,9 @@ void MSAFunctionMerger::align(
   return;
 }
 
-bool MSAAlignmentEntry::match() const {
-  return IsMatched;
-}
+bool MSAAlignmentEntry::match() const { return IsMatched; }
 
-ArrayRef<Value *>
-MSAAlignmentEntry::getValues() const {
-  return Values;
-}
+ArrayRef<Value *> MSAAlignmentEntry::getValues() const { return Values; }
 
 void MSAAlignmentEntry::verify() const {
   if (!match() || Values.empty()) {
@@ -399,7 +395,8 @@ void MSAAlignmentEntry::verify() const {
   bool isBB = isa<BasicBlock>(Values[0]);
   for (size_t i = 1; i < Values.size(); i++) {
     if (isBB != isa<BasicBlock>(Values[i])) {
-      llvm_unreachable("all values must be either basic blocks or instructions");
+      llvm_unreachable(
+          "all values must be either basic blocks or instructions");
     }
   }
 }
@@ -422,7 +419,7 @@ struct MSAOptions : public FunctionMergingOptions {
   MSAOptions() : FunctionMergingOptions() {}
 };
 
-}
+} // namespace
 
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
@@ -434,7 +431,8 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
 
-  FunctionAnalysisManager &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  FunctionAnalysisManager &FAM =
+      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
 
   MSAFunctionMerger FM(&M);
   auto Options = MSAOptions();
@@ -444,8 +442,10 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
   size_t count = 0;
   for (auto &F : M) {
-    if (!isEligibleToBeMergeCandidate(F)) continue;
-    MatchFinder->add_candidate(&F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
+    if (!isEligibleToBeMergeCandidate(F))
+      continue;
+    MatchFinder->add_candidate(
+        &F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
     count++;
   }
 
@@ -476,10 +476,11 @@ void MSAGenFunction::layoutParameters(
   assert(Functions.size() > 0 && "No functions to merge!");
   Args.emplace_back(IntegerType::get(M->getContext(), 8), AttributeSet());
 
-  auto FindReusableArg = [&](Argument *NewArg, AttributeSet NewAttr,
-                             const std::set<unsigned> &reusedArgs) -> Optional<int> {
-    // TODO(katei): Find the best argument to reuse based on the uses to minimize selections.
-    // Ex:
+  auto FindReusableArg =
+      [&](Argument *NewArg, AttributeSet NewAttr,
+          const std::set<unsigned> &reusedArgs) -> Optional<int> {
+    // TODO(katei): Find the best argument to reuse based on the uses to
+    // minimize selections. Ex:
     // ```
     // void @f(i32 %a, i8 %b, i32 %c) {
     //   %x = add i32 %a, 1
@@ -497,11 +498,12 @@ void MSAGenFunction::layoutParameters(
       AttributeSet attr;
       std::tie(ty, attr) = Args[i];
 
-      if(ty != NewArg->getType())
+      if (ty != NewArg->getType())
         continue;
       if (attr != NewAttr)
         continue;
-      // If the argument is already reused, we can't reuse it again for the function.
+      // If the argument is already reused, we can't reuse it again for the
+      // function.
       if (reusedArgs.find(i) != reusedArgs.end())
         continue;
 
@@ -555,8 +557,8 @@ bool MSAGenFunction::layoutReturnType(Type *&RetTy) {
   return true;
 }
 
-FunctionType *
-MSAGenFunction::createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy) {
+FunctionType *MSAGenFunction::createFunctionType(
+    ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy) {
   SmallVector<Type *, 16> ArgTys;
   for (auto &Arg : Args) {
     ArgTys.push_back(Arg.first);
@@ -564,8 +566,7 @@ MSAGenFunction::createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Arg
   return FunctionType::get(RetTy, ArgTys, false);
 }
 
-StringRef
-MSAGenFunction::getFunctionName() {
+StringRef MSAGenFunction::getFunctionName() {
   if (this->NameCache)
     return *this->NameCache;
 
@@ -723,6 +724,4 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   };
 }
 
-void MSAGenFunctionBody::emit() {
-  layoutBasicBlocks();
-}
+void MSAGenFunctionBody::emit() { layoutBasicBlocks(); }
