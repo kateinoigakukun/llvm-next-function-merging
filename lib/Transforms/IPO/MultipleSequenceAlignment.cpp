@@ -406,6 +406,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     for (auto &Match : Rank) {
       Functions.push_back(Match.candidate);
     }
+    if (Functions.size() < 2) continue;
     FM.merge(Functions);
   }
 
