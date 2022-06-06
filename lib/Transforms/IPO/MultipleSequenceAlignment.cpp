@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <numeric>
 #include <tuple>
@@ -38,7 +39,7 @@ class MSAFunctionMerger {
 
 public:
   MSAFunctionMerger(Module *M)
-      : PairMerger(M), Scoring(/*Gap*/ -1, /*Match*/ 0, /*Mismatch*/ -1), M(M) {
+      : PairMerger(M), Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1), M(M) {
   }
 
   FunctionMerger &getPairMerger() { return PairMerger; }
@@ -213,7 +214,7 @@ static void computeBestTransition(
       continue;
 
     LLVM_DEBUG(dbgs() << "TransOffset: "; for (auto v : TransOffset) { dbgs() << v << " "; } dbgs() << "\n");
-    int32_t Similarity =
+    int32_t similarity =
         std::accumulate(TransOffset.begin(), TransOffset.end(), 0,
                         [&TransScore](int32_t Acc, size_t Val) {
                           return Acc + TransScore[Val];
@@ -223,15 +224,15 @@ static void computeBestTransition(
     if (std::all_of(TransOffset.begin(), TransOffset.end(),
                     [](size_t v) { return v == 1; })) {
       IsMatched = Match(Point);
-      Similarity = IsMatched ? Scoring.getMatchProfit()
+      similarity = IsMatched ? Scoring.getMatchProfit()
                                 : Scoring.getMismatchPenalty();
     }
-    int32_t FromScore =
-        ScoreTable.get(Point, /*Offset*/ TransOffset, /*NegativeOffset*/ false);
-    int32_t Score = FromScore + Similarity;
-    int32_t MaxScore = std::max(ScoreTable[Point], Score);
-    ScoreTable.set(Point, TransOffset, false, MaxScore);
-    if (MaxScore == Score) {
+    int32_t fromCost = ScoreTable[Point];
+    assert(fromCost != INT32_MAX && "non-visited point");
+    int32_t cost = fromCost + similarity;
+    int32_t minCost = std::min(ScoreTable.get(Point, TransOffset, false), cost);
+    if (minCost == cost) {
+      ScoreTable.set(Point, TransOffset, false, minCost);
       BestTransTable.set(Point, TransOffset, false, std::make_pair(TransOffset, IsMatched));
     }
   }
@@ -319,12 +320,12 @@ void MSAFunctionMerger::align(
   for (auto *InstrVec : InstrVecRefList) {
     Shape.push_back(InstrVec->size());
   }
-  TensorTable<int32_t> ScoreTable(Shape, 0);
+  TensorTable<int32_t> ScoreTable(Shape, INT32_MAX);
   TensorTable<TransitionEntry> BestTransTable(Shape, {});
   initScoreTable(ScoreTable, BestTransTable, Scoring);
   LLVM_DEBUG(dbgs() << "Shape: "; for (auto v : Shape) { dbgs() << v << " "; } dbgs() << "\n");
 
-  std::vector<size_t> Cursor(Shape.size(), 1);
+  std::vector<size_t> Cursor(Shape.size(), 0);
   do {
     LLVM_DEBUG(dbgs() << "Cursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
     computeBestTransition(
