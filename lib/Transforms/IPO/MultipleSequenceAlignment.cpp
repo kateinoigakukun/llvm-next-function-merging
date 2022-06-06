@@ -4,7 +4,9 @@
 #include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
@@ -56,6 +58,7 @@ class MSAGenFunction {
   Module *M;
   const std::vector<MSAAlignmentEntry> &Alignment;
   const ArrayRef<Function *> &Functions;
+  Optional<std::string> NameCache;
 
   IRBuilder<> Builder;
 
@@ -67,6 +70,11 @@ public:
 
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex);
+  bool layoutReturnType(Type *&RetTy);
+  FunctionType *createFunctionType(
+      ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy);
+
+  StringRef getFunctionName();
 
   void emit(const FunctionMergingOptions &Options = {});
 };
@@ -478,9 +486,76 @@ void MSAGenFunction::layoutParameters(
   }
 }
 
+bool MSAGenFunction::layoutReturnType(Type *&RetTy) {
+  // TODO(katei): This accepts only the same return type for all functions.
+  Type *TheReTy = nullptr;
+  auto MergeRetTy = [&](Function *F) -> bool {
+    if (TheReTy == nullptr) {
+      TheReTy = F->getReturnType();
+      return true;
+    } else if (TheReTy == F->getReturnType()) {
+      return true;
+    } else {
+      return false;
+    }
+  };
+  for (auto &F : Functions) {
+    if (!MergeRetTy(F)) {
+      return false;
+    }
+  }
+  RetTy = TheReTy;
+  return true;
+}
+
+FunctionType *
+MSAGenFunction::createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy) {
+  SmallVector<Type *, 16> ArgTys;
+  for (auto &Arg : Args) {
+    ArgTys.push_back(Arg.first);
+  }
+  return FunctionType::get(RetTy, ArgTys, false);
+}
+
+StringRef
+MSAGenFunction::getFunctionName() {
+  if (this->NameCache)
+    return *this->NameCache;
+
+  std::string Name = "__msa_merge_";
+  for (auto &F : Functions) {
+    Name += F->getName();
+    Name += "_";
+  }
+  this->NameCache = Name;
+  return *this->NameCache;
+}
+
 void MSAGenFunction::emit(const FunctionMergingOptions &Options) {
-  std::vector<std::pair<Type *, AttributeSet>> Args;
+  Type *RetTy;
+  std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
   ValueMap<Argument *, unsigned> ArgToMergedIndex;
 
-  layoutParameters(Args, ArgToMergedIndex);
+  layoutParameters(MergedArgs, ArgToMergedIndex);
+  if (!layoutReturnType(RetTy)) {
+    // TODO(katei): should emit remarks?
+    return;
+  }
+  auto *Sig = createFunctionType(MergedArgs, RetTy);
+
+  auto *MergedF = Function::Create(Sig, llvm::GlobalValue::InternalLinkage,
+                                   getFunctionName(), M);
+  auto *discriminator = MergedF->getArg(0);
+  discriminator->setName("discriminator");
+
+  ValueToValueMapTy VMap;
+  for (auto &F : Functions) {
+    for (auto &arg : F->args()) {
+      VMap[&arg] = MergedF->getArg(ArgToMergedIndex[&arg]);
+    }
+  }
+  auto &C = M->getContext();
+  auto *EntryBB = BasicBlock::Create(C, "entry", MergedF);
+  Builder.SetInsertPoint(EntryBB);
+  Builder.CreateRet(ConstantInt::get(IntegerType::getInt64Ty(C), 0));
 }
