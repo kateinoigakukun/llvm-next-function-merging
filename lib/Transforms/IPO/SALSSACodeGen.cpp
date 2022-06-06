@@ -376,100 +376,96 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
       auto *NewI = dyn_cast<Instruction>(VMap[I]);
 
-      bool Handled = false;
+      for (unsigned i = 0; i < I->getNumOperands(); i++) {
 
-      if (!Handled) {
-        for (unsigned i = 0; i < I->getNumOperands(); i++) {
-
-          Value *F1V = nullptr;
-          Value *V1 = nullptr;
-          if (i < I1->getNumOperands()) {
-            F1V = I1->getOperand(i);
-            V1 = MapValue(F1V, VMap);
-            // assert(V1!=nullptr && "Mapped value should NOT be NULL!");
-            if (V1 == nullptr) {
-              if (Debug)
-                errs() << "ERROR: Null value mapped: V1 = "
-                          "MapValue(I1->getOperand(i), "
-                          "VMap);\n";
-              return false;
-            }
-          } else {
-            V1 = UndefValue::get(I2->getOperand(i)->getType());
+        Value *F1V = nullptr;
+        Value *V1 = nullptr;
+        if (i < I1->getNumOperands()) {
+          F1V = I1->getOperand(i);
+          V1 = MapValue(F1V, VMap);
+          // assert(V1!=nullptr && "Mapped value should NOT be NULL!");
+          if (V1 == nullptr) {
+            if (Debug)
+              errs() << "ERROR: Null value mapped: V1 = "
+                        "MapValue(I1->getOperand(i), "
+                        "VMap);\n";
+            return false;
           }
-
-          Value *F2V = nullptr;
-          Value *V2 = nullptr;
-          if (i < I2->getNumOperands()) {
-            F2V = I2->getOperand(i);
-            V2 = MapValue(F2V, VMap);
-            // assert(V2!=nullptr && "Mapped value should NOT be NULL!");
-
-            if (V2 == nullptr) {
-              if (Debug)
-                errs() << "ERROR: Null value mapped: V2 = "
-                          "MapValue(I2->getOperand(i), "
-                          "VMap);\n";
-              return false;
-            }
-
-          } else {
-            V2 = UndefValue::get(I1->getOperand(i)->getType());
-          }
-
-          assert(V1 != nullptr && "Value should NOT be null!");
-          assert(V2 != nullptr && "Value should NOT be null!");
-
-          Value *V = V1; // first assume that V1==V2
-
-          // handling just label operands for now
-          if (!isa<BasicBlock>(V))
-            continue;
-
-          auto *F1BB = dyn_cast<BasicBlock>(F1V);
-          auto *F2BB = dyn_cast<BasicBlock>(F2V);
-
-          if (V1 != V2) {
-            auto *BB1 = dyn_cast<BasicBlock>(V1);
-            auto *BB2 = dyn_cast<BasicBlock>(V2);
-
-            // auto CacheKey = std::pair<BasicBlock *, BasicBlock *>(BB1, BB2);
-            BasicBlock *SelectBB =
-                BasicBlock::Create(Context, "bb.select", MergedFunc);
-            IRBuilder<> BuilderBB(SelectBB);
-
-            BlocksF1[SelectBB] = I1->getParent();
-            BlocksF2[SelectBB] = I2->getParent();
-
-            BuilderBB.CreateCondBr(IsFunc1, BB1, BB2);
-            V = SelectBB;
-          }
-
-          if (F1BB->isLandingPad() || F2BB->isLandingPad()) {
-            LandingPadInst *LP1 = F1BB->getLandingPadInst();
-            LandingPadInst *LP2 = F2BB->getLandingPadInst();
-            assert((LP1 != nullptr && LP2 != nullptr) &&
-                   "Should be both as per the BasicBlock match!");
-
-            BasicBlock *LPadBB =
-                BasicBlock::Create(Context, "lpad.bb", MergedFunc);
-            IRBuilder<> BuilderBB(LPadBB);
-
-            Instruction *NewLP = LP1->clone();
-            BuilderBB.Insert(NewLP);
-
-            BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
-
-            BlocksF1[LPadBB] = I1->getParent();
-            BlocksF2[LPadBB] = I2->getParent();
-
-            VMap[F1BB->getLandingPadInst()] = NewLP;
-            VMap[F2BB->getLandingPadInst()] = NewLP;
-
-            V = LPadBB;
-          }
-          NewI->setOperand(i, V);
+        } else {
+          V1 = UndefValue::get(I2->getOperand(i)->getType());
         }
+
+        Value *F2V = nullptr;
+        Value *V2 = nullptr;
+        if (i < I2->getNumOperands()) {
+          F2V = I2->getOperand(i);
+          V2 = MapValue(F2V, VMap);
+          // assert(V2!=nullptr && "Mapped value should NOT be NULL!");
+
+          if (V2 == nullptr) {
+            if (Debug)
+              errs() << "ERROR: Null value mapped: V2 = "
+                        "MapValue(I2->getOperand(i), "
+                        "VMap);\n";
+            return false;
+          }
+
+        } else {
+          V2 = UndefValue::get(I1->getOperand(i)->getType());
+        }
+
+        assert(V1 != nullptr && "Value should NOT be null!");
+        assert(V2 != nullptr && "Value should NOT be null!");
+
+        Value *V = V1; // first assume that V1==V2
+
+        // handling just label operands for now
+        if (!isa<BasicBlock>(V))
+          continue;
+
+        auto *F1BB = dyn_cast<BasicBlock>(F1V);
+        auto *F2BB = dyn_cast<BasicBlock>(F2V);
+
+        if (V1 != V2) {
+          auto *BB1 = dyn_cast<BasicBlock>(V1);
+          auto *BB2 = dyn_cast<BasicBlock>(V2);
+
+          // auto CacheKey = std::pair<BasicBlock *, BasicBlock *>(BB1, BB2);
+          BasicBlock *SelectBB =
+              BasicBlock::Create(Context, "bb.select", MergedFunc);
+          IRBuilder<> BuilderBB(SelectBB);
+
+          BlocksF1[SelectBB] = I1->getParent();
+          BlocksF2[SelectBB] = I2->getParent();
+
+          BuilderBB.CreateCondBr(IsFunc1, BB1, BB2);
+          V = SelectBB;
+        }
+
+        if (F1BB->isLandingPad() || F2BB->isLandingPad()) {
+          LandingPadInst *LP1 = F1BB->getLandingPadInst();
+          LandingPadInst *LP2 = F2BB->getLandingPadInst();
+          assert((LP1 != nullptr && LP2 != nullptr) &&
+                 "Should be both as per the BasicBlock match!");
+
+          BasicBlock *LPadBB =
+              BasicBlock::Create(Context, "lpad.bb", MergedFunc);
+          IRBuilder<> BuilderBB(LPadBB);
+
+          Instruction *NewLP = LP1->clone();
+          BuilderBB.Insert(NewLP);
+
+          BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
+
+          BlocksF1[LPadBB] = I1->getParent();
+          BlocksF2[LPadBB] = I2->getParent();
+
+          VMap[F1BB->getLandingPadInst()] = NewLP;
+          VMap[F2BB->getLandingPadInst()] = NewLP;
+
+          V = LPadBB;
+        }
+        NewI->setOperand(i, V);
       }
 
     } else { // if(entry.match())-else
