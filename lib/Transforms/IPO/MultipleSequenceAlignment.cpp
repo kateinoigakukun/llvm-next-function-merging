@@ -213,7 +213,6 @@ static void computeBestTransition(
     if (!ScoreTable.contains(Point, TransOffset))
       continue;
 
-    LLVM_DEBUG(dbgs() << "TransOffset: "; for (auto v : TransOffset) { dbgs() << v << " "; } dbgs() << "\n");
     int32_t similarity =
         std::accumulate(TransOffset.begin(), TransOffset.end(), 0,
                         [&TransScore](int32_t Acc, size_t Val) {
@@ -327,7 +326,6 @@ void MSAFunctionMerger::align(
 
   std::vector<size_t> Cursor(Shape.size(), 0);
   do {
-    LLVM_DEBUG(dbgs() << "Cursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
     computeBestTransition(
         ScoreTable, BestTransTable, Cursor, Scoring,
         [&InstrVecRefList](std::vector<size_t> Point) {
@@ -341,7 +339,6 @@ void MSAFunctionMerger::align(
           return true;
         });
   } while (ScoreTable.advance(Cursor));
-  LLVM_DEBUG(dbgs() << "Cursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
 
   buildAlignment(BestTransTable, InstrVecRefList, Alignment);
 
