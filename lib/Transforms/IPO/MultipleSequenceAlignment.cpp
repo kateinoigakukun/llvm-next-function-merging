@@ -404,6 +404,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       Functions.push_back(Match.candidate);
     }
     if (Functions.size() < 2) continue;
+
+    LLVM_DEBUG(dbgs() << "Try to merge\n");
+    LLVM_DEBUG(for (auto *F : Functions) { dbgs() << " - " << F->getName() << "\n"; });
     FM.merge(Functions);
   }
 
