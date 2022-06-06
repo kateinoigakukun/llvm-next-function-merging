@@ -291,11 +291,6 @@ static void buildAlignment(
 
 }; // namespace
 
-/// Check whether \p F is eligible to be a function merging candidate.
-static bool isEligibleToBeMergeCandidate(Function &F) {
-  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
-}
-
 MSAFunctionMergeResult
 MSAFunctionMerger::merge(ArrayRef<Function *> Functions) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
@@ -303,7 +298,6 @@ MSAFunctionMerger::merge(ArrayRef<Function *> Functions) {
 
   for (size_t i = 0; i < Functions.size(); i++) {
     auto &F = *Functions[i];
-    if (!isEligibleToBeMergeCandidate(F)) continue;
     PairMerger.linearize(&F, InstrVecList[i]);
     InstrVecRefList.push_back(&InstrVecList[i]);
   }
@@ -379,6 +373,11 @@ struct MSAOptions : public FunctionMergingOptions {
 
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
+/// Check whether \p F is eligible to be a function merging candidate.
+static bool isEligibleToBeMergeCandidate(Function &F) {
+  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
+}
+
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
 
@@ -392,6 +391,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
   size_t count = 0;
   for (auto &F : M) {
+    if (!isEligibleToBeMergeCandidate(F)) continue;
     MatchFinder->add_candidate(&F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
     count++;
   }
