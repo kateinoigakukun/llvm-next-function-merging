@@ -392,10 +392,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
                 errs() << "ERROR: Null value mapped: V1 = "
                           "MapValue(I1->getOperand(i), "
                           "VMap);\n";
-                // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-              TimeCodeGen.stopTimer();
-#endif
               return false;
             }
           } else {
@@ -414,10 +410,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
                 errs() << "ERROR: Null value mapped: V2 = "
                           "MapValue(I2->getOperand(i), "
                           "VMap);\n";
-                // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-              TimeCodeGen.stopTimer();
-#endif
               return false;
             }
 
@@ -530,21 +522,11 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
       if (I1 != nullptr && !AssignLabelOperands(I1, BlocksF1)) {
         if (Debug)
           errs() << "ERROR: Value should NOT be null\n";
-          // MergedFunc->eraseFromParent();
-
-#ifdef TIME_STEPS_DEBUG
-        TimeCodeGen.stopTimer();
-#endif
         return false;
       }
       if (I2 != nullptr && !AssignLabelOperands(I2, BlocksF2)) {
         if (Debug)
           errs() << "ERROR: Value should NOT be null\n";
-          // MergedFunc->eraseFromParent();
-
-#ifdef TIME_STEPS_DEBUG
-        TimeCodeGen.stopTimer();
-#endif
         return false;
       }
     }
@@ -678,10 +660,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
               errs() << "Could Not select:\n";
               errs() << "ERROR: Value should NOT be null\n";
             }
-            // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-            TimeCodeGen.stopTimer();
-#endif
             return false; // ErrorResponse;
           }
 
@@ -706,10 +684,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
                 errs() << "ERROR: Null value mapped: V1 = "
                           "MapValue(I1->getOperand(i), "
                           "VMap);\n";
-                // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-              TimeCodeGen.stopTimer();
-#endif
               return false;
             }
           } else {
@@ -726,10 +700,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
                 errs() << "ERROR: Null value mapped: V2 = "
                           "MapValue(I2->getOperand(i), "
                           "VMap);\n";
-                // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-              TimeCodeGen.stopTimer();
-#endif
               return false;
             }
 
@@ -746,10 +716,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
               errs() << "Could Not select:\n";
               errs() << "ERROR: Value should NOT be null\n";
             }
-            // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-            TimeCodeGen.stopTimer();
-#endif
             return false; // ErrorResponse;
           }
 
@@ -765,19 +731,11 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
       if (I1 != nullptr && !AssignOperands(I1, true)) {
         if (Debug)
           errs() << "ERROR: Value should NOT be null\n";
-          // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-        TimeCodeGen.stopTimer();
-#endif
         return false;
       }
       if (I2 != nullptr && !AssignOperands(I2, false)) {
         if (Debug)
           errs() << "ERROR: Value should NOT be null\n";
-          // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-        TimeCodeGen.stopTimer();
-#endif
         return false;
       }
     } // end 'if-else' non-isomorphic
@@ -787,9 +745,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   // errs() << "NumSelects: " << ListSelects.size() << "\n";
   if (ListSelects.size() > MaxNumSelection) {
     errs() << "Bailing out: Operand selection threshold\n";
-#ifdef TIME_STEPS_DEBUG
-    TimeCodeGen.stopTimer();
-#endif
     return false;
   }
 
@@ -839,10 +794,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     if (!AssignPHIOperandsInBlock(BB1, BlocksF1)) {
       if (Debug)
         errs() << "ERROR: PHI assignment\n";
-        // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-      TimeCodeGen.stopTimer();
-#endif
       return false;
     }
   }
@@ -850,10 +801,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     if (!AssignPHIOperandsInBlock(BB2, BlocksF2)) {
       if (Debug)
         errs() << "ERROR: PHI assignment\n";
-        // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-      TimeCodeGen.stopTimer();
-#endif
       return false;
     }
   }
@@ -874,10 +821,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
           if (BB->getTerminator() == nullptr) {
             if (Debug)
               errs() << "ERROR: Null terminator\n";
-              // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-            TimeCodeGen.stopTimer();
-#endif
             return false;
           }
           if (!DT.dominates(IV, BB->getTerminator())) {
@@ -891,16 +834,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     } else {
       for (unsigned i = 0; i < I.getNumOperands(); i++) {
         if (I.getOperand(i) == nullptr) {
-          // MergedFunc->dump();
-          // I.getParent()->dump();
-          // errs() << "Null operand\n";
-          // I.dump();
           if (Debug)
             errs() << "ERROR: Null operand\n";
-            // MergedFunc->eraseFromParent();
-#ifdef TIME_STEPS_DEBUG
-          TimeCodeGen.stopTimer();
-#endif
           return false;
         }
         if (auto *IV = dyn_cast<Instruction>(I.getOperand(i))) {
@@ -920,14 +855,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     Value *XorCond = Builder.CreateXor(NewBr->getCondition(), IsFunc1);
     NewBr->setCondition(XorCond);
   }
-
-#ifdef TIME_STEPS_DEBUG
-  TimeCodeGen.stopTimer();
-#endif
-
-#ifdef TIME_STEPS_DEBUG
-  TimeCodeGenFix.startTimer();
-#endif
 
   auto StoreInstIntoAddr = [](Instruction *IV, Value *Addr) {
     IRBuilder<> Builder(IV->getParent());
@@ -1067,39 +994,16 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
             }
           }
         }
-        /*
-        if (OtherI==nullptr) {
-          for (Instruction *OI : OffendingInsts) {
-            if (OI->getType()!=I->getType()) continue;
-            if (Visited.find(OI)!=Visited.end()) continue;
-            if (CoalescingCandidates.find(OI)!=CoalescingCandidates.end())
-        continue; if( (BlocksF2.find(I->getParent())==BlocksF2.end() &&
-        BlocksF1.find(OI->getParent())==BlocksF1.end()) ||
-                (BlocksF2.find(OI->getParent())==BlocksF2.end() &&
-        BlocksF1.find(I->getParent())==BlocksF1.end()) ) { OtherI = OI; break;
-            }
-          }
-        }
-        */
         if (OtherI) {
           InstSet.insert(OtherI);
-          // errs() << "Coalescing: " << GetValueName(I->getParent()) << ":";
-          // I->dump(); errs() << "With: " << GetValueName(OtherI->getParent())
-          // << ":"; OtherI->dump();
         }
       };
 
   // errs() << "Finishing code\n";
   if (MergedFunc != nullptr) {
-    // errs() << "Offending: " << OffendingInsts.size() << " ";
-    // errs() << ((float)OffendingInsts.size())/((float)AlignedSeq.size()) << "
-    // : "; if (OffendingInsts.size()>1000) { if (false) {
     if (((float)OffendingInsts.size()) / ((float)AlignedSeq.size()) > 4.5) {
       if (Debug)
         errs() << "Bailing out\n";
-#ifdef TIME_STEPS_DEBUG
-      TimeCodeGenFix.stopTimer();
-#endif
       return false;
     } 
     //errs() << "Fixing Domination:\n";
@@ -1124,35 +1028,15 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
         Allocas.push_back(Addr);
     }
 
-    //errs() << "Fixed Domination:\n";
-    //MergedFunc->dump();
-
     DominatorTree DT(*MergedFunc);
     PromoteMemToReg(Allocas, DT, nullptr);
-
-    //errs() << "Mem2Reg:\n";
-    //MergedFunc->dump();
 
     if (verifyFunction(*MergedFunc)) {
       if (Verbose)
         errs() << "ERROR: Produced Broken Function!\n";
-#ifdef TIME_STEPS_DEBUG
-      TimeCodeGenFix.stopTimer();
-#endif
       return false;
     }
-#ifdef TIME_STEPS_DEBUG
-    TimeCodeGenFix.stopTimer();
-#endif
-#ifdef TIME_STEPS_DEBUG
-    TimePostOpt.startTimer();
-#endif
     postProcessFunction(*MergedFunc);
-#ifdef TIME_STEPS_DEBUG
-    TimePostOpt.stopTimer();
-#endif
-    // errs() << "PostProcessing:\n";
-    // MergedFunc->dump();
   }
   return MergedFunc != nullptr;
 }
