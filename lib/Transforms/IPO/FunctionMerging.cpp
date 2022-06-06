@@ -195,7 +195,7 @@ static cl::opt<bool> HyFMProfitability(
     cl::desc("Try to reuse merged functions for another merge operation"));
 
 static cl::opt<bool> EnableF3M(
-    "func-merging-f3m", cl::init(false), cl::Hidden,
+    "func-merging-f3m", cl::init(true), cl::Hidden,
     cl::desc("Enable function pairing based on MinHashes and LSH"));
 
 static cl::opt<unsigned> LSHRows(

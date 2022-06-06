@@ -46,9 +46,7 @@ define void @public_call(i32* %P, i32* %Q) {
 ; CHECK-NEXT:    store i32 6, i32* %3, align 4
 ; CHECK-NEXT:    store i32 6, i32* %3, align 4
 ; CHECK-NEXT:    store i32 6, i32* %3, align 4
-; CHECK-NEXT:    %6 = select i1 %1, i64 0, i64 42
-; CHECK-NEXT:    %.06 = select i1 %0, i64 %6, i64 undef
-; CHECK-NEXT:    %7 = select i1 %0, i64 %.06, i64 0
-; CHECK-NEXT:    ret i64 %7
+; CHECK-NEXT:    %6 = select i1 %0, i64 0, i64 42
+; CHECK-NEXT:    ret i64 %6
 ; CHECK-NEXT:  }
 
