@@ -76,7 +76,7 @@ public:
 
   StringRef getFunctionName();
 
-  void emit(const FunctionMergingOptions &Options = {});
+  Function *emit(const FunctionMergingOptions &Options = {});
 };
 
 }; // namespace llvm
@@ -531,7 +531,7 @@ MSAGenFunction::getFunctionName() {
   return *this->NameCache;
 }
 
-void MSAGenFunction::emit(const FunctionMergingOptions &Options) {
+Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
   Type *RetTy;
   std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
   ValueMap<Argument *, unsigned> ArgToMergedIndex;
@@ -539,7 +539,7 @@ void MSAGenFunction::emit(const FunctionMergingOptions &Options) {
   layoutParameters(MergedArgs, ArgToMergedIndex);
   if (!layoutReturnType(RetTy)) {
     // TODO(katei): should emit remarks?
-    return;
+    return nullptr;
   }
   auto *Sig = createFunctionType(MergedArgs, RetTy);
 
@@ -558,4 +558,5 @@ void MSAGenFunction::emit(const FunctionMergingOptions &Options) {
   auto *EntryBB = BasicBlock::Create(C, "entry", MergedF);
   Builder.SetInsertPoint(EntryBB);
   Builder.CreateRet(ConstantInt::get(IntegerType::getInt64Ty(C), 0));
+  return MergedF;
 }
