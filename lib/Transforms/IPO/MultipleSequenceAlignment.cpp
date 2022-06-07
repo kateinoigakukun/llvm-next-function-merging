@@ -992,7 +992,39 @@ bool MSAGenFunctionBody::assignMismatchingLabelOperands(
 
 Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
                                        Instruction *InsertPt) {
-  llvm_unreachable("Not implemented yet!");
+  bool areAllEqual = std::all_of(Values.begin(), Values.end(),
+                                 [&](Value *V) { return V == Values[0]; });
+  if (areAllEqual)
+    return Values[0];
+
+  // TODO(katei): Handle 0, 1, .., n => Discriminator
+
+  // TODO(katei): Priotize optimizable cases?
+  // auto *IV1 = dyn_cast<Instruction>(V1);
+  // auto *IV2 = dyn_cast<Instruction>(V2);
+
+  // if (IV1 && IV2) {
+  //   // if both IV1 and IV2 are non-merged values
+  //   if (BlocksF2.find(IV1->getParent()) == BlocksF2.end() &&
+  //       BlocksF1.find(IV2->getParent()) == BlocksF1.end()) {
+  //     CoalescingCandidates[IV1][IV2]++;
+  //     CoalescingCandidates[IV2][IV1]++;
+  //   }
+  // }
+
+  IRBuilder<> Builder(InsertPt);
+  auto *Switch = Builder.CreateSwitch(Discriminator, BlackholeBB);
+  auto *PHI = Builder.CreatePHI(Values[0]->getType(), Values.size());
+  for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
+    auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
+    auto *BB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc);
+    IRBuilder<> BuilderBB(BB);
+    Switch->addCase(Case, BB);
+    auto *V = Values[FuncId];
+    assert(V != nullptr && "value should not be null!");
+    PHI->addIncoming(V, BB);
+  }
+  return PHI;
 }
 
 /// Taken from FunctionMergable.cpp
@@ -1045,6 +1077,9 @@ bool MSAGenFunctionBody::assignValueOperands() {
       Instructions = *Succeed;
     } else {
       for (auto *V : Entry.getValues()) {
+        if (V == nullptr)
+          continue;
+
         auto *I = dyn_cast<Instruction>(V);
         if (I != nullptr && !assignOperands(I)) {
           LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n");
@@ -1158,6 +1193,12 @@ bool MSAGenFunctionBody::assignOperands() {
       }
     }
   }
+  /* TODO(katei): enable after fixing the misalignment issue
+  if (!assignValueOperands()) {
+    LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n";);
+    return false;
+  }
+  */
   return true;
 }
 
