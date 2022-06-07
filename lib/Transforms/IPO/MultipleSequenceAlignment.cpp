@@ -101,13 +101,21 @@ class MSAGenFunctionBody {
   DenseMap<Value *, BasicBlock *> MaterialNodes;
   DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
+  BasicBlock *BlackholeBB;
 
 public:
   MSAGenFunctionBody(const MSAGenFunction &Parent, Value *Discriminator,
                      ValueToValueMapTy &VMap, Function *MergedF)
       : Parent(Parent), MergedFunc(MergedF), Discriminator(Discriminator),
         VMap(VMap), MaterialNodes(), BBToMergedBB(),
-        MergedBBToBB(Parent.Functions.size()){};
+        MergedBBToBB(Parent.Functions.size()) {
+
+    BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
+    {
+      IRBuilder<> B(BlackholeBB);
+      B.CreateUnreachable();
+    }
+  };
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
   BasicBlock *cloneBasicBlock(IRBuilder<> &Builder, BasicBlock *I);
 
@@ -710,13 +718,6 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 }
 
 void MSAGenFunctionBody::chainBasicBlocks() {
-
-  auto *BlackholeBB =
-      BasicBlock::Create(Parent.C, "switch.unreachable", MergedFunc);
-  {
-    IRBuilder<> B(BlackholeBB);
-    B.CreateUnreachable();
-  }
 
   auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
                          size_t FuncId) {

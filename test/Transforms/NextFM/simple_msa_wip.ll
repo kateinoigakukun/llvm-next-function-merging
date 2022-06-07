@@ -40,9 +40,12 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 }
 
 ; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc_(i32 %discriminator, i32* %0, i32* %1, i32* %2, i32* %3) {
-; CHECK-NEXT:  m.inst.bb:
+; CHECK-NEXT:  switch.blackhole:
+; CHECK-NEXT:    unreachable
+; CHECK-EMPTY:
+; CHECK-NEXT:  m.inst.bb:                                        ; preds = %src.bb6, %src.bb4, %src.bb
 ; CHECK-NEXT:    store i32 2, <null operand!>, align 4
-; CHECK-NEXT:    switch i32 %discriminator, label %switch.unreachable [
+; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb1
 ; CHECK-NEXT:      i32 1, label %m.inst.bb1
 ; CHECK-NEXT:      i32 2, label %m.inst.bb1
@@ -50,7 +53,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %m.inst.bb, %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_2()
-; CHECK-NEXT:    switch i32 %discriminator, label %switch.unreachable [
+; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %split.bb
 ; CHECK-NEXT:      i32 1, label %split.bb5
 ; CHECK-NEXT:      i32 2, label %split.bb7
@@ -58,7 +61,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb2:                                       ; preds = %split.bb7, %split.bb5, %split.bb
 ; CHECK-NEXT:    store i32 7, <null operand!>, align 4
-; CHECK-NEXT:    switch i32 %discriminator, label %switch.unreachable [
+; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb3
 ; CHECK-NEXT:      i32 1, label %m.inst.bb3
 ; CHECK-NEXT:      i32 2, label %m.inst.bb3
@@ -66,7 +69,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb3:                                       ; preds = %m.inst.bb2, %m.inst.bb2, %m.inst.bb2
 ; CHECK-NEXT:    store i32 8, <null operand!>, align 4
-; CHECK-NEXT:    switch i32 %discriminator, label %switch.unreachable [
+; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.term.bb
 ; CHECK-NEXT:      i32 1, label %m.term.bb
 ; CHECK-NEXT:      i32 2, label %m.term.bb
@@ -74,9 +77,6 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.term.bb:                                        ; preds = %m.inst.bb3, %m.inst.bb3, %m.inst.bb3
 ; CHECK-NEXT:    ret i64 undef
-; CHECK-EMPTY:
-; CHECK-NEXT:  switch.unreachable:                               ; preds = %m.inst.bb3, %m.inst.bb2, %m.inst.bb1, %m.inst.bb
-; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  src.bb:                                           ; No predecessors!
 ; CHECK-NEXT:    br label %m.inst.bb
