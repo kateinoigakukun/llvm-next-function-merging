@@ -122,6 +122,13 @@ public:
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
 
+  // XXX(katei): This method name is wrong and should be changed to something
+  // more descriptive.
+  bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
+  bool assignMismatchingLabelOperands(
+      Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
+  bool assignOperands();
+
   void emit();
 };
 
@@ -403,6 +410,15 @@ void MSAFunctionMerger::align(
 bool MSAAlignmentEntry::match() const { return IsMatched; }
 
 ArrayRef<Value *> MSAAlignmentEntry::getValues() const { return Values; }
+
+Optional<ArrayRef<Instruction *>> MSAAlignmentEntry::getAsInstructions() const {
+  for (auto *V : Values) {
+    if (!(V && isa<Instruction>(V))) {
+      return None;
+    }
+  }
+  return makeArrayRef((Instruction **)Values.data(), Values.size());
+}
 
 void MSAAlignmentEntry::verify() const {
   if (!match() || Values.empty()) {
@@ -803,7 +819,175 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   }
 }
 
+bool MSAGenFunctionBody::assignMatchingLabelOperands(
+    ArrayRef<Instruction *> Instructions) {
+
+  Instruction *I = Instructions[0];
+  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+
+  Instruction *MaxNumOperandsInst = nullptr;
+  for (auto *I : Instructions) {
+    if (MaxNumOperandsInst == nullptr ||
+        I->getNumOperands() > MaxNumOperandsInst->getNumOperands()) {
+      MaxNumOperandsInst = I;
+    }
+  }
+
+  for (unsigned OperandIdx = 0;
+       OperandIdx < MaxNumOperandsInst->getNumOperands(); OperandIdx++) {
+    std::vector<Value *> FVs;
+    std::vector<Value *> Vs;
+    for (auto *I : Instructions) {
+      Value *FV = nullptr;
+      Value *V = nullptr;
+      if (OperandIdx < I->getNumOperands()) {
+        FV = I->getOperand(OperandIdx);
+        // FIXME(katei): `VMap[FV]` is enough?
+        V = MapValue(FV, VMap);
+        if (V == nullptr) {
+          LLVM_DEBUG(errs() << "ERROR: Null value mapped: V1 = "
+                               "MapValue(I1->getOperand(i), VMap);\n");
+          return false;
+        }
+      } else {
+        V = UndefValue::get(
+            MaxNumOperandsInst->getOperand(OperandIdx)->getType());
+      }
+      assert(V != nullptr && "Value should NOT be null!");
+      FVs.push_back(FV);
+      Vs.push_back(V);
+    }
+
+    Value *V = nullptr;
+
+    // handling just label operands for now
+    if (!isa<BasicBlock>(Vs[0]))
+      continue;
+
+    bool areAllOperandsEqual =
+        std::all_of(Vs.begin(), Vs.end(), [&](Value *V) { return V == Vs[0]; });
+
+    if (areAllOperandsEqual) {
+      V = Vs[0]; // assume that V1 == V2 == ... == Vn
+    } else {
+      auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc);
+      IRBuilder<> BuilderBB(SelectBB);
+      auto *Switch = BuilderBB.CreateSwitch(Discriminator, BlackholeBB);
+
+      for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+        auto *I = Instructions[FuncId];
+        // XXX: is this correct?
+        MergedBBToBB[FuncId][SelectBB] = I->getParent();
+
+        auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
+        auto *BB = dyn_cast<BasicBlock>(Vs[FuncId]);
+        Switch->addCase(Case, BB);
+      }
+
+      V = SelectBB;
+    }
+
+    assert(V != nullptr && "Label operand value should be merged!");
+
+    bool isAnyOperandLandingPad =
+        std::any_of(FVs.begin(), FVs.end(), [&](Value *FV) {
+          return dyn_cast<BasicBlock>(FV)->isLandingPad();
+        });
+
+    if (isAnyOperandLandingPad) {
+      for (auto *FV : FVs) {
+        auto *BB = dyn_cast<BasicBlock>(FV);
+        assert(BB->getLandingPadInst() != nullptr &&
+               "Should be both as per the BasicBlock match!");
+      }
+      BasicBlock *LPadBB = BasicBlock::Create(Parent.C, "lpad.bb", MergedFunc);
+      IRBuilder<> BuilderBB(LPadBB);
+
+      auto *LP1 = dyn_cast<BasicBlock>(FVs[0])->getLandingPadInst();
+
+      Instruction *NewLP = LP1->clone();
+      BuilderBB.Insert(NewLP);
+
+      BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
+
+      for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+        MergedBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
+        auto *FBB = dyn_cast<BasicBlock>(FVs[FuncId]);
+        VMap[FBB->getLandingPadInst()] = NewLP;
+      }
+
+      V = LPadBB;
+    }
+    NewI->setOperand(OperandIdx, V);
+  }
+  return true;
+}
+
+bool MSAGenFunctionBody::assignMismatchingLabelOperands(
+    Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) {
+  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+
+  for (unsigned i = 0; i < I->getNumOperands(); i++) {
+    // handling just label operands for now
+    if (!isa<BasicBlock>(I->getOperand(i)))
+      continue;
+    auto *FXBB = dyn_cast<BasicBlock>(I->getOperand(i));
+
+    Value *V = MapValue(FXBB, VMap);
+    if (V == nullptr)
+      return false; // ErrorResponse;
+
+    if (FXBB->isLandingPad()) {
+
+      LandingPadInst *LP = FXBB->getLandingPadInst();
+      assert(LP != nullptr && "Should have a landingpad inst!");
+
+      BasicBlock *LPadBB = BasicBlock::Create(Parent.C, "lpad.bb", MergedFunc);
+      IRBuilder<> BuilderBB(LPadBB);
+
+      Instruction *NewLP = LP->clone();
+      BuilderBB.Insert(NewLP);
+      VMap[LP] = NewLP;
+      BlocksReMap[LPadBB] = I->getParent(); // FXBB;
+
+      BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
+
+      V = LPadBB;
+    }
+
+    NewI->setOperand(i, V);
+  }
+  return true;
+}
+
+bool MSAGenFunctionBody::assignOperands() {
+  for (auto &Entry : Parent.Alignment) {
+    ArrayRef<Instruction *> Instructions;
+    if (auto Succeed = Entry.getAsInstructions()) {
+      Instructions = *Succeed;
+    } else {
+      // Skip non-instructions
+      continue;
+    }
+
+    if (Entry.match()) {
+      assignMatchingLabelOperands(Instructions);
+    } else {
+      for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
+        auto *F = Parent.Functions[FuncId];
+        auto *I = Instructions[FuncId];
+        assert(I != nullptr && "Instruction should not be null!");
+        if (!assignMismatchingLabelOperands(I, MergedBBToBB[FuncId])) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 void MSAGenFunctionBody::emit() {
   layoutSharedBasicBlocks();
   chainBasicBlocks();
+  assert(assignOperands() && "Failed to assign operands!");
 }

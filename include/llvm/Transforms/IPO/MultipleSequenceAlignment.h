@@ -2,6 +2,7 @@
 #define LLVM_TRANSFORMS_IPO_MULTIPLESEQUENCEALIGNMENT_H
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
@@ -16,6 +17,7 @@ public:
 
   bool match() const;
   ArrayRef<Value *> getValues() const;
+  Optional<ArrayRef<Instruction *>> getAsInstructions() const;
   void verify() const;
 };
 
