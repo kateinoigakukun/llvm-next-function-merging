@@ -141,6 +141,9 @@ public:
       Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
   Value *mergeValues(ArrayRef<Value *> Values, Instruction *InsertPt);
   bool assignValueOperands();
+  /// Assign new value operands. Return true if all operands are assigned.
+  /// Return false if failed to assign any operand.
+  bool assignOperands(Instruction *I);
   bool assignOperands();
 
   void emit();
@@ -998,46 +1001,44 @@ Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
                           Type *IntPtrTy,
                           const FunctionMergingOptions &Options = {});
 
-bool MSAGenFunctionBody::assignValueOperands() {
-  /// Assign new value operands. Return true if all operands are assigned.
-  /// Return false if failed to assign any operand.
-  auto AssignOperands = [&](Instruction *I) -> bool {
-    auto *NewI = dyn_cast<Instruction>(VMap[I]);
-    IRBuilder<> Builder(NewI);
+bool MSAGenFunctionBody::assignOperands(Instruction *I) {
+  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+  IRBuilder<> Builder(NewI);
 
-    if (I->getOpcode() == Instruction::Ret && Options.EnableUnifiedReturnType) {
-      llvm_unreachable("Unified return type is not supported yet!");
-      /*
-      Value *V = MapValue(I->getOperand(0), VMap);
+  if (I->getOpcode() == Instruction::Ret && Options.EnableUnifiedReturnType) {
+    llvm_unreachable("Unified return type is not supported yet!");
+    /*
+    Value *V = MapValue(I->getOperand(0), VMap);
+    if (V == nullptr) {
+      return false; // ErrorResponse;
+    }
+    if (V->getType() != getReturnType()) {
+      Value *Addr = Builder.CreateAlloca(V->getType());
+      Builder.CreateStore(V, Addr);
+      Value *CastedAddr =
+          Builder.CreatePointerCast(Addr, RetUnifiedAddr->getType());
+      V = Builder.CreateLoad(getReturnType(), CastedAddr);
+    }
+    NewI->setOperand(0, V);
+    */
+  } else {
+    for (unsigned i = 0; i < I->getNumOperands(); i++) {
+      if (isa<BasicBlock>(I->getOperand(i)))
+        continue;
+
+      Value *V = MapValue(I->getOperand(i), VMap);
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
-      if (V->getType() != getReturnType()) {
-        Value *Addr = Builder.CreateAlloca(V->getType());
-        Builder.CreateStore(V, Addr);
-        Value *CastedAddr =
-            Builder.CreatePointerCast(Addr, RetUnifiedAddr->getType());
-        V = Builder.CreateLoad(getReturnType(), CastedAddr);
-      }
-      NewI->setOperand(0, V);
-      */
-    } else {
-      for (unsigned i = 0; i < I->getNumOperands(); i++) {
-        if (isa<BasicBlock>(I->getOperand(i)))
-          continue;
 
-        Value *V = MapValue(I->getOperand(i), VMap);
-        if (V == nullptr) {
-          return false; // ErrorResponse;
-        }
-
-        NewI->setOperand(i, V);
-      }
+      NewI->setOperand(i, V);
     }
+  }
 
-    return true;
-  };
+  return true;
+}
 
+bool MSAGenFunctionBody::assignValueOperands() {
   for (auto &Entry : Parent.Alignment) {
     ArrayRef<Instruction *> Instructions;
     if (auto Succeed = Entry.getAsInstructions()) {
@@ -1045,7 +1046,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
     } else {
       for (auto *V : Entry.getValues()) {
         auto *I = dyn_cast<Instruction>(V);
-        if (I != nullptr && !AssignOperands(I)) {
+        if (I != nullptr && !assignOperands(I)) {
           LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n");
           return false;
         }
