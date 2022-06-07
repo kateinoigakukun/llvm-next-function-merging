@@ -2024,21 +2024,27 @@ void MergeSimilarFunctions::outlineAndMergeFunctions(
   PrintMerges("FNSM", F1, NewF);
 
   errs() << "Merged: " << getVertexName(F1);
+#ifdef LLVM_ENABLE_DUMP
   if (MSFDebug) F1->dump();
+#endif
 
   writeThunkWithChoice(NewF, F1, 0);
   for (unsigned FnI = 0, FnE = Fns.size(); FnI != FnE; ++FnI) {
     Function *F2 = Fns[FnI]->getF2();
 
     errs() << ", " << getVertexName(F2);
+#ifdef LLVM_ENABLE_DUMP
     if (MSFDebug) F2->dump();
+#endif
 
     PrintMerges("FNSM", F2, NewF);
     writeThunkWithChoice(NewF, F2, FnI + 1);
   }
 
   errs() << " = " << getVertexName(NewF) << "\n";
+#ifdef LLVM_ENABLE_DUMP
   if (MSFDebug) NewF->dump();
+#endif
 
   NumSimilarFunctionsMerged += Fns.size() + 1;
 }

@@ -149,7 +149,9 @@ public:
   void emit();
 
   /// Reorder the operands to minimize the number of `select`
-  static void operandReordering(std::vector<std::vector<Value *>> Operands);
+  static void operandReordering(std::vector<std::vector<Value *>> Operands){
+      // TODO(katei): noop for now.
+  };
   static Instruction *
   maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions);
 };
@@ -660,7 +662,6 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
   MSAGenFunctionBody BodyEmitter(*this, Options, discriminator, VMap, MergedF);
   BodyEmitter.emit();
 
-  MergedF->dump();
   return MergedF;
 }
 

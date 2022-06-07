@@ -1166,7 +1166,7 @@ static void SetFunctionAttributes(Function *F1, Function *F2, Function *MergedFu
     if (PersonalityFn1 == PersonalityFn2) {
       MergedFunc->setPersonalityFn(PersonalityFn1);
     } else {
-#ifdef ENABLE_DEBUG_CODE
+#ifdef LLVM_ENABLE_DUMP
       PersonalityFn1->dump();
       PersonalityFn2->dump();
 #endif
@@ -2324,11 +2324,13 @@ bool FastFM::runOnModule(Module &M) {
               Instruction *I1 = &*It1;
               Instruction *I2 = &*It2;
 
+#ifdef LLVM_ENABLE_DUMP
               if (Verbose) {
                 I1->dump();
                 I2->dump();
                 errs() << "-----------\n";
               }
+#endif
               It1++;
               It2++;
             }
@@ -2341,7 +2343,7 @@ bool FastFM::runOnModule(Module &M) {
                    << " = " << GetValueName(Result.getMergedFunction()) << "\n";
           }
 
-#ifdef ENABLE_DEBUG_CODE
+#ifdef LLVM_ENABLE_DUMP
         if (Verbose) {
           errs() << "F1:\n";
           F1->dump();
@@ -3346,10 +3348,12 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(std::vector<Matching
     } else {
       for (unsigned i = 0; i<I.getNumOperands(); i++) {
 	if (I.getOperand(i)==nullptr) {
+#ifdef LLVM_ENABLE_DUMP
 		//MergedFunc->dump();
 		I.getParent()->dump();
 		errs() << "Null operand\n";
 		I.dump();
+#endif
 	}
         if (Instruction *IV = dyn_cast<Instruction>(I.getOperand(i))) {
 	  if (!DT.dominates(IV, &I)) {
