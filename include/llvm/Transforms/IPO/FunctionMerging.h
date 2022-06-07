@@ -79,13 +79,16 @@ struct FunctionMergingOptions {
   bool MaximizeParamScore;
   bool IdenticalTypesOnly;
   bool EnableUnifiedReturnType;
+  bool EnableOperandReordering;
 
   FunctionMergingOptions(bool MaximizeParamScore = true,
                          bool IdenticalTypesOnly = true,
-                         bool EnableUnifiedReturnType = true)
+                         bool EnableUnifiedReturnType = true,
+                         bool EnableOperandReordering = true)
       : MaximizeParamScore(MaximizeParamScore),
         IdenticalTypesOnly(IdenticalTypesOnly),
-        EnableUnifiedReturnType(EnableUnifiedReturnType) {}
+        EnableUnifiedReturnType(EnableUnifiedReturnType),
+        EnableOperandReordering(EnableOperandReordering) {}
 
   FunctionMergingOptions &maximizeParameterScore(bool MPS) {
     MaximizeParamScore = MPS;

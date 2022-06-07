@@ -14,7 +14,9 @@
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/Value.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -93,6 +95,7 @@ public:
 
 class MSAGenFunctionBody {
   const MSAGenFunction &Parent;
+  const FunctionMergingOptions &Options;
   Function *MergedFunc;
 
   Value *Discriminator;
@@ -104,11 +107,13 @@ class MSAGenFunctionBody {
   BasicBlock *BlackholeBB;
 
 public:
-  MSAGenFunctionBody(const MSAGenFunction &Parent, Value *Discriminator,
-                     ValueToValueMapTy &VMap, Function *MergedF)
-      : Parent(Parent), MergedFunc(MergedF), Discriminator(Discriminator),
-        VMap(VMap), MaterialNodes(), BBToMergedBB(),
-        MergedBBToBB(Parent.Functions.size()) {
+  MSAGenFunctionBody(const MSAGenFunction &Parent,
+                     const FunctionMergingOptions &Options,
+                     Value *Discriminator, ValueToValueMapTy &VMap,
+                     Function *MergedF)
+      : Parent(Parent), Options(Options), MergedFunc(MergedF),
+        Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
+        BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
 
     BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
     {
@@ -116,6 +121,13 @@ public:
       B.CreateUnreachable();
     }
   };
+
+  inline LLVMContext &getContext() const { return Parent.C; }
+  Type *getReturnType() const { return MergedFunc->getReturnType(); }
+  IntegerType *getIntPtrType() const {
+    return Parent.M->getDataLayout().getIntPtrType(Parent.C);
+  }
+
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
   BasicBlock *cloneBasicBlock(IRBuilder<> &Builder, BasicBlock *I);
 
@@ -127,9 +139,16 @@ public:
   bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
   bool assignMismatchingLabelOperands(
       Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
+  Value *mergeValues(ArrayRef<Value *> Values, Instruction *InsertPt);
+  bool assignValueOperands();
   bool assignOperands();
 
   void emit();
+
+  /// Reorder the operands to minimize the number of `select`
+  static void operandReordering(std::vector<std::vector<Value *>> Operands);
+  static Instruction *
+  maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions);
 };
 
 }; // namespace llvm
@@ -635,7 +654,7 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
     }
   }
 
-  MSAGenFunctionBody BodyEmitter(*this, discriminator, VMap, MergedF);
+  MSAGenFunctionBody BodyEmitter(*this, Options, discriminator, VMap, MergedF);
   BodyEmitter.emit();
 
   MergedF->dump();
@@ -819,19 +838,27 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   }
 }
 
-bool MSAGenFunctionBody::assignMatchingLabelOperands(
-    ArrayRef<Instruction *> Instructions) {
-
-  Instruction *I = Instructions[0];
-  auto *NewI = dyn_cast<Instruction>(VMap[I]);
-
+Instruction *
+MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   Instruction *MaxNumOperandsInst = nullptr;
+  assert(!Instructions.empty() && "Empty instruction list!");
   for (auto *I : Instructions) {
     if (MaxNumOperandsInst == nullptr ||
         I->getNumOperands() > MaxNumOperandsInst->getNumOperands()) {
       MaxNumOperandsInst = I;
     }
   }
+  assert(MaxNumOperandsInst && "No instruction found!?");
+  return MaxNumOperandsInst;
+}
+
+bool MSAGenFunctionBody::assignMatchingLabelOperands(
+    ArrayRef<Instruction *> Instructions) {
+
+  Instruction *I = Instructions[0];
+  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+
+  auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
 
   for (unsigned OperandIdx = 0;
        OperandIdx < MaxNumOperandsInst->getNumOperands(); OperandIdx++) {
@@ -956,6 +983,149 @@ bool MSAGenFunctionBody::assignMismatchingLabelOperands(
     }
 
     NewI->setOperand(i, V);
+  }
+  return true;
+}
+
+Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
+                                       Instruction *InsertPt) {
+  llvm_unreachable("Not implemented yet!");
+}
+
+/// Taken from FunctionMergable.cpp
+/// TODO(katei): share the declaration with the original function.
+Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
+                          Type *IntPtrTy,
+                          const FunctionMergingOptions &Options = {});
+
+bool MSAGenFunctionBody::assignValueOperands() {
+  /// Assign new value operands. Return true if all operands are assigned.
+  /// Return false if failed to assign any operand.
+  auto AssignOperands = [&](Instruction *I) -> bool {
+    auto *NewI = dyn_cast<Instruction>(VMap[I]);
+    IRBuilder<> Builder(NewI);
+
+    if (I->getOpcode() == Instruction::Ret && Options.EnableUnifiedReturnType) {
+      llvm_unreachable("Unified return type is not supported yet!");
+      /*
+      Value *V = MapValue(I->getOperand(0), VMap);
+      if (V == nullptr) {
+        return false; // ErrorResponse;
+      }
+      if (V->getType() != getReturnType()) {
+        Value *Addr = Builder.CreateAlloca(V->getType());
+        Builder.CreateStore(V, Addr);
+        Value *CastedAddr =
+            Builder.CreatePointerCast(Addr, RetUnifiedAddr->getType());
+        V = Builder.CreateLoad(getReturnType(), CastedAddr);
+      }
+      NewI->setOperand(0, V);
+      */
+    } else {
+      for (unsigned i = 0; i < I->getNumOperands(); i++) {
+        if (isa<BasicBlock>(I->getOperand(i)))
+          continue;
+
+        Value *V = MapValue(I->getOperand(i), VMap);
+        if (V == nullptr) {
+          return false; // ErrorResponse;
+        }
+
+        NewI->setOperand(i, V);
+      }
+    }
+
+    return true;
+  };
+
+  for (auto &Entry : Parent.Alignment) {
+    ArrayRef<Instruction *> Instructions;
+    if (auto Succeed = Entry.getAsInstructions()) {
+      Instructions = *Succeed;
+    } else {
+      for (auto *V : Entry.getValues()) {
+        auto *I = dyn_cast<Instruction>(V);
+        if (I != nullptr && !AssignOperands(I)) {
+          LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n");
+          return false;
+        }
+      }
+      continue;
+    }
+
+    // Process the case where all values are instructions.
+
+    auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
+    auto *NewI = dyn_cast<Instruction>(VMap[MaxNumOperandsInst]);
+    IRBuilder<> Builder(NewI);
+
+    if (Options.EnableOperandReordering && isa<BinaryOperator>(NewI) &&
+        MaxNumOperandsInst->isCommutative()) {
+
+      std::vector<std::vector<Value *>> Operands;
+      for (auto *I : Instructions) {
+        auto *BO = dyn_cast<BinaryOperator>(I);
+        for (size_t OpIdx = 0, e = I->getNumOperands(); OpIdx < e; ++OpIdx) {
+          auto *NewO = MapValue(I->getOperand(OpIdx), VMap);
+          Operands[OpIdx].push_back(NewO);
+        }
+      }
+      operandReordering(Operands);
+
+      for (unsigned i = 0; i < Operands.size(); i++) {
+        auto Vs = Operands[i];
+        Value *V = mergeValues(Vs, NewI);
+
+        if (V == nullptr) {
+          LLVM_DEBUG(errs() << "Could Not select:\n"
+                            << "ERROR: Value should NOT be null\n");
+          return false; // ErrorResponse;
+        }
+
+        Value *CastedV = createCastIfNeeded(V, NewI->getOperand(i)->getType(),
+                                            Builder, getIntPtrType());
+        NewI->setOperand(i, CastedV);
+      }
+    } else {
+      auto *I = MaxNumOperandsInst;
+      for (unsigned OperandIdx = 0; OperandIdx < I->getNumOperands();
+           OperandIdx++) {
+        if (isa<BasicBlock>(I->getOperand(OperandIdx)))
+          continue;
+
+        std::vector<Value *> FVs;
+        std::vector<Value *> Vs;
+        for (auto *I : Instructions) {
+          Value *FV = nullptr;
+          Value *V = nullptr;
+          if (OperandIdx < I->getNumOperands()) {
+            FV = I->getOperand(OperandIdx);
+            // FIXME(katei): `VMap[FV]` is enough?
+            V = MapValue(FV, VMap);
+            if (V == nullptr) {
+              LLVM_DEBUG(errs() << "ERROR: Null value mapped: V1 = "
+                                   "MapValue(I1->getOperand(i), VMap);\n");
+              return false;
+            }
+          } else {
+            V = UndefValue::get(
+                MaxNumOperandsInst->getOperand(OperandIdx)->getType());
+          }
+          assert(V != nullptr && "Value should NOT be null!");
+          FVs.push_back(FV);
+          Vs.push_back(V);
+        }
+
+        Value *V = mergeValues(Vs, NewI);
+        if (V == nullptr) {
+          LLVM_DEBUG(errs() << "Could Not select:\n"
+                            << "ERROR: Value should NOT be null\n";);
+          return false; // ErrorResponse;
+        }
+
+        NewI->setOperand(OperandIdx, V);
+      }
+    }
   }
   return true;
 }
