@@ -1,4 +1,4 @@
-; RUN: %opt -S --func-merging < %s | FileCheck %s
+; RUN: %opt -S --enable-new-pm=false --func-merging < %s | FileCheck %s
 
 ; Afunc and Bfunc differ only in that one returns 0, the other 42.
 ; These should be merged.

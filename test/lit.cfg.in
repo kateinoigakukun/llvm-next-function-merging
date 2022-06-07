@@ -4,8 +4,9 @@ config.llvm_tools_dir = "@LLVM_TOOLS_BINARY_DIR@"
 config.llvm_next_fm_source_dir = "@LLVM_NEXT_FM_SOURCE_DIR@"
 config.llvm_next_fm_plugin_path = "@LLVM_NEXT_FM_PLUGIN_PATH@"
 config.substitutions.append(('%opt',
-                             "%s --load %s --enable-new-pm=false" % (
+                             "%s --load %s --load-pass-plugin %s" % (
                                os.path.join(config.llvm_tools_dir, "opt"),
+                               config.llvm_next_fm_plugin_path,
                                config.llvm_next_fm_plugin_path)))
 
 lit_config.load_config(

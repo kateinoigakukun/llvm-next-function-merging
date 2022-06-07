@@ -1,4 +1,4 @@
-; RUN: %opt -S --func-merging < %s | FileCheck %s
+; RUN: %opt -S  --enable-new-pm=false --func-merging < %s | FileCheck %s
 ; XFAIL: *
 
 declare void @extern_func_1()
