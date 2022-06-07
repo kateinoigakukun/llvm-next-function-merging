@@ -1,4 +1,5 @@
 add_llvm_pass_plugin(LLVMNextFM
+  NO_MODULE
   FastFM.cpp
   FMSA.cpp
   FunctionMerging.cpp
