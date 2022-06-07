@@ -1141,7 +1141,11 @@ bool MSAGenFunctionBody::assignOperands() {
     }
 
     if (Entry.match()) {
-      assignMatchingLabelOperands(Instructions);
+      if (!assignMatchingLabelOperands(Instructions)) {
+        LLVM_DEBUG(
+            errs() << "ERROR: Failed to assign matching label operands\n";);
+        return false;
+      }
     } else {
       for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
         auto *F = Parent.Functions[FuncId];
