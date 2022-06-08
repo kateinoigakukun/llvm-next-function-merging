@@ -36,7 +36,8 @@ class MSAFunctionMerger {
 public:
   MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM)
       : Functions(Functions), PairMerger(PM),
-        Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1) {
+        Scoring(/*Gap*/ -1, /*Match*/ 0,
+                /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
     M = Functions[0]->getParent();
   }

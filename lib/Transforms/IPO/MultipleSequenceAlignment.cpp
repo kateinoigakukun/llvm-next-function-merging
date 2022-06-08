@@ -186,13 +186,22 @@ raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
   return OS;
 }
 
-static void initScoreTable(TensorTable<int32_t> &ScoreTable,
+static void initScoreTable(TensorTable<Optional<int32_t>> &ScoreTable,
                            TensorTable<TransitionEntry> &BestTransTable,
                            ScoringSystem &Scoring) {
   auto &Shape = ScoreTable.getShape();
+
+  {
+    // Initialize {0,0,...,0}
+    std::vector<size_t> Point(Shape.size(), 0);
+    ScoreTable[Point] = 0;
+    TransitionOffset transOffset(Shape.size(), 0);
+    BestTransTable[Point] = TransitionEntry(transOffset, false);
+  }
+
   for (size_t dim = 0; dim < Shape.size(); dim++) {
     std::vector<size_t> Point(Shape.size(), 0);
-    for (size_t i = 0; i < Shape[dim]; i++) {
+    for (size_t i = 1; i < Shape[dim]; i++) {
       Point[dim] = i;
       ScoreTable[Point] = Scoring.getGapPenalty() * i;
       TransitionOffset transOffset(Shape.size(), 0);
@@ -203,7 +212,7 @@ static void initScoreTable(TensorTable<int32_t> &ScoreTable,
 }
 
 static void computeBestTransition(
-    TensorTable<int32_t> &ScoreTable,
+    TensorTable<Optional<int32_t>> &ScoreTable,
     TensorTable<TransitionEntry> &BestTransTable,
     const std::vector<size_t> &Point, ScoringSystem &Scoring,
     const std::function<bool(std::vector<size_t> Point)> Match) {
@@ -233,6 +242,14 @@ static void computeBestTransition(
   // The current visiting point in the virtual tensor table.
   std::vector<size_t> TransOffset(ScoreTable.getShape().size(), 0);
 
+  auto AddScore = [](int32_t Score, int32_t addend) {
+    if (addend > 0 && Score >= INT32_MAX - addend)
+      return INT32_MAX;
+    if (addend < 0 && Score <= INT32_MIN - addend)
+      return INT32_MIN;
+    return Score + addend;
+  };
+
   // Visit all possible transitions except for the current point itself.
   while (advancePointInShape(TransOffset, TransTableShape)) {
     if (!ScoreTable.contains(Point, TransOffset))
@@ -240,8 +257,8 @@ static void computeBestTransition(
 
     int32_t similarity =
         std::accumulate(TransOffset.begin(), TransOffset.end(), 0,
-                        [&TransScore](int32_t Acc, size_t Val) {
-                          return Acc + TransScore[Val];
+                        [&](int32_t Acc, size_t Val) {
+                          return AddScore(Acc, TransScore[Val]);
                         });
     bool IsMatched = false;
     // If diagonal transition, add the match score.
@@ -251,12 +268,17 @@ static void computeBestTransition(
       similarity =
           IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
     }
-    int32_t fromCost = ScoreTable[Point];
-    assert(fromCost != INT32_MAX && "non-visited point");
-    int32_t cost = fromCost + similarity;
-    int32_t minCost = std::min(ScoreTable.get(Point, TransOffset, false), cost);
-    if (minCost == cost) {
-      ScoreTable.set(Point, TransOffset, false, minCost);
+    assert(ScoreTable[Point] && "non-visited point");
+    auto fromScore = *ScoreTable[Point];
+    int32_t newScore = AddScore(fromScore, similarity);
+    int32_t maxScore;
+    if (auto existingScore = ScoreTable.get(Point, TransOffset, false)) {
+      maxScore = std::max(*existingScore, newScore);
+    } else {
+      maxScore = newScore;
+    }
+    if (maxScore == newScore) {
+      ScoreTable.set(Point, TransOffset, false, maxScore);
       BestTransTable.set(Point, TransOffset, false,
                          TransitionEntry(TransOffset, IsMatched));
     }
@@ -272,7 +294,7 @@ static MSAAlignmentEntry buildAlignmentEntry(
   for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
     size_t diff = TransOffset[FuncIdx];
     if (diff == 1) {
-      Value *I = (*InstrVecRefList[FuncIdx])[Cursor[FuncIdx]];
+      Value *I = (*InstrVecRefList[FuncIdx])[Cursor[FuncIdx] - 1];
       Instrs.push_back(I);
     } else {
       assert(diff == 0);
@@ -303,6 +325,7 @@ static void buildAlignment(
     }
 
     auto &Entry = BestTransTable[Cursor];
+    LLVM_DEBUG(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
     Alignment.emplace_back(buildAlignmentEntry(Entry, Cursor, InstrVecRefList));
@@ -339,13 +362,14 @@ void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
   /* ===== Needleman–Wunsch algorithm ======= */
   std::vector<size_t> Shape;
   for (auto *InstrVec : InstrVecRefList) {
-    Shape.push_back(InstrVec->size());
+    Shape.push_back(InstrVec->size() + 1);
   }
-  TensorTable<int32_t> ScoreTable(Shape, INT32_MAX);
+  TensorTable<Optional<int32_t>> ScoreTable(Shape, None);
   TensorTable<TransitionEntry> BestTransTable(Shape, {});
   initScoreTable(ScoreTable, BestTransTable, Scoring);
   LLVM_DEBUG(dbgs() << "Shape: "; for (auto v : Shape) { dbgs() << v << " "; } dbgs() << "\n");
 
+  // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
   do {
     computeBestTransition(

@@ -2,6 +2,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TensorTable.h"
 #include "llvm/AsmParser/Parser.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "gtest/gtest.h"
@@ -10,6 +12,8 @@
 #include <vector>
 
 using namespace llvm;
+
+#define DEBUG_TYPE "msa-tests"
 
 TEST(TensorTableTest, DefaultValue) {
   TensorTable<int32_t> t(std::vector<size_t>{2, 2}, 0);
@@ -77,14 +81,20 @@ define internal void @Bfunc(i32* %P, i32* %Q) {
 
   ASSERT_TRUE(M);
   withAlignment(*M, {"Afunc", "Bfunc"}, [&](auto Alignment) {
-    ASSERT_EQ(Alignment.size(), 3);
-    for (auto &Entry : Alignment) {
-      Entry.dump();
-    }
+    LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
+    ASSERT_EQ(Alignment.size(), 5);
     ASSERT_TRUE(Alignment[0].match());
     ASSERT_TRUE(Alignment[1].match());
+
     ASSERT_FALSE(Alignment[2].match());
-    // ASSERT_TRUE(Alignment[3].match());
+    ASSERT_EQ(Alignment[2].getValues()[0], nullptr);
+    ASSERT_TRUE(isa<StoreInst>(Alignment[2].getValues()[1]));
+
+    ASSERT_FALSE(Alignment[3].match());
+    ASSERT_TRUE(isa<CallInst>(Alignment[3].getValues()[0]));
+    ASSERT_EQ(Alignment[3].getValues()[1], nullptr);
+
+    ASSERT_TRUE(Alignment[4].match());
   });
 }
 
