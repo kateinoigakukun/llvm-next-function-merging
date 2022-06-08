@@ -286,28 +286,25 @@ static void buildAlignment(
 
 }; // namespace
 
-MSAFunctionMergeResult
-MSAFunctionMerger::merge(ArrayRef<Function *> Functions) {
-  std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
+MSAFunctionMergeResult MSAFunctionMerger::merge() {
+
+  std::vector<MSAAlignmentEntry> Alignment;
+  align(Alignment);
+  merge(Alignment);
+
+  return MSAFunctionMergeResult();
+}
+
+void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+
   SmallVector<SmallVectorImpl<Value *> *, 16> InstrVecRefList;
+  std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
 
   for (size_t i = 0; i < Functions.size(); i++) {
     auto &F = *Functions[i];
     PairMerger.linearize(&F, InstrVecList[i]);
     InstrVecRefList.push_back(&InstrVecList[i]);
   }
-
-  std::vector<MSAAlignmentEntry> Alignment;
-  align(InstrVecRefList, Alignment);
-
-  merge(Functions, InstrVecRefList, Alignment);
-
-  return MSAFunctionMergeResult();
-}
-
-void MSAFunctionMerger::align(
-    const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
-    std::vector<MSAAlignmentEntry> &Alignment) {
 
   /* ===== Needleman–Wunsch algorithm ======= */
   std::vector<size_t> Shape;
@@ -366,11 +363,7 @@ void MSAAlignmentEntry::verify() const {
   }
 }
 
-void MSAFunctionMerger::merge(
-    ArrayRef<Function *> Functions,
-    const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
-    const std::vector<MSAAlignmentEntry> &Alignment) {
-
+void MSAFunctionMerger::merge(const std::vector<MSAAlignmentEntry> &Alignment) {
   MSAGenFunction Generator(M, Alignment, Functions);
   Generator.emit();
 }
@@ -399,11 +392,11 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   FunctionAnalysisManager &FAM =
       MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
 
-  MSAFunctionMerger FM(&M);
+  FunctionMerger PairMerger(&M);
   auto Options = MSAOptions();
 
-  std::unique_ptr<Matcher<Function *>> MatchFinder = createMatcherLSH(
-      FM.getPairMerger(), Options, Options.LSHRows, Options.LSHBands);
+  std::unique_ptr<Matcher<Function *>> MatchFinder =
+      createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
 
   size_t count = 0;
   for (auto &F : M) {
@@ -427,7 +420,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
     LLVM_DEBUG(dbgs() << "Try to merge\n");
     LLVM_DEBUG(for (auto *F : Functions) { dbgs() << " - " << F->getName() << "\n"; });
-    FM.merge(Functions);
+    MSAFunctionMerger FM(Functions, PairMerger);
+    FM.merge();
   }
 
   return PreservedAnalyses::none();

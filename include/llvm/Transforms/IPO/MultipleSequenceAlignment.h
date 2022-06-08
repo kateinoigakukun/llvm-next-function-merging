@@ -27,22 +27,23 @@ struct MSAFunctionMergeResult {};
 /// \brief This pass merges multiple functions into a single function by
 /// multiple sequence alignment algorithm.
 class MSAFunctionMerger {
-  FunctionMerger PairMerger;
-  ScoringSystem Scoring;
+  ArrayRef<Function *> Functions;
   Module *M;
+  FunctionMerger &PairMerger;
+  ScoringSystem Scoring;
 
 public:
-  MSAFunctionMerger(Module *M)
-      : PairMerger(M), Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1), M(M) {}
+  MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM)
+      : Functions(Functions), M(Functions[0]->getParent()), PairMerger(PM),
+        Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1) {
+    assert(!Functions.empty() && "No functions to merge");
+  }
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
-  void align(const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
-             std::vector<MSAAlignmentEntry> &Alignment);
-  MSAFunctionMergeResult merge(ArrayRef<Function *> Functions);
-  void merge(ArrayRef<Function *> Functions,
-             const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
-             const std::vector<MSAAlignmentEntry> &Alignment);
+  MSAFunctionMergeResult merge();
+  void align(std::vector<MSAAlignmentEntry> &Alignment);
+  void merge(const std::vector<MSAAlignmentEntry> &Alignment);
 };
 
 class MultipleFunctionMergingPass
