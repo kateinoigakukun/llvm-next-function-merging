@@ -115,19 +115,6 @@ using namespace llvm;
 
 namespace {
 
-static bool advancePointInShape(std::vector<size_t> &Point,
-                                const std::vector<size_t> &Shape) {
-  for (size_t i = 0; i < Point.size(); i++) {
-    if (Point[i] < Shape[i] - 1) {
-      Point[i]++;
-      return true;
-    }
-    Point[i] = 0;
-  }
-  return false;
-}
-
-
 using TransitionOffset = std::vector<size_t>;
 struct TransitionEntry {
   TransitionOffset Offset;
@@ -161,10 +148,51 @@ raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
   return OS;
 }
 
-static void initScoreTable(TensorTable<Optional<int32_t>> &ScoreTable,
-                           TensorTable<TransitionEntry> &BestTransTable,
-                           ScoringSystem &Scoring) {
-  auto &Shape = ScoreTable.getShape();
+class MSAligner {
+  ScoringSystem &Scoring;
+  ArrayRef<Function *> Functions;
+  std::vector<size_t> Shape;
+
+  std::vector<SmallVector<Value *, 16>> &InstrVecList;
+  TensorTable<Optional<int32_t>> ScoreTable;
+  TensorTable<TransitionEntry> BestTransTable;
+
+  void initScoreTable();
+  void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
+  void computeBestTransition(
+      const std::vector<size_t> &Point,
+      const std::function<bool(std::vector<size_t> Point)> Match);
+  void align(std::vector<MSAAlignmentEntry> &Alignment);
+
+  static bool advancePointInShape(std::vector<size_t> &Point,
+                                  const std::vector<size_t> &Shape) {
+    for (size_t i = 0; i < Point.size(); i++) {
+      if (Point[i] < Shape[i] - 1) {
+        Point[i]++;
+        return true;
+      }
+      Point[i] = 0;
+    }
+    return false;
+  }
+
+  MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
+            std::vector<size_t> Shape,
+            std::vector<SmallVector<Value *, 16>> &InstrVecList)
+      : Scoring(Scoring), Functions(Functions), Shape(Shape),
+        InstrVecList(InstrVecList), ScoreTable(Shape, None),
+        BestTransTable(Shape, {}) {
+
+    initScoreTable();
+  }
+
+public:
+  static void align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
+                    ArrayRef<Function *> Functions,
+                    std::vector<MSAAlignmentEntry> &Alignment);
+};
+
+void MSAligner::initScoreTable() {
 
   {
     // Initialize {0,0,...,0}
@@ -186,10 +214,8 @@ static void initScoreTable(TensorTable<Optional<int32_t>> &ScoreTable,
   }
 }
 
-static void computeBestTransition(
-    TensorTable<Optional<int32_t>> &ScoreTable,
-    TensorTable<TransitionEntry> &BestTransTable,
-    const std::vector<size_t> &Point, ScoringSystem &Scoring,
+void MSAligner::computeBestTransition(
+    const std::vector<size_t> &Point,
     const std::function<bool(std::vector<size_t> Point)> Match) {
 
   // Build a virtual tensor table for transition scores.
@@ -260,31 +286,27 @@ static void computeBestTransition(
   }
 }
 
-static MSAAlignmentEntry buildAlignmentEntry(
-    const TransitionEntry &Entry, std::vector<size_t> Cursor,
-    const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList) {
-
-  std::vector<Value *> Instrs;
-  const std::vector<size_t> &TransOffset = Entry.Offset;
-  for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
-    size_t diff = TransOffset[FuncIdx];
-    if (diff == 1) {
-      Value *I = (*InstrVecRefList[FuncIdx])[Cursor[FuncIdx] - 1];
-      Instrs.push_back(I);
-    } else {
-      assert(diff == 0);
-      Instrs.push_back(nullptr);
-    }
-  }
-  return MSAAlignmentEntry(Instrs, Entry.Match);
-}
-
-static void buildAlignment(
-    const TensorTable<TransitionEntry> &BestTransTable,
-    const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList,
+void MSAligner::buildAlignment(
     std::vector<llvm::MSAAlignmentEntry> &Alignment) {
   size_t MaxDim = BestTransTable.getShape().size();
   std::vector<size_t> Cursor(MaxDim, 0);
+
+  auto BuildAlignmentEntry = [&](const TransitionEntry &Entry,
+                                 std::vector<size_t> Cursor) {
+    std::vector<Value *> Instrs;
+    const std::vector<size_t> &TransOffset = Entry.Offset;
+    for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
+      size_t diff = TransOffset[FuncIdx];
+      if (diff == 1) {
+        Value *I = InstrVecList[FuncIdx][Cursor[FuncIdx] - 1];
+        Instrs.push_back(I);
+      } else {
+        assert(diff == 0);
+        Instrs.push_back(nullptr);
+      }
+    }
+    return MSAAlignmentEntry(Instrs, Entry.Match);
+  };
 
   // Set the first point to the end edge of the table.
   for (size_t dim = 0; dim < MaxDim; dim++) {
@@ -303,7 +325,7 @@ static void buildAlignment(
     LLVM_DEBUG(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
-    Alignment.emplace_back(buildAlignmentEntry(Entry, Cursor, InstrVecRefList));
+    Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
     for (size_t dim = 0; dim < MaxDim; dim++) {
       assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
                                            "table!");
@@ -312,7 +334,52 @@ static void buildAlignment(
   }
 }
 
+void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
+  /* ===== Needleman–Wunsch algorithm ======= */
+
+  // Start visiting from (0, 0, ..., 0)
+  std::vector<size_t> Cursor(Shape.size(), 0);
+  do {
+    computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
+      auto *TheInstr = InstrVecList[0][Point[0]];
+      for (size_t i = 1; i < InstrVecList.size(); i++) {
+        auto *OtherInstr = InstrVecList[i][Point[i]];
+        if (!FunctionMerger::match(OtherInstr, TheInstr)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  } while (advancePointInShape(Cursor, ScoreTable.getShape()));
+  LLVM_DEBUG(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
+  LLVM_DEBUG(llvm::dbgs() << "BestTransTable:\n";
+             BestTransTable.print(llvm::dbgs()));
+
+  buildAlignment(Alignment);
+
+  return;
+}
+
+void MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
+                      ArrayRef<Function *> Functions,
+                      std::vector<MSAAlignmentEntry> &Alignment) {
+  std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
+  std::vector<size_t> Shape;
+  for (size_t i = 0; i < Functions.size(); i++) {
+    auto &F = *Functions[i];
+    PairMerger.linearize(&F, InstrVecList[i]);
+    Shape.push_back(InstrVecList[i].size() + 1);
+  }
+
+  MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
+  Aligner.align(Alignment);
+}
+
 }; // namespace
+
+void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+  MSAligner::align(PairMerger, Scoring, Functions, Alignment);
+}
 
 Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
@@ -324,52 +391,6 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
   auto *Merged = Generator.emit(Options, Stats);
 
   return Merged;
-}
-
-void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
-
-  SmallVector<SmallVectorImpl<Value *> *, 16> InstrVecRefList;
-  std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
-
-  for (size_t i = 0; i < Functions.size(); i++) {
-    auto &F = *Functions[i];
-    PairMerger.linearize(&F, InstrVecList[i]);
-    InstrVecRefList.push_back(&InstrVecList[i]);
-  }
-
-  /* ===== Needleman–Wunsch algorithm ======= */
-  std::vector<size_t> Shape;
-  for (auto *InstrVec : InstrVecRefList) {
-    Shape.push_back(InstrVec->size() + 1);
-  }
-  TensorTable<Optional<int32_t>> ScoreTable(Shape, None);
-  TensorTable<TransitionEntry> BestTransTable(Shape, {});
-  initScoreTable(ScoreTable, BestTransTable, Scoring);
-  LLVM_DEBUG(dbgs() << "Shape: "; for (auto v : Shape) { dbgs() << v << " "; } dbgs() << "\n");
-
-  // Start visiting from (0, 0, ..., 0)
-  std::vector<size_t> Cursor(Shape.size(), 0);
-  do {
-    computeBestTransition(
-        ScoreTable, BestTransTable, Cursor, Scoring,
-        [&InstrVecRefList](std::vector<size_t> Point) {
-          auto *TheInstr = (*InstrVecRefList[0])[Point[0]];
-          for (size_t i = 1; i < InstrVecRefList.size(); i++) {
-            auto *OtherInstr = (*InstrVecRefList[i])[Point[i]];
-            if (!FunctionMerger::match(OtherInstr, TheInstr)) {
-              return false;
-            }
-          }
-          return true;
-        });
-  } while (advancePointInShape(Cursor, ScoreTable.getShape()));
-  LLVM_DEBUG(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "BestTransTable:\n";
-             BestTransTable.print(llvm::dbgs()));
-
-  buildAlignment(BestTransTable, InstrVecRefList, Alignment);
-
-  return;
 }
 
 bool MSAAlignmentEntry::match() const { return IsMatched; }
