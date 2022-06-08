@@ -39,78 +39,6 @@
 
 #define DEBUG_TYPE "multiple-func-merging"
 
-namespace llvm {
-
-class MSAGenFunctionBody {
-  const MSAGenFunction &Parent;
-  const FunctionMergingOptions &Options;
-  MSAStats &Stats;
-  Function *MergedFunc;
-
-  Value *Discriminator;
-  ValueToValueMapTy &VMap;
-  // FIXME(katei): Better name?
-  DenseMap<Value *, BasicBlock *> MaterialNodes;
-  DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
-  std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
-  BasicBlock *EntryBB;
-  BasicBlock *BlackholeBB;
-
-public:
-  MSAGenFunctionBody(const MSAGenFunction &Parent,
-                     const FunctionMergingOptions &Options, MSAStats &Stats,
-                     Value *Discriminator, ValueToValueMapTy &VMap,
-                     Function *MergedF)
-      : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
-        Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
-        BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
-
-    EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
-    BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
-    {
-      IRBuilder<> B(BlackholeBB);
-      B.CreateUnreachable();
-    }
-  };
-
-  inline LLVMContext &getContext() const { return Parent.C; }
-  Type *getReturnType() const { return MergedFunc->getReturnType(); }
-  IntegerType *getIntPtrType() const {
-    return Parent.M->getDataLayout().getIntPtrType(Parent.C);
-  }
-
-  Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
-  BasicBlock *cloneBasicBlock(IRBuilder<> &Builder, BasicBlock *I);
-
-  void layoutSharedBasicBlocks();
-  void chainBasicBlocks();
-  void chainEntryBlock();
-
-  // XXX(katei): This method name is wrong and should be changed to something
-  // more descriptive.
-  bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
-  bool assignMismatchingLabelOperands(
-      Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
-  Value *mergeValues(ArrayRef<Value *> Values, Instruction *InsertPt);
-  bool assignValueOperands();
-  /// Assign new value operands. Return true if all operands are assigned.
-  /// Return false if failed to assign any operand.
-  bool assignOperands(Instruction *I);
-  bool assignOperands();
-  bool assignPHIOperandsInBlock();
-
-  bool emit();
-
-  /// Reorder the operands to minimize the number of `select`
-  static void operandReordering(std::vector<std::vector<Value *>> Operands){
-      // TODO(katei): noop for now.
-  };
-  static Instruction *
-  maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions);
-};
-
-}; // namespace llvm
-
 using namespace llvm;
 
 namespace {
@@ -437,217 +365,77 @@ struct MSAOptions : public FunctionMergingOptions {
 
 } // namespace
 
-size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
+namespace llvm {
 
-/// Check whether \p F is eligible to be a function merging candidate.
-static bool isEligibleToBeMergeCandidate(Function &F) {
-  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
-}
+class MSAGenFunctionBody {
+  const MSAGenFunction &Parent;
+  const FunctionMergingOptions &Options;
+  MSAStats &Stats;
+  Function *MergedFunc;
 
-PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
-                                                   ModuleAnalysisManager &MAM) {
+  Value *Discriminator;
+  ValueToValueMapTy &VMap;
+  // FIXME(katei): Better name?
+  DenseMap<Value *, BasicBlock *> MaterialNodes;
+  DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
+  std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
+  BasicBlock *EntryBB;
+  BasicBlock *BlackholeBB;
 
-  FunctionAnalysisManager &FAM =
-      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+public:
+  MSAGenFunctionBody(const MSAGenFunction &Parent,
+                     const FunctionMergingOptions &Options, MSAStats &Stats,
+                     Value *Discriminator, ValueToValueMapTy &VMap,
+                     Function *MergedF)
+      : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
+        Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
+        BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
 
-  FunctionMerger PairMerger(&M);
-  auto Options = MSAOptions();
-
-  std::unique_ptr<Matcher<Function *>> MatchFinder =
-      createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
-
-  size_t count = 0;
-  for (auto &F : M) {
-    if (!isEligibleToBeMergeCandidate(F))
-      continue;
-    MatchFinder->add_candidate(
-        &F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
-    count++;
-  }
-
-  FunctionPassManager FPM;
-  FPM.addPass(SimplifyCFGPass());
-
-  while (MatchFinder->size() > 0) {
-    Function *F1 = MatchFinder->next_candidate();
-    auto &Rank = MatchFinder->get_matches(F1);
-    MatchFinder->remove_candidate(F1);
-
-    SmallVector<Function *, 16> Functions{F1};
-    for (auto &Match : Rank) {
-      Functions.push_back(Match.candidate);
-    }
-    if (Functions.size() < 2) continue;
-
-    LLVM_DEBUG(dbgs() << "Try to merge\n");
-    LLVM_DEBUG(for (auto *F : Functions) { dbgs() << " - " << F->getName() << "\n"; });
-    MSAStats Stats;
-    MSAFunctionMerger FM(Functions, PairMerger);
-    auto MergedFunction = FM.merge(Stats);
-    for (auto *F : Functions) {
-      if (F == F1) continue;
-      MatchFinder->remove_candidate(F);
-    }
-    FPM.run(*MergedFunction, FAM);
-  }
-
-  return PreservedAnalyses::none();
-}
-
-/// Layout the merged function parameters while minimizing the length.
-void MSAGenFunction::layoutParameters(
-    std::vector<std::pair<Type *, AttributeSet>> &Args,
-    ValueMap<Argument *, unsigned> &ArgToMergedIndex) const {
-  assert(Functions.size() <= (1 << 8) && "Too many functions!");
-  assert(Functions.size() > 0 && "No functions to merge!");
-  Args.emplace_back(DiscriminatorTy, AttributeSet());
-
-  auto FindReusableArg =
-      [&](Argument *NewArg, AttributeSet NewAttr,
-          const std::set<unsigned> &reusedArgs) -> Optional<int> {
-    // TODO(katei): Find the best argument to reuse based on the uses to
-    // minimize selections. Ex:
-    // ```
-    // void @f(i32 %a, i8 %b, i32 %c) {
-    //   %x = add i32 %a, 1
-    // }
-    // void @g(i32 %d) {
-    //   %x = add i32 %d, 1
-    // }
-    // ```
-    //
-    // In the above example, %d can be reused with both %c and %a,
-    // but %a is better to avoid additonal select.
-
-    for (size_t i = 0; i < Args.size(); i++) {
-      Type *ty;
-      AttributeSet attr;
-      std::tie(ty, attr) = Args[i];
-
-      if (ty != NewArg->getType())
-        continue;
-      if (attr != NewAttr)
-        continue;
-      // If the argument is already reused, we can't reuse it again for the
-      // function.
-      if (reusedArgs.find(i) != reusedArgs.end())
-        continue;
-
-      return i;
-    }
-    return None;
-  };
-
-  auto MergeArgs = [&](Function *F) {
-    auto attrList = F->getAttributes();
-    std::set<unsigned> usedArgIndices;
-
-    for (auto &arg : F->args()) {
-      auto argAttr = attrList.getParamAttributes(arg.getArgNo());
-      if (auto found = FindReusableArg(&arg, argAttr, usedArgIndices)) {
-        LLVM_DEBUG(dbgs() << "Reuse arg %" << *found << " for " << arg << " of "
-                          << F->getName() << "\n");
-        ArgToMergedIndex[&arg] = *found;
-        auto inserted = usedArgIndices.insert(*found).second;
-        assert(inserted && "Argument already reused!");
-      } else {
-        Args.emplace_back(arg.getType(), argAttr);
-        auto newArgIdx = Args.size() - 1;
-        ArgToMergedIndex[&arg] = newArgIdx;
-        usedArgIndices.insert(newArgIdx);
-      }
-    }
-    return true;
-  };
-
-  for (auto &F : Functions) {
-    MergeArgs(F);
-  }
-}
-
-bool MSAGenFunction::layoutReturnType(Type *&RetTy) {
-  // TODO(katei): This accepts only the same return type for all functions.
-  Type *TheReTy = nullptr;
-  auto MergeRetTy = [&](Function *F) -> bool {
-    if (TheReTy == nullptr) {
-      TheReTy = F->getReturnType();
-      return true;
-    } else if (TheReTy == F->getReturnType()) {
-      return true;
-    } else {
-      return false;
+    EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
+    BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
+    {
+      IRBuilder<> B(BlackholeBB);
+      B.CreateUnreachable();
     }
   };
-  for (auto &F : Functions) {
-    if (!MergeRetTy(F)) {
-      return false;
-    }
-  }
-  RetTy = TheReTy;
-  return true;
-}
 
-FunctionType *MSAGenFunction::createFunctionType(
-    ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy) {
-  SmallVector<Type *, 16> ArgTys;
-  for (auto &Arg : Args) {
-    ArgTys.push_back(Arg.first);
-  }
-  return FunctionType::get(RetTy, ArgTys, false);
-}
-
-StringRef MSAGenFunction::getFunctionName() {
-  if (this->NameCache)
-    return *this->NameCache;
-
-  std::string Name = "__msa_merge_";
-  for (auto &F : Functions) {
-    Name += F->getName();
-    Name += "_";
-  }
-  this->NameCache = Name;
-  return *this->NameCache;
-}
-
-Function *MSAGenFunction::emit(const FunctionMergingOptions &Options,
-                               MSAStats &Stats) {
-  Type *RetTy;
-  std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
-  ValueMap<Argument *, unsigned> ArgToMergedIndex;
-
-  layoutParameters(MergedArgs, ArgToMergedIndex);
-  if (!layoutReturnType(RetTy)) {
-    // TODO(katei): should emit remarks?
-    return nullptr;
-  }
-  auto *Sig = createFunctionType(MergedArgs, RetTy);
-
-  auto *MergedF = Function::Create(Sig, llvm::GlobalValue::InternalLinkage,
-                                   getFunctionName(), M);
-  auto *discriminator = MergedF->getArg(0);
-  discriminator->setName("discriminator");
-
-  ValueToValueMapTy VMap;
-  for (auto &F : Functions) {
-    for (auto &arg : F->args()) {
-      Argument *MergeArg = MergedF->getArg(ArgToMergedIndex[&arg]);
-      VMap[&arg] = MergeArg;
-      if (MergeArg->getName().empty()) {
-        MergeArg->setName("m." + arg.getName());
-      } else {
-        MergeArg->setName(MergeArg->getName() + Twine(".") + arg.getName());
-      }
-    }
+  inline LLVMContext &getContext() const { return Parent.C; }
+  Type *getReturnType() const { return MergedFunc->getReturnType(); }
+  IntegerType *getIntPtrType() const {
+    return Parent.M->getDataLayout().getIntPtrType(Parent.C);
   }
 
-  MSAGenFunctionBody BodyEmitter(*this, Options, Stats, discriminator, VMap,
-                                 MergedF);
-  if (!BodyEmitter.emit()) {
-    return nullptr;
-  }
+  Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
+  BasicBlock *cloneBasicBlock(IRBuilder<> &Builder, BasicBlock *I);
 
-  return MergedF;
-}
+  void layoutSharedBasicBlocks();
+  void chainBasicBlocks();
+  void chainEntryBlock();
+
+  // XXX(katei): This method name is wrong and should be changed to something
+  // more descriptive.
+  bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
+  bool assignMismatchingLabelOperands(
+      Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
+  Value *mergeValues(ArrayRef<Value *> Values, Instruction *InsertPt);
+  bool assignValueOperands();
+  /// Assign new value operands. Return true if all operands are assigned.
+  /// Return false if failed to assign any operand.
+  bool assignOperands(Instruction *I);
+  bool assignOperands();
+  bool assignPHIOperandsInBlock();
+
+  bool emit();
+
+  /// Reorder the operands to minimize the number of `select`
+  static void operandReordering(std::vector<std::vector<Value *>> Operands){
+      // TODO(katei): noop for now.
+  };
+  static Instruction *
+  maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions);
+};
+
+}; // namespace llvm
 
 Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
                                                   Instruction *I) {
@@ -1033,12 +821,6 @@ Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
   return PHI;
 }
 
-/// Taken from FunctionMergable.cpp
-/// TODO(katei): share the declaration with the original function.
-Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
-                          Type *IntPtrTy,
-                          const FunctionMergingOptions &Options = {});
-
 bool MSAGenFunctionBody::assignOperands(Instruction *I) {
   auto *NewI = dyn_cast<Instruction>(VMap[I]);
   IRBuilder<> Builder(NewI);
@@ -1075,6 +857,12 @@ bool MSAGenFunctionBody::assignOperands(Instruction *I) {
 
   return true;
 }
+
+/// Taken from FunctionMergable.cpp
+/// TODO(katei): share the declaration with the original function.
+Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
+                          Type *IntPtrTy,
+                          const FunctionMergingOptions &Options = {});
 
 bool MSAGenFunctionBody::assignValueOperands() {
   for (auto &Entry : Parent.Alignment) {
@@ -1269,4 +1057,219 @@ bool MSAGenFunctionBody::emit() {
     return false;
   }
   return true;
+}
+
+/// Layout the merged function parameters while minimizing the length.
+void MSAGenFunction::layoutParameters(
+    std::vector<std::pair<Type *, AttributeSet>> &Args,
+    ValueMap<Argument *, unsigned> &ArgToMergedIndex) const {
+  assert(Functions.size() <= (1 << 8) && "Too many functions!");
+  assert(Functions.size() > 0 && "No functions to merge!");
+  Args.emplace_back(DiscriminatorTy, AttributeSet());
+
+  auto FindReusableArg =
+      [&](Argument *NewArg, AttributeSet NewAttr,
+          const std::set<unsigned> &reusedArgs) -> Optional<int> {
+    // TODO(katei): Find the best argument to reuse based on the uses to
+    // minimize selections. Ex:
+    // ```
+    // void @f(i32 %a, i8 %b, i32 %c) {
+    //   %x = add i32 %a, 1
+    // }
+    // void @g(i32 %d) {
+    //   %x = add i32 %d, 1
+    // }
+    // ```
+    //
+    // In the above example, %d can be reused with both %c and %a,
+    // but %a is better to avoid additonal select.
+
+    for (size_t i = 0; i < Args.size(); i++) {
+      Type *ty;
+      AttributeSet attr;
+      std::tie(ty, attr) = Args[i];
+
+      if (ty != NewArg->getType())
+        continue;
+      if (attr != NewAttr)
+        continue;
+      // If the argument is already reused, we can't reuse it again for the
+      // function.
+      if (reusedArgs.find(i) != reusedArgs.end())
+        continue;
+
+      return i;
+    }
+    return None;
+  };
+
+  auto MergeArgs = [&](Function *F) {
+    auto attrList = F->getAttributes();
+    std::set<unsigned> usedArgIndices;
+
+    for (auto &arg : F->args()) {
+      auto argAttr = attrList.getParamAttributes(arg.getArgNo());
+      if (auto found = FindReusableArg(&arg, argAttr, usedArgIndices)) {
+        LLVM_DEBUG(dbgs() << "Reuse arg %" << *found << " for " << arg << " of "
+                          << F->getName() << "\n");
+        ArgToMergedIndex[&arg] = *found;
+        auto inserted = usedArgIndices.insert(*found).second;
+        assert(inserted && "Argument already reused!");
+      } else {
+        Args.emplace_back(arg.getType(), argAttr);
+        auto newArgIdx = Args.size() - 1;
+        ArgToMergedIndex[&arg] = newArgIdx;
+        usedArgIndices.insert(newArgIdx);
+      }
+    }
+    return true;
+  };
+
+  for (auto &F : Functions) {
+    MergeArgs(F);
+  }
+}
+
+bool MSAGenFunction::layoutReturnType(Type *&RetTy) {
+  // TODO(katei): This accepts only the same return type for all functions.
+  Type *TheReTy = nullptr;
+  auto MergeRetTy = [&](Function *F) -> bool {
+    if (TheReTy == nullptr) {
+      TheReTy = F->getReturnType();
+      return true;
+    } else if (TheReTy == F->getReturnType()) {
+      return true;
+    } else {
+      return false;
+    }
+  };
+  for (auto &F : Functions) {
+    if (!MergeRetTy(F)) {
+      return false;
+    }
+  }
+  RetTy = TheReTy;
+  return true;
+}
+
+FunctionType *MSAGenFunction::createFunctionType(
+    ArrayRef<std::pair<Type *, AttributeSet>> Args, Type *RetTy) {
+  SmallVector<Type *, 16> ArgTys;
+  for (auto &Arg : Args) {
+    ArgTys.push_back(Arg.first);
+  }
+  return FunctionType::get(RetTy, ArgTys, false);
+}
+
+StringRef MSAGenFunction::getFunctionName() {
+  if (this->NameCache)
+    return *this->NameCache;
+
+  std::string Name = "__msa_merge_";
+  for (auto &F : Functions) {
+    Name += F->getName();
+    Name += "_";
+  }
+  this->NameCache = Name;
+  return *this->NameCache;
+}
+
+Function *MSAGenFunction::emit(const FunctionMergingOptions &Options,
+                               MSAStats &Stats) {
+  Type *RetTy;
+  std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
+  ValueMap<Argument *, unsigned> ArgToMergedIndex;
+
+  layoutParameters(MergedArgs, ArgToMergedIndex);
+  if (!layoutReturnType(RetTy)) {
+    // TODO(katei): should emit remarks?
+    return nullptr;
+  }
+  auto *Sig = createFunctionType(MergedArgs, RetTy);
+
+  auto *MergedF = Function::Create(Sig, llvm::GlobalValue::InternalLinkage,
+                                   getFunctionName(), M);
+  auto *discriminator = MergedF->getArg(0);
+  discriminator->setName("discriminator");
+
+  ValueToValueMapTy VMap;
+  for (auto &F : Functions) {
+    for (auto &arg : F->args()) {
+      Argument *MergeArg = MergedF->getArg(ArgToMergedIndex[&arg]);
+      VMap[&arg] = MergeArg;
+      if (MergeArg->getName().empty()) {
+        MergeArg->setName("m." + arg.getName());
+      } else {
+        MergeArg->setName(MergeArg->getName() + Twine(".") + arg.getName());
+      }
+    }
+  }
+
+  MSAGenFunctionBody BodyEmitter(*this, Options, Stats, discriminator, VMap,
+                                 MergedF);
+  if (!BodyEmitter.emit()) {
+    return nullptr;
+  }
+
+  return MergedF;
+}
+
+size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
+
+/// Check whether \p F is eligible to be a function merging candidate.
+static bool isEligibleToBeMergeCandidate(Function &F) {
+  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
+}
+
+PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
+                                                   ModuleAnalysisManager &MAM) {
+
+  FunctionAnalysisManager &FAM =
+      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  FunctionMerger PairMerger(&M);
+  auto Options = MSAOptions();
+
+  std::unique_ptr<Matcher<Function *>> MatchFinder =
+      createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
+
+  size_t count = 0;
+  for (auto &F : M) {
+    if (!isEligibleToBeMergeCandidate(F))
+      continue;
+    MatchFinder->add_candidate(
+        &F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
+    count++;
+  }
+
+  FunctionPassManager FPM;
+  FPM.addPass(SimplifyCFGPass());
+
+  while (MatchFinder->size() > 0) {
+    Function *F1 = MatchFinder->next_candidate();
+    auto &Rank = MatchFinder->get_matches(F1);
+    MatchFinder->remove_candidate(F1);
+
+    SmallVector<Function *, 16> Functions{F1};
+    for (auto &Match : Rank) {
+      Functions.push_back(Match.candidate);
+    }
+    if (Functions.size() < 2)
+      continue;
+
+    LLVM_DEBUG(dbgs() << "Try to merge\n");
+    LLVM_DEBUG(for (auto *F
+                    : Functions) { dbgs() << " - " << F->getName() << "\n"; });
+    MSAStats Stats;
+    MSAFunctionMerger FM(Functions, PairMerger);
+    auto MergedFunction = FM.merge(Stats);
+    for (auto *F : Functions) {
+      if (F == F1)
+        continue;
+      MatchFinder->remove_candidate(F);
+    }
+    FPM.run(*MergedFunction, FAM);
+  }
+
+  return PreservedAnalyses::none();
 }
