@@ -492,6 +492,10 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     LLVM_DEBUG(for (auto *F : Functions) { dbgs() << " - " << F->getName() << "\n"; });
     MSAFunctionMerger FM(Functions, PairMerger);
     FM.merge();
+    for (auto *F : Functions) {
+      if (F == F1) continue;
+      MatchFinder->remove_candidate(F);
+    }
   }
 
   return PreservedAnalyses::none();
