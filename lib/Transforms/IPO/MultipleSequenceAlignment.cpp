@@ -521,17 +521,21 @@ void MSAGenFunction::layoutParameters(
 
   auto MergeArgs = [&](Function *F) {
     auto attrList = F->getAttributes();
-    std::set<unsigned> reusedArgIndices;
+    std::set<unsigned> usedArgIndices;
 
     for (auto &arg : F->args()) {
       auto argAttr = attrList.getParamAttributes(arg.getArgNo());
-      if (auto found = FindReusableArg(&arg, argAttr, reusedArgIndices)) {
+      if (auto found = FindReusableArg(&arg, argAttr, usedArgIndices)) {
+        LLVM_DEBUG(dbgs() << "Reuse arg %" << *found << " for " << arg << " of "
+                          << F->getName() << "\n");
         ArgToMergedIndex[&arg] = *found;
-        auto inserted = reusedArgIndices.insert(*found).second;
+        auto inserted = usedArgIndices.insert(*found).second;
         assert(inserted && "Argument already reused!");
       } else {
         Args.emplace_back(arg.getType(), argAttr);
-        ArgToMergedIndex[&arg] = Args.size() - 1;
+        auto newArgIdx = Args.size() - 1;
+        ArgToMergedIndex[&arg] = newArgIdx;
+        usedArgIndices.insert(newArgIdx);
       }
     }
     return true;
