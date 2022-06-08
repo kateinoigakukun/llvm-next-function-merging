@@ -7,6 +7,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TensorTable.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -637,7 +638,13 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
   ValueToValueMapTy VMap;
   for (auto &F : Functions) {
     for (auto &arg : F->args()) {
-      VMap[&arg] = MergedF->getArg(ArgToMergedIndex[&arg]);
+      Argument *MergeArg = MergedF->getArg(ArgToMergedIndex[&arg]);
+      VMap[&arg] = MergeArg;
+      if (MergeArg->getName().empty()) {
+        MergeArg->setName("m." + arg.getName());
+      } else {
+        MergeArg->setName(MergeArg->getName() + Twine(".") + arg.getName());
+      }
     }
   }
 
