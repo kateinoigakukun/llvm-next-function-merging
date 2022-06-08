@@ -97,6 +97,7 @@ public:
   /// Return false if failed to assign any operand.
   bool assignOperands(Instruction *I);
   bool assignOperands();
+  bool assignPHIOperandsInBlock();
 
   bool emit();
 
@@ -1188,11 +1189,66 @@ bool MSAGenFunctionBody::assignOperands() {
   return true;
 }
 
+bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
+  auto AssignPHIOperandsInBlock =
+      [&](BasicBlock *BB,
+          DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) -> bool {
+    for (Instruction &I : *BB) {
+      if (auto *PHI = dyn_cast<PHINode>(&I)) {
+        auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
+
+        std::set<int> FoundIndices;
+
+        for (auto It = pred_begin(NewPHI->getParent()),
+                  E = pred_end(NewPHI->getParent());
+             It != E; It++) {
+
+          BasicBlock *NewPredBB = *It;
+
+          Value *V = nullptr;
+
+          if (BlocksReMap.find(NewPredBB) != BlocksReMap.end()) {
+            int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
+            if (Index >= 0) {
+              V = MapValue(PHI->getIncomingValue(Index), VMap);
+              FoundIndices.insert(Index);
+            }
+          }
+
+          if (V == nullptr)
+            V = UndefValue::get(NewPHI->getType());
+
+          // IRBuilder<> Builder(NewPredBB->getTerminator());
+          // Value *CastedV = createCastIfNeeded(V, NewPHI->getType(), Builder,
+          // IntPtrTy);
+          NewPHI->addIncoming(V, NewPredBB);
+        }
+        if (FoundIndices.size() != PHI->getNumIncomingValues())
+          return false;
+      }
+    }
+    return true;
+  };
+
+  for (size_t FuncId = 0; FuncId < Parent.Functions.size(); FuncId++) {
+    auto *F = Parent.Functions[FuncId];
+    for (auto &BB : *F) {
+      if (!AssignPHIOperandsInBlock(&BB, MergedBBToBB[FuncId])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool MSAGenFunctionBody::emit() {
   layoutSharedBasicBlocks();
   chainBasicBlocks();
   chainEntryBlock();
   if (!assignOperands()) {
+    return false;
+  }
+  if (!assignPHIOperandsInBlock()) {
     return false;
   }
   return true;
