@@ -331,6 +331,7 @@ void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
           return true;
         });
   } while (advancePointInShape(Cursor, ScoreTable.getShape()));
+  LLVM_DEBUG(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
 
   buildAlignment(BestTransTable, InstrVecRefList, Alignment);
 

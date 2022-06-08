@@ -1,8 +1,9 @@
 #ifndef LLLVM_ADT_TENSORTABLE_H
 #define LLLVM_ADT_TENSORTABLE_H
 
-#include <vector>
+#include "llvm/Support/raw_ostream.h"
 #include <assert.h>
+#include <vector>
 
 namespace llvm {
 
@@ -70,6 +71,20 @@ public:
   }
 
   const std::vector<size_t> &getShape() const { return Shape; }
+
+  void print(raw_ostream &OS) const {
+    if (Shape.size() != 2) {
+      OS << "TensorTable is not 2D\n";
+      return;
+    }
+    for (size_t x = 0; x < Shape[0]; x++) {
+      for (size_t y = 0; y < Shape[1]; y++) {
+        std::vector<size_t> P({x, y});
+        OS << this->operator[](P) << " ";
+      }
+      OS << "\n";
+    }
+  }
 };
 
 } // namespace llvm
