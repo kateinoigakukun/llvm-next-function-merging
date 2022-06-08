@@ -77,10 +77,10 @@ public:
       OS << "TensorTable is not 2D\n";
       return;
     }
-    for (size_t x = 0; x < Shape[0]; x++) {
-      for (size_t y = 0; y < Shape[1]; y++) {
+    for (size_t y = 0; y < Shape[1]; y++) {
+      for (size_t x = 0; x < Shape[0]; x++) {
         std::vector<size_t> P({x, y});
-        OS << this->operator[](P) << " ";
+        OS << x << "," << y << "=" << this->operator[](P) << " ";
       }
       OS << "\n";
     }
