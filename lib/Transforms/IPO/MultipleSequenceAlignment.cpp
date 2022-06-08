@@ -363,6 +363,17 @@ void MSAAlignmentEntry::verify() const {
   }
 }
 
+void MSAAlignmentEntry::dump() const {
+  llvm::dbgs() << "MSAAlignmentEntry:\n";
+  for (auto *V : Values) {
+    if (V) {
+      llvm::dbgs() << "- " << *V << "\n";
+    } else {
+      llvm::dbgs() << "-   nullptr\n";
+    }
+  }
+}
+
 void MSAFunctionMerger::merge(const std::vector<MSAAlignmentEntry> &Alignment) {
   MSAGenFunction Generator(M, Alignment, Functions);
   Generator.emit();

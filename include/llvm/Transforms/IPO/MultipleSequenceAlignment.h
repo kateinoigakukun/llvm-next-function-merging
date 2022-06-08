@@ -20,6 +20,7 @@ public:
   ArrayRef<Value *> getValues() const;
   Optional<ArrayRef<Instruction *>> getAsInstructions() const;
   void verify() const;
+  void dump() const;
 };
 
 struct MSAFunctionMergeResult {};
