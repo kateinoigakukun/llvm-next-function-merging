@@ -34,9 +34,10 @@ class MSAFunctionMerger {
 
 public:
   MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM)
-      : Functions(Functions), M(Functions[0]->getParent()), PairMerger(PM),
+      : Functions(Functions), PairMerger(PM),
         Scoring(/*Gap*/ 1, /*Match*/ 0, /*Mismatch*/ 1) {
     assert(!Functions.empty() && "No functions to merge");
+    M = Functions[0]->getParent();
   }
 
   FunctionMerger &getPairMerger() { return PairMerger; }
