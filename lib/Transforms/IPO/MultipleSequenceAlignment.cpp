@@ -97,7 +97,7 @@ public:
   bool assignOperands(Instruction *I);
   bool assignOperands();
 
-  void emit();
+  bool emit();
 
   /// Reorder the operands to minimize the number of `select`
   static void operandReordering(std::vector<std::vector<Value *>> Operands){
@@ -621,7 +621,9 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
   }
 
   MSAGenFunctionBody BodyEmitter(*this, Options, discriminator, VMap, MergedF);
-  BodyEmitter.emit();
+  if (!BodyEmitter.emit()) {
+    return nullptr;
+  }
 
   return MergedF;
 }
@@ -1180,9 +1182,12 @@ bool MSAGenFunctionBody::assignOperands() {
   return true;
 }
 
-void MSAGenFunctionBody::emit() {
+bool MSAGenFunctionBody::emit() {
   layoutSharedBasicBlocks();
   chainBasicBlocks();
   chainEntryBlock();
-  assert(assignOperands() && "Failed to assign operands!");
+  if (!assignOperands()) {
+    return false;
+  }
+  return true;
 }
