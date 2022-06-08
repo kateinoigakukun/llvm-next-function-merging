@@ -62,7 +62,7 @@ public:
         DiscriminatorTy(IntegerType::getInt32Ty(C)), Builder(C){};
 
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
-                        ValueMap<Argument *, unsigned> &ArgToMergedIndex);
+                        ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;
   bool layoutReturnType(Type *&RetTy);
   FunctionType *
   createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args,
@@ -510,7 +510,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 /// Layout the merged function parameters while minimizing the length.
 void MSAGenFunction::layoutParameters(
     std::vector<std::pair<Type *, AttributeSet>> &Args,
-    ValueMap<Argument *, unsigned> &ArgToMergedIndex) {
+    ValueMap<Argument *, unsigned> &ArgToMergedIndex) const {
   assert(Functions.size() <= (1 << 8) && "Too many functions!");
   assert(Functions.size() > 0 && "No functions to merge!");
   Args.emplace_back(DiscriminatorTy, AttributeSet());
