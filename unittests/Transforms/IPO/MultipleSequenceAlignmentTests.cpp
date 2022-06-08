@@ -87,3 +87,10 @@ define internal void @Bfunc(i32* %P, i32* %Q) {
     // ASSERT_TRUE(Alignment[3].match());
   });
 }
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  llvm::cl::ParseCommandLineOptions(argc, argv);
+
+  return RUN_ALL_TESTS();
+}
