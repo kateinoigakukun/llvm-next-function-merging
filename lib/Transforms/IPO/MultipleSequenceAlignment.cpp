@@ -82,6 +82,7 @@ class MSAGenFunctionBody {
   DenseMap<Value *, BasicBlock *> MaterialNodes;
   DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
+  BasicBlock *EntryBB;
   BasicBlock *BlackholeBB;
 
 public:
@@ -93,6 +94,7 @@ public:
         Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
         BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
 
+    EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
     BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
     {
       IRBuilder<> B(BlackholeBB);
@@ -111,6 +113,7 @@ public:
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
+  void chainEntryBlock();
 
   // XXX(katei): This method name is wrong and should be changed to something
   // more descriptive.
@@ -813,6 +816,16 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   }
 }
 
+void MSAGenFunctionBody::chainEntryBlock() {
+  auto *MergedEntryV = MapValue(&Parent.Functions[0]->getEntryBlock(), VMap);
+  assert(MergedEntryV && "Entry block not found! This method should be called "
+                         "after chainBasicBlocks()");
+  auto *MergedEntryBB = dyn_cast<BasicBlock>(MergedEntryV);
+  assert(MergedEntryBB && "Merged entry block should be a basic block!");
+  IRBuilder<> Builder(EntryBB);
+  Builder.CreateBr(MergedEntryBB);
+}
+
 Instruction *
 MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   Instruction *MaxNumOperandsInst = nullptr;
@@ -1173,17 +1186,16 @@ bool MSAGenFunctionBody::assignOperands() {
       }
     }
   }
-  /* TODO(katei): enable after fixing the misalignment issue
   if (!assignValueOperands()) {
     LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n";);
     return false;
   }
-  */
   return true;
 }
 
 void MSAGenFunctionBody::emit() {
   layoutSharedBasicBlocks();
   chainBasicBlocks();
+  chainEntryBlock();
   assert(assignOperands() && "Failed to assign operands!");
 }
