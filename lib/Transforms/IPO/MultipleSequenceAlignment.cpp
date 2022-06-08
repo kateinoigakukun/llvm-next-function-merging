@@ -23,6 +23,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <algorithm>
 #include <cassert>
@@ -477,6 +478,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     count++;
   }
 
+  FunctionPassManager FPM;
+  FPM.addPass(SimplifyCFGPass());
+
   while (MatchFinder->size() > 0) {
     Function *F1 = MatchFinder->next_candidate();
     auto &Rank = MatchFinder->get_matches(F1);
@@ -491,11 +495,12 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     LLVM_DEBUG(dbgs() << "Try to merge\n");
     LLVM_DEBUG(for (auto *F : Functions) { dbgs() << " - " << F->getName() << "\n"; });
     MSAFunctionMerger FM(Functions, PairMerger);
-    FM.merge();
+    auto Result = FM.merge();
     for (auto *F : Functions) {
       if (F == F1) continue;
       MatchFinder->remove_candidate(F);
     }
+    FPM.run(*Result.MergedFunction, FAM);
   }
 
   return PreservedAnalyses::none();
