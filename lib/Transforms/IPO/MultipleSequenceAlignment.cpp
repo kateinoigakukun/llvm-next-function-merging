@@ -44,6 +44,7 @@ namespace llvm {
 class MSAGenFunctionBody {
   const MSAGenFunction &Parent;
   const FunctionMergingOptions &Options;
+  MSAStats &Stats;
   Function *MergedFunc;
 
   Value *Discriminator;
@@ -57,10 +58,10 @@ class MSAGenFunctionBody {
 
 public:
   MSAGenFunctionBody(const MSAGenFunction &Parent,
-                     const FunctionMergingOptions &Options,
+                     const FunctionMergingOptions &Options, MSAStats &Stats,
                      Value *Discriminator, ValueToValueMapTy &VMap,
                      Function *MergedF)
-      : Parent(Parent), Options(Options), MergedFunc(MergedF),
+      : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
         Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
         BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
 
@@ -312,17 +313,16 @@ static void buildAlignment(
 
 }; // namespace
 
-MSAFunctionMergeResult MSAFunctionMerger::merge() {
+Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   std::vector<MSAAlignmentEntry> Alignment;
   align(Alignment);
 
+  FunctionMergingOptions Options;
   MSAGenFunction Generator(M, Alignment, Functions);
-  auto *Merged = Generator.emit();
+  auto *Merged = Generator.emit(Options, Stats);
 
-  return MSAFunctionMergeResult{
-      .MergedFunction = Merged,
-  };
+  return Merged;
 }
 
 void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
@@ -463,13 +463,14 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
     LLVM_DEBUG(dbgs() << "Try to merge\n");
     LLVM_DEBUG(for (auto *F : Functions) { dbgs() << " - " << F->getName() << "\n"; });
+    MSAStats Stats;
     MSAFunctionMerger FM(Functions, PairMerger);
-    auto Result = FM.merge();
+    auto MergedFunction = FM.merge(Stats);
     for (auto *F : Functions) {
       if (F == F1) continue;
       MatchFinder->remove_candidate(F);
     }
-    FPM.run(*Result.MergedFunction, FAM);
+    FPM.run(*MergedFunction, FAM);
   }
 
   return PreservedAnalyses::none();
@@ -590,7 +591,8 @@ StringRef MSAGenFunction::getFunctionName() {
   return *this->NameCache;
 }
 
-Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
+Function *MSAGenFunction::emit(const FunctionMergingOptions &Options,
+                               MSAStats &Stats) {
   Type *RetTy;
   std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
   ValueMap<Argument *, unsigned> ArgToMergedIndex;
@@ -620,7 +622,8 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options) {
     }
   }
 
-  MSAGenFunctionBody BodyEmitter(*this, Options, discriminator, VMap, MergedF);
+  MSAGenFunctionBody BodyEmitter(*this, Options, Stats, discriminator, VMap,
+                                 MergedF);
   if (!BodyEmitter.emit()) {
     return nullptr;
   }
@@ -1006,6 +1009,9 @@ Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
     assert(V != nullptr && "value should not be null!");
     PHI->addIncoming(V, BB);
   }
+
+  Stats.NumSelection++;
+
   return PHI;
 }
 

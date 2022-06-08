@@ -24,8 +24,8 @@ public:
   void dump() const;
 };
 
-struct MSAFunctionMergeResult {
-  Function *MergedFunction;
+struct MSAStats {
+  unsigned NumSelection;
 };
 
 /// \brief This pass merges multiple functions into a single function by
@@ -47,7 +47,7 @@ public:
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
-  MSAFunctionMergeResult merge();
+  Function *merge(MSAStats &Stats);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 };
 
@@ -80,7 +80,7 @@ public:
 
   StringRef getFunctionName();
 
-  Function *emit(const FunctionMergingOptions &Options = {});
+  Function *emit(const FunctionMergingOptions &Options, MSAStats &Stats);
 };
 
 class MultipleFunctionMergingPass
