@@ -984,13 +984,21 @@ Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
   //   }
   // }
 
-  IRBuilder<> Builder(InsertPt);
-  auto *Switch = Builder.CreateSwitch(Discriminator, BlackholeBB);
-  auto *PHI = Builder.CreatePHI(Values[0]->getType(), Values.size());
+  auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc);
+  IRBuilder<> SwitchB(SwitchBB);
+  auto *Switch = SwitchB.CreateSwitch(Discriminator, BlackholeBB);
+
+  InsertPt->getParent()->replaceAllUsesWith(SwitchBB);
+
+  IRBuilder<> AggregateB(InsertPt);
+  auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size());
+
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
     auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
     auto *BB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc);
+
     IRBuilder<> BuilderBB(BB);
+    BuilderBB.CreateBr(InsertPt->getParent());
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
