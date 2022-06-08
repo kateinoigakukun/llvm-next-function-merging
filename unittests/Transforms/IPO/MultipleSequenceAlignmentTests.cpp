@@ -1,9 +1,12 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/AsmParser/Parser.h"
+#include "llvm/IR/Argument.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
@@ -18,8 +21,10 @@ using namespace llvm;
 
 class MSAFunctionMergerAlignmentTest : public ::testing::Test {
 protected:
-  void withAlignment(Module &M, const std::vector<std::string> &FuncNames,
-                     function_ref<void(ArrayRef<MSAAlignmentEntry>)> Test) {
+  void withAlignment(
+      Module &M, const std::vector<std::string> &FuncNames,
+      function_ref<void(ArrayRef<MSAAlignmentEntry>, ArrayRef<Function *>)>
+          Test) {
     ASSERT_GT(M.getFunctionList().size(), 0);
 
     FunctionMerger PairMerger(&M);
@@ -31,7 +36,7 @@ protected:
     std::vector<MSAAlignmentEntry> Alignment;
     Merger.align(Alignment);
     std::reverse(Alignment.begin(), Alignment.end());
-    Test(Alignment);
+    Test(Alignment, Functions);
   }
 };
 
@@ -55,7 +60,7 @@ define internal void @Bfunc(i32* %P, i32* %Q) {
                                Error, Ctx);
 
   ASSERT_TRUE(M);
-  withAlignment(*M, {"Afunc", "Bfunc"}, [&](auto Alignment) {
+  withAlignment(*M, {"Afunc", "Bfunc"}, [&](auto Alignment, auto) {
     LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
     ASSERT_EQ(Alignment.size(), 5);
     ASSERT_TRUE(Alignment[0].match());
@@ -73,7 +78,7 @@ define internal void @Bfunc(i32* %P, i32* %Q) {
   });
 }
 
-TEST_F(MSAFunctionMergerAlignmentTest, Three) {
+TEST_F(MSAFunctionMergerAlignmentTest, BasicThree) {
   LLVMContext Ctx;
   SMDiagnostic Error;
   auto M = parseAssemblyString(R"(
@@ -111,7 +116,7 @@ define internal i64 @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
                                Error, Ctx);
 
   ASSERT_TRUE(M);
-  withAlignment(*M, {"Afunc", "Bfunc", "Cfunc"}, [&](auto Alignment) {
+  withAlignment(*M, {"Afunc", "Bfunc", "Cfunc"}, [&](auto Alignment, auto) {
     LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
     // Expected alignment:
     // [o] 0. entryBB
@@ -169,6 +174,47 @@ define internal i64 @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
       }
     }
   });
+}
+
+TEST_F(MSAFunctionMergerAlignmentTest, ParameterLayout) {
+  LLVMContext Ctx;
+  SMDiagnostic Error;
+  auto M = parseAssemblyString(R"(
+define void @Afunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
+  ret void
+}
+
+define void @Bfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
+  ret void
+}
+
+define void @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
+  ret void
+}
+  )",
+                               Error, Ctx);
+
+  ASSERT_TRUE(M);
+  withAlignment(*M, {"Afunc", "Bfunc", "Cfunc"},
+                [&](auto Alignment, ArrayRef<Function *> Functions) {
+                  LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
+                  MSAGenFunction Generator(M.get(), Alignment, Functions);
+                  std::vector<std::pair<Type *, AttributeSet>> Args;
+                  ValueMap<Argument *, unsigned int> ArgToMergedIndex;
+                  Generator.layoutParameters(Args, ArgToMergedIndex);
+
+                  std::vector<std::set<Value *>> MergedIndexToArgs(Args.size());
+                  for (auto P : ArgToMergedIndex) {
+                    MergedIndexToArgs[P.second].insert(P.first);
+                  }
+
+                  // Start from 1 because 0 is the discriminator
+                  for (size_t i = 1; i < Args.size(); ++i) {
+                    SCOPED_TRACE("i=" + std::to_string(i));
+                    auto &srcArgs = MergedIndexToArgs[i];
+                    ASSERT_EQ(srcArgs.size(), 3);
+                  }
+                });
 }
 
 int main(int argc, char **argv) {

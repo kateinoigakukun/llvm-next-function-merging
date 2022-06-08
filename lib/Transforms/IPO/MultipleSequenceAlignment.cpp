@@ -41,38 +41,6 @@
 
 namespace llvm {
 
-class MSAGenFunctionBody;
-
-class MSAGenFunction {
-  Module *M;
-  LLVMContext &C;
-  const std::vector<MSAAlignmentEntry> &Alignment;
-  const ArrayRef<Function *> &Functions;
-  Optional<std::string> NameCache;
-  IntegerType *DiscriminatorTy;
-
-  IRBuilder<> Builder;
-
-  friend class MSAGenFunctionBody;
-
-public:
-  MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
-                 const ArrayRef<Function *> &Functions)
-      : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),
-        DiscriminatorTy(IntegerType::getInt32Ty(C)), Builder(C){};
-
-  void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
-                        ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;
-  bool layoutReturnType(Type *&RetTy);
-  FunctionType *
-  createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args,
-                     Type *RetTy);
-
-  StringRef getFunctionName();
-
-  Function *emit(const FunctionMergingOptions &Options = {});
-};
-
 class MSAGenFunctionBody {
   const MSAGenFunction &Parent;
   const FunctionMergingOptions &Options;
