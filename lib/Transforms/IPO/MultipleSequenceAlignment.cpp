@@ -377,26 +377,6 @@ void MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
 
 }; // namespace
 
-void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
-  MSAligner::align(PairMerger, Scoring, Functions, Alignment);
-}
-
-Function *MSAFunctionMerger::merge(MSAStats &Stats) {
-
-  std::vector<MSAAlignmentEntry> Alignment;
-  align(Alignment);
-
-  FunctionMergingOptions Options;
-  MSAGenFunction Generator(M, Alignment, Functions);
-  auto *Merged = Generator.emit(Options, Stats);
-
-  return Merged;
-}
-
-bool MSAAlignmentEntry::match() const { return IsMatched; }
-
-ArrayRef<Value *> MSAAlignmentEntry::getValues() const { return Values; }
-
 Optional<ArrayRef<Instruction *>> MSAAlignmentEntry::getAsInstructions() const {
   for (auto *V : Values) {
     if (!(V && isa<Instruction>(V))) {
@@ -428,6 +408,22 @@ void MSAAlignmentEntry::dump() const {
       llvm::dbgs() << "-   nullptr\n";
     }
   }
+}
+
+void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+  MSAligner::align(PairMerger, Scoring, Functions, Alignment);
+}
+
+Function *MSAFunctionMerger::merge(MSAStats &Stats) {
+
+  std::vector<MSAAlignmentEntry> Alignment;
+  align(Alignment);
+
+  FunctionMergingOptions Options;
+  MSAGenFunction Generator(M, Alignment, Functions);
+  auto *Merged = Generator.emit(Options, Stats);
+
+  return Merged;
 }
 
 namespace {

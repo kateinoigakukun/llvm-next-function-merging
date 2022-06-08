@@ -17,8 +17,8 @@ public:
   MSAAlignmentEntry(std::vector<Value *> Values, bool IsMatched)
       : Values(Values), IsMatched(IsMatched) {}
 
-  bool match() const;
-  ArrayRef<Value *> getValues() const;
+  bool match() const { return IsMatched; }
+  ArrayRef<Value *> getValues() const { return Values; }
   Optional<ArrayRef<Instruction *>> getAsInstructions() const;
   void verify() const;
   void dump() const;
