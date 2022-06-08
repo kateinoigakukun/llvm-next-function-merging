@@ -346,9 +346,13 @@ MSAFunctionMergeResult MSAFunctionMerger::merge() {
 
   std::vector<MSAAlignmentEntry> Alignment;
   align(Alignment);
-  merge(Alignment);
 
-  return MSAFunctionMergeResult();
+  MSAGenFunction Generator(M, Alignment, Functions);
+  auto *Merged = Generator.emit();
+
+  return MSAFunctionMergeResult{
+      .MergedFunction = Merged,
+  };
 }
 
 void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
@@ -432,11 +436,6 @@ void MSAAlignmentEntry::dump() const {
       llvm::dbgs() << "-   nullptr\n";
     }
   }
-}
-
-void MSAFunctionMerger::merge(const std::vector<MSAAlignmentEntry> &Alignment) {
-  MSAGenFunction Generator(M, Alignment, Functions);
-  Generator.emit();
 }
 
 namespace {

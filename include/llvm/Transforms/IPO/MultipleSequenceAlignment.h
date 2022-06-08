@@ -2,6 +2,7 @@
 #define LLVM_TRANSFORMS_IPO_MULTIPLESEQUENCEALIGNMENT_H
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
@@ -23,7 +24,9 @@ public:
   void dump() const;
 };
 
-struct MSAFunctionMergeResult {};
+struct MSAFunctionMergeResult {
+  Function *MergedFunction;
+};
 
 /// \brief This pass merges multiple functions into a single function by
 /// multiple sequence alignment algorithm.
@@ -46,7 +49,6 @@ public:
 
   MSAFunctionMergeResult merge();
   void align(std::vector<MSAAlignmentEntry> &Alignment);
-  void merge(const std::vector<MSAAlignmentEntry> &Alignment);
 };
 
 class MultipleFunctionMergingPass
