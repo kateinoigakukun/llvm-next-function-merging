@@ -154,7 +154,37 @@ static bool advancePointInShape(std::vector<size_t> &Point,
 
 
 using TransitionOffset = std::vector<size_t>;
-using TransitionEntry = std::pair<TransitionOffset, /*Match*/ bool>;
+struct TransitionEntry {
+  TransitionOffset Offset;
+  bool Match;
+  bool Invalid;
+
+  TransitionEntry(TransitionOffset Offset, bool Match)
+      : Offset(Offset), Match(Match), Invalid(false) {}
+  TransitionEntry() : Offset({}), Match(false), Invalid(true) {}
+
+  void print(raw_ostream &OS) const {
+    OS << "(";
+    OS << "{";
+    for (size_t i = 0; i < Offset.size(); i++) {
+      if (i != 0)
+        OS << ", ";
+      OS << Offset[i];
+    }
+    OS << "},";
+    if (Match)
+      OS << "T";
+    else
+      OS << "F";
+    OS << ")";
+  }
+  void dump() const { print(llvm::errs()); }
+};
+
+raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
+  Entry.print(OS);
+  return OS;
+}
 
 static void initScoreTable(TensorTable<int32_t> &ScoreTable,
                            TensorTable<TransitionEntry> &BestTransTable,
@@ -167,7 +197,7 @@ static void initScoreTable(TensorTable<int32_t> &ScoreTable,
       ScoreTable[Point] = Scoring.getGapPenalty() * i;
       TransitionOffset transOffset(Shape.size(), 0);
       transOffset[dim] = 1;
-      BestTransTable[Point] = std::make_pair(transOffset, false);
+      BestTransTable[Point] = TransitionEntry(transOffset, false);
     }
   }
 }
@@ -228,7 +258,7 @@ static void computeBestTransition(
     if (minCost == cost) {
       ScoreTable.set(Point, TransOffset, false, minCost);
       BestTransTable.set(Point, TransOffset, false,
-                         std::make_pair(TransOffset, IsMatched));
+                         TransitionEntry(TransOffset, IsMatched));
     }
   }
 }
@@ -238,7 +268,7 @@ static MSAAlignmentEntry buildAlignmentEntry(
     const SmallVectorImpl<SmallVectorImpl<Value *> *> &InstrVecRefList) {
 
   std::vector<Value *> Instrs;
-  const std::vector<size_t> &TransOffset = Entry.first;
+  const std::vector<size_t> &TransOffset = Entry.Offset;
   for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
     size_t diff = TransOffset[FuncIdx];
     if (diff == 1) {
@@ -249,7 +279,7 @@ static MSAAlignmentEntry buildAlignmentEntry(
       Instrs.push_back(nullptr);
     }
   }
-  return MSAAlignmentEntry(Instrs, Entry.second);
+  return MSAAlignmentEntry(Instrs, Entry.Match);
 }
 
 static void buildAlignment(
@@ -273,7 +303,7 @@ static void buildAlignment(
     }
 
     auto &Entry = BestTransTable[Cursor];
-    auto &Offset = Entry.first;
+    auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
     Alignment.emplace_back(buildAlignmentEntry(Entry, Cursor, InstrVecRefList));
     for (size_t dim = 0; dim < MaxDim; dim++) {
@@ -332,6 +362,8 @@ void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
         });
   } while (advancePointInShape(Cursor, ScoreTable.getShape()));
   LLVM_DEBUG(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
+  LLVM_DEBUG(llvm::dbgs() << "BestTransTable:\n";
+             BestTransTable.print(llvm::dbgs()));
 
   buildAlignment(BestTransTable, InstrVecRefList, Alignment);
 

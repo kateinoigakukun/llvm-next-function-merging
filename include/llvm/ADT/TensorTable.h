@@ -85,6 +85,7 @@ public:
       OS << "\n";
     }
   }
+  void dump() const { print(llvm::errs()); }
 };
 
 } // namespace llvm
