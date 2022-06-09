@@ -342,14 +342,56 @@ void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
   MSAligner::align(PairMerger, Scoring, Functions, Alignment);
 }
 
+Function *MSAFunctionMerger::writeThunk(
+    Function *MergedFunction, Function *SrcFunction, unsigned int FuncId,
+    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
+  auto *thunk = Function::Create(SrcFunction->getFunctionType(),
+                                 SrcFunction->getLinkage(), "", M);
+  thunk->setCallingConv(SrcFunction->getCallingConv());
+  auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
+  IRBuilder<> Builder(BB);
+
+  SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
+
+  Args[0] = ConstantInt::get(DiscriminatorTy, FuncId);
+
+  for (auto &srcArg : SrcFunction->args()) {
+    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+    Args[newArgNo] = thunk->getArg(srcArg.getArgNo());
+  }
+  for (size_t i = 0; i < Args.size(); i++) {
+    if (!Args[i]) {
+      Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
+    }
+  }
+
+  auto *Result = Builder.CreateCall(MergedFunction, Args);
+  if (SrcFunction->getReturnType()->isVoidTy()) {
+    Builder.CreateRetVoid();
+  } else {
+    Builder.CreateRet(Result);
+  }
+  SrcFunction->replaceAllUsesWith(thunk);
+  SrcFunction->eraseFromParent();
+  thunk->takeName(SrcFunction);
+
+  return thunk;
+}
+
 Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   std::vector<MSAAlignmentEntry> Alignment;
   align(Alignment);
 
   FunctionMergingOptions Options;
-  MSAGenFunction Generator(M, Alignment, Functions);
-  auto *Merged = Generator.emit(Options, Stats);
+  ValueMap<Argument *, unsigned> ArgToMergedArgNo;
+  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy);
+  auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
+
+  for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
+    auto *F = Functions[FuncId];
+    writeThunk(Merged, F, FuncId, ArgToMergedArgNo);
+  }
 
   return Merged;
 }
@@ -1174,13 +1216,13 @@ StringRef MSAGenFunction::getFunctionName() {
   return *this->NameCache;
 }
 
-Function *MSAGenFunction::emit(const FunctionMergingOptions &Options,
-                               MSAStats &Stats) {
+Function *
+MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
+                     ValueMap<Argument *, unsigned> &ArgToMergedArgNo) {
   Type *RetTy;
   std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
-  ValueMap<Argument *, unsigned> ArgToMergedIndex;
 
-  layoutParameters(MergedArgs, ArgToMergedIndex);
+  layoutParameters(MergedArgs, ArgToMergedArgNo);
   if (!layoutReturnType(RetTy)) {
     // TODO(katei): should emit remarks?
     return nullptr;
@@ -1195,7 +1237,7 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options,
   ValueToValueMapTy VMap;
   for (auto &F : Functions) {
     for (auto &arg : F->args()) {
-      Argument *MergeArg = MergedF->getArg(ArgToMergedIndex[&arg]);
+      Argument *MergeArg = MergedF->getArg(ArgToMergedArgNo[&arg]);
       VMap[&arg] = MergeArg;
       if (MergeArg->getName().empty()) {
         MergeArg->setName("m." + arg.getName());
@@ -1208,6 +1250,7 @@ Function *MSAGenFunction::emit(const FunctionMergingOptions &Options,
   MSAGenFunctionBody BodyEmitter(*this, Options, Stats, discriminator, VMap,
                                  MergedF);
   if (!BodyEmitter.emit()) {
+    MergedF->removeFromParent();
     return nullptr;
   }
 

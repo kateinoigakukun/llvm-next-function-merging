@@ -36,6 +36,8 @@ class MSAFunctionMerger {
   FunctionMerger &PairMerger;
   ScoringSystem Scoring;
 
+  IntegerType *DiscriminatorTy;
+
 public:
   MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM)
       : Functions(Functions), PairMerger(PM),
@@ -43,10 +45,14 @@ public:
                 /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
     M = Functions[0]->getParent();
+    DiscriminatorTy = IntegerType::getInt32Ty(M->getContext());
   }
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
+  Function *writeThunk(Function *MergedFunction, Function *SrcFunction,
+                       unsigned FuncId,
+                       ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
   Function *merge(MSAStats &Stats);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 };
@@ -67,9 +73,10 @@ class MSAGenFunction {
 
 public:
   MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
-                 const ArrayRef<Function *> &Functions)
+                 const ArrayRef<Function *> &Functions,
+                 IntegerType *DiscriminatorTy)
       : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),
-        DiscriminatorTy(IntegerType::getInt32Ty(C)), Builder(C){};
+        DiscriminatorTy(DiscriminatorTy), Builder(C){};
 
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;
@@ -80,7 +87,8 @@ public:
 
   StringRef getFunctionName();
 
-  Function *emit(const FunctionMergingOptions &Options, MSAStats &Stats);
+  Function *emit(const FunctionMergingOptions &Options, MSAStats &Stats,
+                 ValueMap<Argument *, unsigned> &ArgToMergedArgNo);
 };
 
 class MultipleFunctionMergingPass

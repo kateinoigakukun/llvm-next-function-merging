@@ -198,7 +198,9 @@ define void @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
   withAlignment(*M, {"Afunc", "Bfunc", "Cfunc"},
                 [&](auto Alignment, ArrayRef<Function *> Functions) {
                   LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
-                  MSAGenFunction Generator(M.get(), Alignment, Functions);
+                  MSAGenFunction Generator(
+                      M.get(), Alignment, Functions,
+                      IntegerType::getInt32Ty(M->getContext()));
                   std::vector<std::pair<Type *, AttributeSet>> Args;
                   ValueMap<Argument *, unsigned int> ArgToMergedIndex;
                   Generator.layoutParameters(Args, ArgToMergedIndex);
