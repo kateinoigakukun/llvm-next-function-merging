@@ -365,11 +365,13 @@ Function *MSAFunctionMerger::writeThunk(
     }
   }
 
-  auto *Result = Builder.CreateCall(MergedFunction, Args);
+  auto *Call = Builder.CreateCall(MergedFunction, Args);
+  Call->setIsNoInline();
+
   if (SrcFunction->getReturnType()->isVoidTy()) {
     Builder.CreateRetVoid();
   } else {
-    Builder.CreateRet(Result);
+    Builder.CreateRet(Call);
   }
   SrcFunction->replaceAllUsesWith(thunk);
   SrcFunction->eraseFromParent();
