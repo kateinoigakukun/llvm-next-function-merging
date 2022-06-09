@@ -1,4 +1,4 @@
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 3 -disable-verify < %s | FileCheck %s
+; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 3 < %s | FileCheck %s
 
 declare void @extern_func_1()
 declare void @extern_func_2()
