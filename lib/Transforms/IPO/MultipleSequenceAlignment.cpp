@@ -600,28 +600,42 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       ChainBySrcBB[SrcBB].push_back(std::make_pair(FuncId, TargetBB));
     };
 
+    void finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
+      assert(!Chain.empty() && "Chain should have at least one dest!");
+
+      bool singleTarget =
+          std::all_of(Chain.begin(), Chain.end(),
+                      [&](const std::pair<FuncId, BasicBlock *> &Pair) {
+                        auto *TargetBB = Pair.second;
+                        return Chain[0].second == TargetBB;
+                      });
+
+      IRBuilder<> Builder(SrcBB);
+      if (singleTarget) {
+        Builder.CreateBr(Chain[0].second);
+        return;
+      }
+
+      std::sort(Chain.begin(), Chain.end(),
+                [](auto &L, auto &R) { return L.first < R.first; });
+
+      // Set largest FuncId as the default target.
+      auto DefaultBB = Chain.back().second;
+      SwitchInst *Switch =
+          Builder.CreateSwitch(Parent.Discriminator, DefaultBB);
+
+      for (size_t i = 0, e = Chain.size() - 1; i < e; ++i) {
+        auto &FuncIdAndBB = Chain[i];
+        auto *TargetBB = FuncIdAndBB.second;
+        auto *Var =
+            ConstantInt::get(Parent.Parent.DiscriminatorTy, FuncIdAndBB.first);
+        Switch->addCase(Var, TargetBB);
+      }
+    }
+
     void finalize() {
       for (auto &P : ChainBySrcBB) {
-        BasicBlock *SrcBB = P.first;
-        SwitchChain &Chain = P.second;
-        IRBuilder<> Builder(SrcBB);
-
-        assert(!Chain.empty() && "Chain should have at least one dest!");
-        std::sort(Chain.begin(), Chain.end(),
-                  [](auto &L, auto &R) { return L.first < R.first; });
-
-        // Set largest FuncId as the default target.
-        auto DefaultBB = Chain.back().second;
-        SwitchInst *Switch =
-            Builder.CreateSwitch(Parent.Discriminator, DefaultBB);
-
-        for (size_t i = 0, e = Chain.size() - 1; i < e; ++i) {
-          auto &FuncIdAndBB = Chain[i];
-          auto *TargetBB = FuncIdAndBB.second;
-          auto *Var = ConstantInt::get(Parent.Parent.DiscriminatorTy,
-                                       FuncIdAndBB.first);
-          Switch->addCase(Var, TargetBB);
-        }
+        finalizeChain(P.first, P.second);
       }
     }
   };
