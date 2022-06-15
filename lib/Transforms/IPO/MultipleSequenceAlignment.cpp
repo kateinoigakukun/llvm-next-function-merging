@@ -20,6 +20,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueMap.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
@@ -389,6 +390,15 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
   MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy);
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
+  if (!Merged) {
+    return nullptr;
+  }
+
+  if (verifyFunction(*Merged)) {
+    LLVM_DEBUG(dbgs() << "Invalid merged function:\n" << *Merged << "\n");
+    Merged->removeFromParent();
+    return nullptr;
+  }
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
@@ -461,7 +471,7 @@ public:
   bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
   bool assignMismatchingLabelOperands(
       Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
-  Value *mergeValues(ArrayRef<Value *> Values, Instruction *InsertPt);
+  Value *mergeOperandValues(ArrayRef<Value *> Values, Instruction *InsertPt);
   bool assignValueOperands();
   /// Assign new value operands. Return true if all operands are assigned.
   /// Return false if failed to assign any operand.
@@ -817,8 +827,8 @@ bool MSAGenFunctionBody::assignMismatchingLabelOperands(
   return true;
 }
 
-Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
-                                       Instruction *InsertPt) {
+Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
+                                              Instruction *InsertPt) {
   bool areAllEqual = std::all_of(Values.begin(), Values.end(),
                                  [&](Value *V) { return V == Values[0]; });
   if (areAllEqual)
@@ -936,7 +946,8 @@ bool MSAGenFunctionBody::assignValueOperands() {
     if (Options.EnableOperandReordering && isa<BinaryOperator>(NewI) &&
         MaxNumOperandsInst->isCommutative()) {
 
-      std::vector<std::vector<Value *>> Operands;
+      std::vector<std::vector<Value *>> Operands(
+          MaxNumOperandsInst->getNumOperands());
       for (auto *I : Instructions) {
         auto *BO = dyn_cast<BinaryOperator>(I);
         for (size_t OpIdx = 0, e = I->getNumOperands(); OpIdx < e; ++OpIdx) {
@@ -948,7 +959,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
 
       for (unsigned i = 0; i < Operands.size(); i++) {
         auto Vs = Operands[i];
-        Value *V = mergeValues(Vs, NewI);
+        Value *V = mergeOperandValues(Vs, NewI);
 
         if (V == nullptr) {
           LLVM_DEBUG(errs() << "Could Not select:\n"
@@ -956,9 +967,11 @@ bool MSAGenFunctionBody::assignValueOperands() {
           return false; // ErrorResponse;
         }
 
-        Value *CastedV = createCastIfNeeded(V, NewI->getOperand(i)->getType(),
-                                            Builder, getIntPtrType());
-        NewI->setOperand(i, CastedV);
+        if (auto *LiteralOp = NewI->getOperand(i)) {
+          assert(V->getType() == LiteralOp->getType() &&
+                 "TODO(katei): Handle type mismatch?");
+        }
+        NewI->setOperand(i, V);
       }
     } else {
       auto *I = MaxNumOperandsInst;
@@ -990,7 +1003,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
           Vs.push_back(V);
         }
 
-        Value *V = mergeValues(Vs, NewI);
+        Value *V = mergeOperandValues(Vs, NewI);
         if (V == nullptr) {
           LLVM_DEBUG(errs() << "Could Not select:\n"
                             << "ERROR: Value should NOT be null\n";);
@@ -1308,6 +1321,10 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     MSAStats Stats;
     MSAFunctionMerger FM(Functions, PairMerger);
     auto MergedFunction = FM.merge(Stats);
+    if (!MergedFunction) {
+      LLVM_DEBUG(dbgs() << "Merge failed\n");
+      continue;
+    }
     for (auto *F : Functions) {
       if (F == F1)
         continue;
