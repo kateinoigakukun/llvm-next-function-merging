@@ -48,16 +48,15 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:      i32 2, label %bb.select11
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
-; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry, %m.inst.bb
+; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb:                                        ; preds = %entry, %bb.select11, %bb.select10
 ; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select10 ], [ 4, %bb.select11 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
-; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
+; CHECK-NEXT:    switch i32 %discriminator, label %split.bb5 [
 ; CHECK-NEXT:      i32 0, label %split.bb
 ; CHECK-NEXT:      i32 1, label %split.bb4
-; CHECK-NEXT:      i32 2, label %split.bb5
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %split.bb5, %split.bb4, %split.bb

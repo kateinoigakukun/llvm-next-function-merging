@@ -395,7 +395,8 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
   }
 
   if (verifyFunction(*Merged)) {
-    LLVM_DEBUG(dbgs() << "Invalid merged function:\n" << *Merged << "\n");
+    LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
+    Merged->dump();
     Merged->removeFromParent();
     return nullptr;
   }
@@ -583,23 +584,53 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 }
 
 void MSAGenFunctionBody::chainBasicBlocks() {
+  using FuncId = size_t;
 
-  auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
-                         size_t FuncId) {
-    IRBuilder<> Builder(SrcBB);
-    SwitchInst *Switch;
-    if (SrcBB->getTerminator() == nullptr) {
-      Switch = Builder.CreateSwitch(Discriminator, BlackholeBB);
-    } else {
-      Switch = dyn_cast<SwitchInst>(SrcBB->getTerminator());
+  class SwitchChainer {
+    using SwitchChain = std::vector<std::pair<FuncId, BasicBlock *>>;
+    DenseMap<BasicBlock *, SwitchChain> ChainBySrcBB;
+    const MSAGenFunctionBody &Parent;
+  public:
+    SwitchChainer(const MSAGenFunctionBody &Parent) : Parent(Parent) {}
+
+    void chainBlocks(BasicBlock *SrcBB, BasicBlock *TargetBB, FuncId FuncId) {
+      if (ChainBySrcBB.find(SrcBB) == ChainBySrcBB.end()) {
+        ChainBySrcBB[SrcBB] = SwitchChain();
+      }
+      ChainBySrcBB[SrcBB].push_back(std::make_pair(FuncId, TargetBB));
+    };
+
+    void finalize() {
+      for (auto &P : ChainBySrcBB) {
+        BasicBlock *SrcBB = P.first;
+        SwitchChain &Chain = P.second;
+        IRBuilder<> Builder(SrcBB);
+
+        assert(!Chain.empty() && "Chain should have at least one dest!");
+        std::sort(Chain.begin(), Chain.end(),
+                  [](auto &L, auto &R) { return L.first < R.first; });
+
+        // Set largest FuncId as the default target.
+        auto DefaultBB = Chain.back().second;
+        SwitchInst *Switch =
+            Builder.CreateSwitch(Parent.Discriminator, DefaultBB);
+
+        for (size_t i = 0, e = Chain.size() - 1; i < e; ++i) {
+          auto &FuncIdAndBB = Chain[i];
+          auto *TargetBB = FuncIdAndBB.second;
+          auto *Var = ConstantInt::get(Parent.Parent.DiscriminatorTy,
+                                       FuncIdAndBB.first);
+          Switch->addCase(Var, TargetBB);
+        }
+      }
     }
-    auto *Var = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-    Switch->addCase(Var, TargetBB);
   };
+
+  SwitchChainer chainer(*this);
 
   auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
                                DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
-                               size_t FuncId) {
+                               FuncId FuncId) {
     BasicBlock *LastMergedBB = nullptr;
     BasicBlock *NewBB = nullptr;
     auto FoundMerged = MaterialNodes.find(SrcBB);
@@ -636,7 +667,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       if (HasBeenMerged) {
         BasicBlock *NodeBB = MaterialNodes[&I];
         if (LastMergedBB) {
-          ChainBlocks(LastMergedBB, NodeBB, FuncId);
+          chainer.chainBlocks(LastMergedBB, NodeBB, FuncId);
         } else {
           IRBuilder<> Builder(NewBB);
           Builder.CreateBr(NodeBB);
@@ -648,7 +679,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
           std::string BBName = "split.bb";
           NewBB =
               BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
-          ChainBlocks(LastMergedBB, NewBB, FuncId);
+          chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
           BlocksFX[NewBB] = SrcBB;
         }
         LastMergedBB = nullptr;
@@ -666,6 +697,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       ProcessBasicBlock(&BB, MergedBBToBB[i], i);
     }
   }
+  chainer.finalize();
 }
 
 void MSAGenFunctionBody::chainEntryBlock() {

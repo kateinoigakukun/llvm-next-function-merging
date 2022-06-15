@@ -54,14 +54,14 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  m.inst.bb:                                        ; preds = %entry, %bb.select7, %bb.select6
 ; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select6 ], [ 4, %bb.select7 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
-; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
-; CHECK-NEXT:    br i1 %switch, label %split.bb, label %m.inst.bb1
+; CHECK-NEXT:    %cond = icmp eq i32 %discriminator, 0
+; CHECK-NEXT:    br i1 %cond, label %split.bb, label %m.inst.bb1
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %split.bb
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
 ; CHECK-NEXT:    %discriminator.off = add i32 %discriminator, -1
-; CHECK-NEXT:    %switch9 = icmp ult i32 %discriminator.off, 1
-; CHECK-NEXT:    %spec.select = select i1 %switch9, i64 42, i64 0
+; CHECK-NEXT:    %switch = icmp ult i32 %discriminator.off, 1
+; CHECK-NEXT:    %spec.select = select i1 %switch, i64 42, i64 0
 ; CHECK-NEXT:    ret i64 %spec.select
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  split.bb:                                         ; preds = %m.inst.bb
