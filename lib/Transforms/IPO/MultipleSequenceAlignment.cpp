@@ -917,8 +917,10 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   //   br label %insert.pt
   // bb.select1:
   //   br label %insert.pt
-  // insert.pt:
+  // bb.aggregate.values:
   //   %4 = phi i32 [ 0, %bb.select0 ], [ 42, %bb.select1 ]
+  //   br label %insert.pt
+  // insert.pt:
   //   add %4, i32 0
 
   auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc,
@@ -928,16 +930,20 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
 
   InsertPt->getParent()->replaceAllUsesWith(SwitchBB);
 
-  IRBuilder<> AggregateB(InsertPt);
+  auto *AggregateBB = BasicBlock::Create(Parent.C, "bb.aggregate.values",
+                                         MergedFunc, InsertPt->getParent());
+  IRBuilder<> AggregateB(AggregateBB);
+
   auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size());
+  AggregateB.CreateBr(InsertPt->getParent());
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
     auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-    auto *BB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc,
-                                  InsertPt->getParent());
+    auto *BB = BasicBlock::Create(Parent.C, "bb.select.values", MergedFunc,
+                                  AggregateBB);
 
     IRBuilder<> BuilderBB(BB);
-    BuilderBB.CreateBr(InsertPt->getParent());
+    BuilderBB.CreateBr(AggregateBB);
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");

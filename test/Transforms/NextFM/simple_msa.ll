@@ -44,21 +44,21 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb
-; CHECK-NEXT:      i32 1, label %bb.select10
-; CHECK-NEXT:      i32 2, label %bb.select11
+; CHECK-NEXT:      i32 1, label %bb.select.values11
+; CHECK-NEXT:      i32 2, label %bb.select.values12
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select10:                                      ; preds = %entry
+; CHECK-NEXT:  bb.select.values11:                               ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select11:                                      ; preds = %entry
+; CHECK-NEXT:  bb.select.values12:                               ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb:                                        ; preds = %entry, %bb.select11, %bb.select10
-; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select10 ], [ 4, %bb.select11 ], [ 2, %entry ]
+; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values11, %bb.select.values12, %entry
+; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values11 ], [ 4, %bb.select.values12 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
 ; CHECK-NEXT:    switch i32 %discriminator, label %split.bb5 [
 ; CHECK-NEXT:      i32 0, label %split.bb
