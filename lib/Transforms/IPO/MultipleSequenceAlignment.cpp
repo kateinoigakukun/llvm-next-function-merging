@@ -616,16 +616,10 @@ void MSAGenFunctionBody::chainBasicBlocks() {
         return;
       }
 
-      std::sort(Chain.begin(), Chain.end(),
-                [](auto &L, auto &R) { return L.first < R.first; });
-
-      // Set largest FuncId as the default target.
-      auto DefaultBB = Chain.back().second;
       SwitchInst *Switch =
-          Builder.CreateSwitch(Parent.Discriminator, DefaultBB);
+          Builder.CreateSwitch(Parent.Discriminator, Parent.BlackholeBB);
 
-      for (size_t i = 0, e = Chain.size() - 1; i < e; ++i) {
-        auto &FuncIdAndBB = Chain[i];
+      for (auto &FuncIdAndBB : Chain) {
         auto *TargetBB = FuncIdAndBB.second;
         auto *Var =
             ConstantInt::get(Parent.Parent.DiscriminatorTy, FuncIdAndBB.first);

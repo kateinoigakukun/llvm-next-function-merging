@@ -48,7 +48,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:      i32 2, label %bb.select.values12
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
-; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
+; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry, %m.inst.bb
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  bb.select.values11:                               ; preds = %entry
@@ -60,9 +60,10 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values11, %bb.select.values12, %entry
 ; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values11 ], [ 4, %bb.select.values12 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
-; CHECK-NEXT:    switch i32 %discriminator, label %split.bb5 [
+; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %split.bb
 ; CHECK-NEXT:      i32 1, label %split.bb4
+; CHECK-NEXT:      i32 2, label %split.bb5
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  split.bb5:                                        ; preds = %m.inst.bb
