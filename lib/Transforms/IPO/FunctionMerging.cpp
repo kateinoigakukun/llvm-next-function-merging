@@ -2355,84 +2355,6 @@ bool FunctionMerger::isPAProfitable(BasicBlock *BB1, BasicBlock *BB2){
   return Profitable;
 }
 
-void FunctionMerger::extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq, BasicBlock *BB1, BasicBlock *BB2, AlignmentStats &stats) {
-  if (BB1 != nullptr && BB2 == nullptr) {
-    AlignedSeq.Data.emplace_back(BB1, nullptr, false);
-    for (Instruction &I : *BB1) {
-      if (isa<PHINode>(&I) || isa<LandingPadInst>(&I))
-        continue;
-      stats.Insts++;
-      AlignedSeq.Data.emplace_back(&I, nullptr, false);
-    }
-  } else if (BB1 == nullptr && BB2 != nullptr) {
-    AlignedSeq.Data.emplace_back(nullptr, BB2, false);
-    for (Instruction &I : *BB2) {
-      if (isa<PHINode>(&I) || isa<LandingPadInst>(&I))
-        continue;
-      stats.Insts++;
-      AlignedSeq.Data.emplace_back(nullptr, &I, false);
-    }
-  } else {
-    AlignedSeq.Data.emplace_back(BB1, BB2, FunctionMerger::match(BB1, BB2));
-
-    auto It1 = BB1->begin();
-    while (isa<PHINode>(*It1) || isa<LandingPadInst>(*It1))
-      It1++;
-
-    auto It2 = BB2->begin();
-    while (isa<PHINode>(*It2) || isa<LandingPadInst>(*It2))
-      It2++;
-
-    while (It1 != BB1->end() && It2 != BB2->end()) {
-      Instruction *I1 = &*It1;
-      Instruction *I2 = &*It2;
-
-      stats.Insts++;
-      if (matchInstructions(I1, I2)) {
-        AlignedSeq.Data.emplace_back(I1, I2, true);
-        stats.Matches++;
-        if (!I1->isTerminator())
-          stats.CoreMatches++;
-      } else {
-        AlignedSeq.Data.emplace_back(I1, nullptr, false);
-        AlignedSeq.Data.emplace_back(nullptr, I2, false);
-      }
-
-      It1++;
-      It2++;
-    }
-    assert ((It1 == BB1->end()) && (It2 == BB2->end()));
-  }
-}
-
-void FunctionMerger::extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq, AlignedSequence<Value *> &AlignedSubSeq, AlignmentStats &stats) {
-  for (auto &Entry : AlignedSubSeq) {
-    Instruction *I1 = nullptr;
-    if (Entry.get(0))
-      I1 = dyn_cast<Instruction>(Entry.get(0));
-
-    Instruction *I2 = nullptr;
-    if (Entry.get(1))
-      I2 = dyn_cast<Instruction>(Entry.get(1));
-
-    bool IsInstruction = I1 != nullptr || I2 != nullptr;
-
-    AlignedSeq.Data.emplace_back(Entry.get(0), Entry.get(1), Entry.match());
-
-    if (IsInstruction) {
-      stats.Insts++;
-      if (Entry.match())
-        stats.Matches++;
-      Instruction *I = I1 ? I1 : I2;
-      if (I->isTerminator())
-        stats.CoreMatches++;
-    }
-  }
-}
-
-
-bool AcrossBlocks;
-
 FunctionMergeResult
 FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const FunctionMergingOptions &Options) {
   bool ProfitableFn = true;
@@ -3511,7 +3433,6 @@ bool FunctionMerging::runImpl(
              << " Valid: " << match.Valid
              << " BinSizes: " << match.OtherSize << " + " << match.Size << " <= " << match.MergedSize
              << " IRSizes: " << match.OtherMagnitude << " + " << match.Magnitude
-             << " AcrossBlocks: " << AcrossBlocks
              << " Profitable: " << match.Profitable
              << " Distance: " << match.Distance;
       if (Verbose)

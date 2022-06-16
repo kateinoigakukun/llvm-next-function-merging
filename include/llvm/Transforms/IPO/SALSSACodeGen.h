@@ -65,13 +65,6 @@ public:
   static bool isSAProfitable(AlignedSequence<Value *> &AlignedBlocks);
   static bool isPAProfitable(BasicBlock *BB1, BasicBlock *BB2);
 
-  static void extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq,
-                               AlignedSequence<Value *> &AlignedSubSeq,
-                               AlignmentStats &stats);
-  static void extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq,
-                               BasicBlock *BB1, BasicBlock *BB2,
-                               AlignmentStats &stats);
-
   static bool match(Value *V1, Value *V2);
 
   void updateCallGraph(FunctionMergeResult &Result,
