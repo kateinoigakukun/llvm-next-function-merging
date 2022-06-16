@@ -28,7 +28,6 @@ private:
 
   static bool matchInstructions(Instruction *I1, Instruction *I2,
                                 const FunctionMergingOptions &Options = {});
-  static bool matchWholeBlocks(Value *V1, Value *V2);
 
   void replaceByCall(Function *F, FunctionMergeResult &MergedFunc,
                      const FunctionMergingOptions &Options = {});

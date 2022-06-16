@@ -1065,46 +1065,6 @@ bool FunctionMerger::match(Value *V1, Value *V2) {
   return false;
 }
 
-bool FunctionMerger::matchWholeBlocks(Value *V1, Value *V2) {
-  if (isa<BasicBlock>(V1) && isa<BasicBlock>(V2)) {
-    auto *BB1 = dyn_cast<BasicBlock>(V1);
-    auto *BB2 = dyn_cast<BasicBlock>(V2);
-    if (BB1->isLandingPad() || BB2->isLandingPad()) {
-      LandingPadInst *LP1 = BB1->getLandingPadInst();
-      LandingPadInst *LP2 = BB2->getLandingPadInst();
-      if (LP1 == nullptr || LP2 == nullptr)
-        return false;
-      if (!matchLandingPad(LP1, LP2))
-        return false;
-    }
-
-    auto It1 = BB1->begin();
-    auto It2 = BB2->begin();
-
-    while (isa<PHINode>(*It1) || isa<LandingPadInst>(*It1))
-      It1++;
-    while (isa<PHINode>(*It2) || isa<LandingPadInst>(*It2))
-      It2++;
-
-    while (It1 != BB1->end() && It2 != BB2->end()) {
-      Instruction *I1 = &*It1;
-      Instruction *I2 = &*It2;
-
-      if (!matchInstructions(I1, I2))
-        return false;
-
-      It1++;
-      It2++;
-    }
-
-    if (It1 != BB1->end() || It2 != BB2->end())
-      return false;
-
-    return true;
-  }
-  return false;
-}
-
 static unsigned
 RandomLinearizationOfBlocks(BasicBlock *BB,
                             std::list<BasicBlock *> &OrederedBBs,
