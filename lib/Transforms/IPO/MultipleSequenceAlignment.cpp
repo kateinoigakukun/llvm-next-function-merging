@@ -895,7 +895,32 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   //   }
   // }
 
-  auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc);
+  // pred.0:
+  //   ...
+  //   br label %insert.pt
+  // insert.pt:
+  //   add <i32 0 or i32 42>, i32 0
+  //
+  // ====>
+  //
+  // pred.0:
+  //   ...
+  //   br label %bb.switch.values
+  // bb.switch.values:
+  //   switch i1 %discriminator, label %bb.0 [
+  //     i32 0, label %bb.select0
+  //     i32 1, label %bb.select1
+  //   ]
+  // bb.select0:
+  //   br label %insert.pt
+  // bb.select1:
+  //   br label %insert.pt
+  // insert.pt:
+  //   %4 = phi i32 [ 0, %bb.select0 ], [ 42, %bb.select1 ]
+  //   add %4, i32 0
+
+  auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc,
+                                      InsertPt->getParent());
   IRBuilder<> SwitchB(SwitchBB);
   auto *Switch = SwitchB.CreateSwitch(Discriminator, BlackholeBB);
 
@@ -906,7 +931,8 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
     auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-    auto *BB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc);
+    auto *BB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc,
+                                  InsertPt->getParent());
 
     IRBuilder<> BuilderBB(BB);
     BuilderBB.CreateBr(InsertPt->getParent());

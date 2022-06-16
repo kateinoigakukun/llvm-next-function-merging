@@ -51,6 +51,12 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
+; CHECK-NEXT:  bb.select10:                                      ; preds = %entry
+; CHECK-NEXT:    br label %m.inst.bb
+; CHECK-EMPTY:
+; CHECK-NEXT:  bb.select11:                                      ; preds = %entry
+; CHECK-NEXT:    br label %m.inst.bb
+; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb:                                        ; preds = %entry, %bb.select11, %bb.select10
 ; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select10 ], [ 4, %bb.select11 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
@@ -80,12 +86,6 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  split.bb5:                                        ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_1()
 ; CHECK-NEXT:    br label %m.inst.bb1
-; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select10:                                      ; preds = %entry
-; CHECK-NEXT:    br label %m.inst.bb
-; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select11:                                      ; preds = %entry
-; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-NEXT:  }
 
 ; F3M-LABEL: define internal i64 @Bfunc(i32* %P, i32* %Q, i32* %R, i32* %S)
