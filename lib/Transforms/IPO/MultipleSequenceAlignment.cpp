@@ -692,7 +692,9 @@ void MSAGenFunctionBody::chainBasicBlocks() {
         if (LastMergedBB) {
           std::string BBName = "split.bb";
           NewBB =
-              BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
+              BasicBlock::Create(MergedFunc->getContext(), BBName);
+          MergedFunc->getBasicBlockList().insertAfter(
+              LastMergedBB->getIterator(), NewBB);
           chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
           BlocksFX[NewBB] = SrcBB;
         }
