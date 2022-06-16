@@ -394,7 +394,7 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
     return nullptr;
   }
 
-  if (verifyFunction(*Merged)) {
+  if (verifyFunction(*Merged, &llvm::errs())) {
     LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
     Merged->dump();
     Merged->removeFromParent();
