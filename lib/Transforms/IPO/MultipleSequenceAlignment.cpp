@@ -1034,12 +1034,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
       for (unsigned i = 0; i < Operands.size(); i++) {
         auto Vs = Operands[i];
         Value *V = mergeOperandValues(Vs, NewI);
-
-        if (V == nullptr) {
-          LLVM_DEBUG(errs() << "Could Not select:\n"
-                            << "ERROR: Value should NOT be null\n");
-          return false; // ErrorResponse;
-        }
+        assert(V != nullptr && "value should not be null!");
 
         if (auto *LiteralOp = NewI->getOperand(i)) {
           assert(V->getType() == LiteralOp->getType() &&
@@ -1063,11 +1058,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
             FV = I->getOperand(OperandIdx);
             // FIXME(katei): `VMap[FV]` is enough?
             V = MapValue(FV, VMap);
-            if (V == nullptr) {
-              LLVM_DEBUG(errs() << "ERROR: Null value mapped: V1 = "
-                                   "MapValue(I1->getOperand(i), VMap);\n");
-              return false;
-            }
+            assert(V != nullptr && "Value should NOT be null!");
           } else {
             V = UndefValue::get(
                 MaxNumOperandsInst->getOperand(OperandIdx)->getType());
@@ -1078,11 +1069,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
         }
 
         Value *V = mergeOperandValues(Vs, NewI);
-        if (V == nullptr) {
-          LLVM_DEBUG(errs() << "Could Not select:\n"
-                            << "ERROR: Value should NOT be null\n";);
-          return false; // ErrorResponse;
-        }
+        assert(V != nullptr && "Value should NOT be null!");
 
         NewI->setOperand(OperandIdx, V);
       }
