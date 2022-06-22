@@ -12,7 +12,7 @@ define double @rad2deg(double %0) {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_rad2deg_deg2rad_(i32 %discriminator, double %m..) {
+; CHECK-LABEL: define internal double @__msa_merge_rad2deg_deg2rad(i32 %discriminator, double %m..) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %switch7 = icmp ult i32 %discriminator, 1
 ; CHECK-NEXT:    %spec.select = select i1 %switch7, double 4.000000e+00, double %m..

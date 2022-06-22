@@ -1652,10 +1652,10 @@ StringRef MSAGenFunction::getFunctionName() {
   if (this->NameCache)
     return *this->NameCache;
 
-  std::string Name = "__msa_merge_";
+  std::string Name = "__msa_merge";
   for (auto &F : Functions) {
-    Name += F->getName();
     Name += "_";
+    Name += F->getName();
   }
   this->NameCache = Name;
   return *this->NameCache;

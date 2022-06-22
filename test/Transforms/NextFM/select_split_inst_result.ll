@@ -18,7 +18,7 @@ define double @rad2deg() {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg_(i32 %discriminator) {
+; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i32 %discriminator) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %0 = alloca double, align 8
 ; CHECK-NEXT:    %switch4 = icmp ult i32 %discriminator, 1

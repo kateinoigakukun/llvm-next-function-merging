@@ -40,7 +40,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
   ret void
 }
 
-; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc_(i32 %discriminator, i32* %m.P.P.P, i32* %m.Q.Q.Q, i32* %m.R.R.R, i32* %m.S.S.S) {
+; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc(i32 %discriminator, i32* %m.P.P.P, i32* %m.Q.Q.Q, i32* %m.R.R.R, i32* %m.S.S.S) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb
