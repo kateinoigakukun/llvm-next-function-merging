@@ -12,8 +12,10 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
@@ -26,6 +28,7 @@
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <algorithm>
 #include <cassert>
@@ -480,6 +483,8 @@ public:
   /// Assign new value operands
   bool assignOperands();
   bool assignPHIOperandsInBlock();
+
+  bool fixupCoalescingPHI();
 
   bool emit();
 
@@ -1204,6 +1209,255 @@ bool MSAGenFunctionBody::assignValueOperands() {
   return true;
 }
 
+bool MSAGenFunctionBody::fixupCoalescingPHI() {
+  // This pass fixes up PHI nodes where its incoming BBs are non-dominated by
+  // PHI node e.g.
+  //   o   <--- switch %discriminator, [bb2, ...]
+  //  / \
+  // o   o <--- bb2: %3 = ...
+  //  \ /
+  //   o   <--- switch %discriminator, [bb4, ...]
+  //  / \
+  // o   o <--- bb4: ...
+  //  \ /
+  //   o   <--- bb5: %6 = phi [%3, bb4], ...
+  //
+  // `bb5` dominates `bb2` in theory, it is not dominated in LLVM verification.
+  // This pass fixes up the PHI node by escaping the values like %3 into
+  // alloca-ed space. This pass was taken from SALSSACodeGen.cpp as is.
+
+  std::list<Instruction *> LinearOffendingInsts;
+  std::set<Instruction *> OffendingInsts;
+  BasicBlock *PreBB = EntryBB;
+  // TODO(katei): Collect candidates in `mergeOperandValues`
+  std::map<Instruction *, std::map<Instruction *, unsigned>>
+      CoalescingCandidates;
+
+  DominatorTree DT(*MergedFunc);
+
+  for (Instruction &I : instructions(MergedFunc)) {
+    if (auto *PHI = dyn_cast<PHINode>(&I)) {
+      for (unsigned i = 0; i < PHI->getNumIncomingValues(); i++) {
+        BasicBlock *BB = PHI->getIncomingBlock(i);
+        if (BB == nullptr)
+          errs() << "Null incoming block\n";
+        Value *V = PHI->getIncomingValue(i);
+        if (V == nullptr)
+          errs() << "Null incoming value\n";
+        if (auto *IV = dyn_cast<Instruction>(V)) {
+          if (BB->getTerminator() == nullptr) {
+            LLVM_DEBUG(errs() << "ERROR: Null terminator\n");
+            return false;
+          }
+          if (!DT.dominates(IV, BB->getTerminator())) {
+            if (OffendingInsts.count(IV) == 0) {
+              OffendingInsts.insert(IV);
+              LinearOffendingInsts.push_back(IV);
+            }
+          }
+        }
+      }
+    } else {
+      for (unsigned i = 0; i < I.getNumOperands(); i++) {
+        if (I.getOperand(i) == nullptr) {
+          LLVM_DEBUG(errs() << "ERROR: Null operand\n");
+          return false;
+        }
+        if (auto *IV = dyn_cast<Instruction>(I.getOperand(i))) {
+          if (!DT.dominates(IV, &I)) {
+            if (OffendingInsts.count(IV) == 0) {
+              OffendingInsts.insert(IV);
+              LinearOffendingInsts.push_back(IV);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  auto StoreInstIntoAddr = [](Instruction *IV, Value *Addr) {
+    IRBuilder<> Builder(IV->getParent());
+    if (IV->isTerminator()) {
+      BasicBlock *SrcBB = IV->getParent();
+      if (auto *II = dyn_cast<InvokeInst>(IV)) {
+        BasicBlock *DestBB = II->getNormalDest();
+
+        Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
+        // create PHI
+        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+        for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
+             PredIt != PredE; PredIt++) {
+          BasicBlock *PredBB = *PredIt;
+          if (PredBB == SrcBB) {
+            PHI->addIncoming(IV, PredBB);
+          } else {
+            PHI->addIncoming(UndefValue::get(IV->getType()), PredBB);
+          }
+        }
+        Builder.CreateStore(PHI, Addr);
+      } else {
+        for (auto SuccIt = succ_begin(SrcBB), SuccE = succ_end(SrcBB);
+             SuccIt != SuccE; SuccIt++) {
+          BasicBlock *DestBB = *SuccIt;
+
+          Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
+          // create PHI
+          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+          for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
+               PredIt != PredE; PredIt++) {
+            BasicBlock *PredBB = *PredIt;
+            if (PredBB == SrcBB) {
+              PHI->addIncoming(IV, PredBB);
+            } else {
+              PHI->addIncoming(UndefValue::get(IV->getType()), PredBB);
+            }
+          }
+          Builder.CreateStore(PHI, Addr);
+        }
+      }
+    } else {
+      Instruction *LastI = nullptr;
+      Instruction *InsertPt = nullptr;
+      for (Instruction &I : *IV->getParent()) {
+        InsertPt = &I;
+        if (LastI == IV)
+          break;
+        LastI = &I;
+      }
+      if (isa<PHINode>(InsertPt) || isa<LandingPadInst>(InsertPt)) {
+        Builder.SetInsertPoint(&*IV->getParent()->getFirstInsertionPt());
+        // Builder.SetInsertPoint(IV->getParent()->getTerminator());
+      } else
+        Builder.SetInsertPoint(InsertPt);
+
+      Builder.CreateStore(IV, Addr);
+    }
+  };
+
+  auto MemfyInst = [&](std::set<Instruction *> &InstSet) -> AllocaInst * {
+    if (InstSet.empty())
+      return nullptr;
+    IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
+    AllocaInst *Addr = Builder.CreateAlloca((*InstSet.begin())->getType());
+
+    for (Instruction *I : InstSet) {
+      for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
+        Use &UI = *UIt;
+        UIt++;
+
+        auto *User = cast<Instruction>(UI.getUser());
+
+        if (auto *PHI = dyn_cast<PHINode>(User)) {
+          /// TODO: make sure getOperandNo is getting the correct incoming edge
+          auto InsertionPt =
+              PHI->getIncomingBlock(UI.getOperandNo())->getTerminator();
+          /// TODO: If the terminator of the incoming block is the producer of
+          //        the value we want to store, the load cannot be inserted
+          //        between the producer and the user. Something more complex is
+          //        needed.
+          if (InsertionPt == I)
+            continue;
+          IRBuilder<> Builder(InsertionPt);
+          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(),
+                                    Addr));
+        } else {
+          IRBuilder<> Builder(User);
+          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(),
+                                    Addr));
+        }
+      }
+    }
+
+    for (Instruction *I : InstSet)
+      StoreInstIntoAddr(I, Addr);
+
+    return Addr;
+  };
+
+  auto isCoalescingProfitable = [&](Instruction *I1, Instruction *I2) -> bool {
+    std::set<BasicBlock *> BBSet1;
+    std::set<BasicBlock *> UnionBB;
+    for (User *U : I1->users()) {
+      if (auto *UI = dyn_cast<Instruction>(U)) {
+        BasicBlock *BB1 = UI->getParent();
+        BBSet1.insert(BB1);
+        UnionBB.insert(BB1);
+      }
+    }
+
+    unsigned Intersection = 0;
+    for (User *U : I2->users()) {
+      if (auto *UI = dyn_cast<Instruction>(U)) {
+        BasicBlock *BB2 = UI->getParent();
+        UnionBB.insert(BB2);
+        if (BBSet1.find(BB2) != BBSet1.end())
+          Intersection++;
+      }
+    }
+
+    const float Threshold = 0.7;
+    return (float(Intersection) / float(UnionBB.size()) > Threshold);
+  };
+
+  auto OptimizeCoalescing =
+      [&](Instruction *I, std::set<Instruction *> &InstSet,
+          std::map<Instruction *, std::map<Instruction *, unsigned>>
+              &CoalescingCandidates,
+          std::set<Instruction *> &Visited) {
+        Instruction *OtherI = nullptr;
+        unsigned Score = 0;
+        if (CoalescingCandidates.find(I) != CoalescingCandidates.end()) {
+          for (auto &Pair : CoalescingCandidates[I]) {
+            if (Pair.second > Score &&
+                Visited.find(Pair.first) == Visited.end()) {
+              if (isCoalescingProfitable(I, Pair.first)) {
+                OtherI = Pair.first;
+                Score = Pair.second;
+              }
+            }
+          }
+        }
+        if (OtherI) {
+          InstSet.insert(OtherI);
+        }
+      };
+
+  if (((float)OffendingInsts.size()) / ((float)Parent.Alignment.size()) > 4.5) {
+    LLVM_DEBUG(errs() << "Bailing out\n");
+    return false;
+  }
+
+  // errs() << "Fixing Domination:\n";
+  // MergedFunc->dump();
+  std::set<Instruction *> Visited;
+  std::vector<AllocaInst *> Allocas;
+
+  for (Instruction *I : LinearOffendingInsts) {
+    if (Visited.find(I) != Visited.end())
+      continue;
+
+    std::set<Instruction *> InstSet;
+    InstSet.insert(I);
+
+    // Create a coalescing group in InstSet
+    OptimizeCoalescing(I, InstSet, CoalescingCandidates, Visited);
+
+    for (Instruction *OtherI : InstSet)
+      Visited.insert(OtherI);
+
+    AllocaInst *Addr = MemfyInst(InstSet);
+    if (Addr)
+      Allocas.push_back(Addr);
+  }
+
+  {
+    DominatorTree DT(*MergedFunc);
+    PromoteMemToReg(Allocas, DT, nullptr);
+  }
+
+  return true;
+}
+
 bool MSAGenFunctionBody::assignOperands() {
   // This pass assigns BB label operands and value operands.
 
@@ -1284,6 +1538,9 @@ bool MSAGenFunctionBody::emit() {
     return false;
   }
   if (!assignPHIOperandsInBlock()) {
+    return false;
+  }
+  if (!fixupCoalescingPHI()) {
     return false;
   }
   return true;
