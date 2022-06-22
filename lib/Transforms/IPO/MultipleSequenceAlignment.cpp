@@ -522,6 +522,37 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
 
 // Corresponding to `CodeGen` in SALSSACodeGen.cpp
 void MSAGenFunctionBody::layoutSharedBasicBlocks() {
+  // This pass splits the basic blocks into multiple basic blocks per single
+  // instruction or BB label only for merge-able instruction or BB label.
+
+  // ```
+  // define double @f0(i32 %0) {
+  //   %1 = add i32 %0, 3
+  //   %2 = add i32 %1, 1
+  //   %3 = sub i32 %2, 1  <--------
+  //   call void @f2(i32 %3)       |
+  // }                             |
+  // define double @f1(i32 %0) {   |
+  //   %1 = add i32 %0, 1          |
+  //   %2 = add i32 %1, 2          |
+  //   %3 = div i32 %2, 2  <------ not mergeable
+  //   call void @f2(i32 %3)
+  // }
+  // ```
+  //
+  // is transformed into
+  //
+  // ```
+  // define double @f01(i32 %0) {
+  // m.inst.bb0:
+  //   %1 = add i32 <null>, <null>
+  // m.inst.bb1:
+  //   %2 = add i32 <null>, <null>
+  // m.inst.bb2:
+  //   call void @f2(i32 <null>)
+  // }
+  // ```
+  //
 
   auto &Alignment = Parent.Alignment;
   for (auto it = Alignment.rbegin(), end = Alignment.rend(); it != end; ++it) {
@@ -635,6 +666,60 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   };
 
   SwitchChainer chainer(*this);
+
+  // Chain BBs splitted from `SrcBB` by `br` and `switch` instructions
+  // and insert un-merged instructions.
+  //
+  // e.g.
+  // source two functions:
+  // ```
+  // define double @f0(i32 %0) {
+  //   %1 = add i32 %0, 3
+  //   %2 = sub i32 %1, 1
+  //   br i32 %0, label %bb0, label %bb1
+  // bb0:
+  //   call void @f2(i32 %3)
+  // bb1:
+  //   call void @f3(i32 %3)
+  // }
+  //
+  // define double @f1(i32 %0) {
+  //   %1 = add i32 %0, 1
+  //   %2 = add i32 %1, 2
+  //   call void @f2(i32 %3)
+  // }
+  // ```
+  // current merging function:
+  // ```
+  // define double @f01(i32 %0) {
+  // m.inst.bb0:
+  //   %1 = add i32 <null>, <null>
+  // m.inst.bb1:
+  //   call void @f2(i32 <null>)
+  // }
+  // ```
+  //
+  // Then it will be transformed to:
+  // ```
+  // define double @f01(i32 %0, i32 %discriminator) {
+  // m.inst.bb0:
+  //   %1 = add i32 <null>, <null>
+  //   br %split.bb0
+  // split.bb0:
+  //   %2 = sub i32 <null>, 1
+  //   switch i32 %discriminator, label %switch.blackhole [
+  //     i32 0, label %split.bb1  <-- if @f0
+  //     i32 1, label %m.inst.bb1 <-- if @f1
+  //   ]
+  // split.bb1:
+  //   %2 = sub i32 <null>, 1
+  //   br i32 <null>, label <null>, label <null>
+  // m.inst.bb1: <-- merged from @f0#bb0 and @f1#entry
+  //   call void @f2(i32 <null>)
+  // src.bb0:
+  //   call void @f3(i32 <null>)
+  // }
+  // ```
 
   auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
                                DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
@@ -1019,6 +1104,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
 
     if (Options.EnableOperandReordering && isa<BinaryOperator>(NewI) &&
         MaxNumOperandsInst->isCommutative()) {
+      // Optimizable case:
 
       std::vector<std::vector<Value *>> Operands(
           MaxNumOperandsInst->getNumOperands());
@@ -1043,6 +1129,8 @@ bool MSAGenFunctionBody::assignValueOperands() {
         NewI->setOperand(i, V);
       }
     } else {
+      // Baseline case:
+
       auto *I = MaxNumOperandsInst;
       for (unsigned OperandIdx = 0; OperandIdx < I->getNumOperands();
            OperandIdx++) {
@@ -1079,6 +1167,11 @@ bool MSAGenFunctionBody::assignValueOperands() {
 }
 
 bool MSAGenFunctionBody::assignOperands() {
+  // This pass assigns BB label operands and value operands.
+
+  // 1. Assign BB label operands.
+  // This phase is separated from value operands because landing pads need to
+  // be handled specially.
   for (auto &Entry : Parent.Alignment) {
     ArrayRef<Instruction *> Instructions;
     if (auto Succeed = Entry.getAsInstructions()) {
@@ -1088,6 +1181,9 @@ bool MSAGenFunctionBody::assignOperands() {
       continue;
     }
 
+    // If instructions are merged, select new operand values by switch-phi.
+    // Otherwise, just map original operand value to new value for each
+    // instruction.
     if (Entry.match()) {
       if (!assignMatchingLabelOperands(Instructions)) {
         LLVM_DEBUG(
@@ -1105,6 +1201,8 @@ bool MSAGenFunctionBody::assignOperands() {
       }
     }
   }
+
+  // 2. Assign value operands.
   if (!assignValueOperands()) {
     LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n";);
     return false;
@@ -1113,6 +1211,7 @@ bool MSAGenFunctionBody::assignOperands() {
 }
 
 bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
+  // Update incoming BB info of PHI that are come from original instructions
   auto AssignPHIOperandsInBlock =
       [&](BasicBlock *BB,
           DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) -> bool {
