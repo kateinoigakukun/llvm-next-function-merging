@@ -1684,10 +1684,17 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
     for (auto &arg : F->args()) {
       Argument *MergeArg = MergedF->getArg(ArgToMergedArgNo[&arg]);
       VMap[&arg] = MergeArg;
-      if (MergeArg->getName().empty()) {
-        MergeArg->setName("m." + arg.getName());
+
+      std::string displayName;
+      if (arg.getName().empty()) {
+        displayName = std::to_string(arg.getArgNo());
       } else {
-        MergeArg->setName(MergeArg->getName() + Twine(".") + arg.getName());
+        displayName = arg.getName().str();
+      }
+      if (MergeArg->getName().empty()) {
+        MergeArg->setName("m." + displayName);
+      } else {
+        MergeArg->setName(MergeArg->getName() + Twine(".") + displayName);
       }
     }
   }
