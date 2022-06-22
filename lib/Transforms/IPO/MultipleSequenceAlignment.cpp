@@ -468,8 +468,7 @@ public:
   void chainEntryBlock();
 
   bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
-  bool assignSingleInstLabelOperands(
-      Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
+  bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
   bool assignLabelOperands();
 
   Value *mergeOperandValues(ArrayRef<Value *> Values, Instruction *InsertPt);
@@ -919,9 +918,10 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
   return true;
 }
 
-bool MSAGenFunctionBody::assignSingleInstLabelOperands(
-    Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) {
+bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
+                                                       size_t FuncId) {
   auto *NewI = dyn_cast<Instruction>(VMap[I]);
+  auto &BlocksReMap = MergedBBToBB[FuncId];
 
   for (unsigned i = 0; i < I->getNumOperands(); i++) {
     // handling just label operands for now
@@ -980,7 +980,7 @@ bool MSAGenFunctionBody::assignLabelOperands() {
         auto *F = Parent.Functions[FuncId];
         auto *I = Instructions[FuncId];
         assert(I != nullptr && "Instruction should not be null!");
-        if (!assignSingleInstLabelOperands(I, MergedBBToBB[FuncId])) {
+        if (!assignSingleInstLabelOperands(I, FuncId)) {
           return false;
         }
       }
