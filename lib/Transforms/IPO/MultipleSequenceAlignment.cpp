@@ -467,16 +467,18 @@ public:
   void chainBasicBlocks();
   void chainEntryBlock();
 
-  // XXX(katei): This method name is wrong and should be changed to something
-  // more descriptive.
-  bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
-  bool assignMismatchingLabelOperands(
+  bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
+  bool assignSingleInstLabelOperands(
       Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
+  bool assignLabelOperands();
+
   Value *mergeOperandValues(ArrayRef<Value *> Values, Instruction *InsertPt);
   bool assignValueOperands();
   /// Assign new value operands. Return true if all operands are assigned.
   /// Return false if failed to assign any operand.
-  bool assignOperands(Instruction *I);
+  /// \param SrcI Instruction to assign operands from.
+  bool assignValueOperands(Instruction *SrcI);
+  /// Assign new value operands
   bool assignOperands();
   bool assignPHIOperandsInBlock();
 
@@ -819,7 +821,7 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   return MaxNumOperandsInst;
 }
 
-bool MSAGenFunctionBody::assignMatchingLabelOperands(
+bool MSAGenFunctionBody::assignMergedInstLabelOperands(
     ArrayRef<Instruction *> Instructions) {
 
   Instruction *I = Instructions[0];
@@ -917,7 +919,7 @@ bool MSAGenFunctionBody::assignMatchingLabelOperands(
   return true;
 }
 
-bool MSAGenFunctionBody::assignMismatchingLabelOperands(
+bool MSAGenFunctionBody::assignSingleInstLabelOperands(
     Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) {
   auto *NewI = dyn_cast<Instruction>(VMap[I]);
 
@@ -950,6 +952,39 @@ bool MSAGenFunctionBody::assignMismatchingLabelOperands(
     }
 
     NewI->setOperand(i, V);
+  }
+  return true;
+}
+
+bool MSAGenFunctionBody::assignLabelOperands() {
+  for (auto &Entry : Parent.Alignment) {
+    ArrayRef<Instruction *> Instructions;
+    if (auto Succeed = Entry.getAsInstructions()) {
+      Instructions = *Succeed;
+    } else {
+      // Skip non-instructions
+      continue;
+    }
+
+    // If instructions are merged, select new operand values by switch-phi.
+    // Otherwise, just map original operand value to new value for each
+    // instruction.
+    if (Entry.match()) {
+      if (!assignMergedInstLabelOperands(Instructions)) {
+        LLVM_DEBUG(
+            errs() << "ERROR: Failed to assign matching label operands\n";);
+        return false;
+      }
+    } else {
+      for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
+        auto *F = Parent.Functions[FuncId];
+        auto *I = Instructions[FuncId];
+        assert(I != nullptr && "Instruction should not be null!");
+        if (!assignSingleInstLabelOperands(I, MergedBBToBB[FuncId])) {
+          return false;
+        }
+      }
+    }
   }
   return true;
 }
@@ -1034,11 +1069,12 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   return PHI;
 }
 
-bool MSAGenFunctionBody::assignOperands(Instruction *I) {
-  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
+  auto *NewI = dyn_cast<Instruction>(VMap[SrcI]);
   IRBuilder<> Builder(NewI);
 
-  if (I->getOpcode() == Instruction::Ret && Options.EnableUnifiedReturnType) {
+  if (SrcI->getOpcode() == Instruction::Ret &&
+      Options.EnableUnifiedReturnType) {
     llvm_unreachable("Unified return type is not supported yet!");
     /*
     Value *V = MapValue(I->getOperand(0), VMap);
@@ -1055,11 +1091,12 @@ bool MSAGenFunctionBody::assignOperands(Instruction *I) {
     NewI->setOperand(0, V);
     */
   } else {
-    for (unsigned i = 0; i < I->getNumOperands(); i++) {
-      if (isa<BasicBlock>(I->getOperand(i)))
+    for (unsigned i = 0; i < SrcI->getNumOperands(); i++) {
+      // BB operands should be handled separately by assignLabelOperands
+      if (isa<BasicBlock>(SrcI->getOperand(i)))
         continue;
 
-      Value *V = MapValue(I->getOperand(i), VMap);
+      Value *V = MapValue(SrcI->getOperand(i), VMap);
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
@@ -1083,12 +1120,13 @@ bool MSAGenFunctionBody::assignValueOperands() {
     if (auto Succeed = Entry.getAsInstructions()) {
       Instructions = *Succeed;
     } else {
+      // If instructions and BBs are mixed, assign only instructions.
       for (auto *V : Entry.getValues()) {
         if (V == nullptr)
           continue;
 
         auto *I = dyn_cast<Instruction>(V);
-        if (I != nullptr && !assignOperands(I)) {
+        if (I != nullptr && !assignValueOperands(I)) {
           LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n");
           return false;
         }
@@ -1172,34 +1210,9 @@ bool MSAGenFunctionBody::assignOperands() {
   // 1. Assign BB label operands.
   // This phase is separated from value operands because landing pads need to
   // be handled specially.
-  for (auto &Entry : Parent.Alignment) {
-    ArrayRef<Instruction *> Instructions;
-    if (auto Succeed = Entry.getAsInstructions()) {
-      Instructions = *Succeed;
-    } else {
-      // Skip non-instructions
-      continue;
-    }
-
-    // If instructions are merged, select new operand values by switch-phi.
-    // Otherwise, just map original operand value to new value for each
-    // instruction.
-    if (Entry.match()) {
-      if (!assignMatchingLabelOperands(Instructions)) {
-        LLVM_DEBUG(
-            errs() << "ERROR: Failed to assign matching label operands\n";);
-        return false;
-      }
-    } else {
-      for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
-        auto *F = Parent.Functions[FuncId];
-        auto *I = Instructions[FuncId];
-        assert(I != nullptr && "Instruction should not be null!");
-        if (!assignMismatchingLabelOperands(I, MergedBBToBB[FuncId])) {
-          return false;
-        }
-      }
-    }
+  if (!assignLabelOperands()) {
+    LLVM_DEBUG(errs() << "ERROR: Failed to assign label operands\n";);
+    return false;
   }
 
   // 2. Assign value operands.
