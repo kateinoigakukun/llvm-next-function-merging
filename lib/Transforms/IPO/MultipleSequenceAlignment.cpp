@@ -471,7 +471,7 @@ public:
   bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
   bool assignLabelOperands();
 
-  Value *mergeOperandValues(ArrayRef<Value *> Values, Instruction *InsertPt);
+  Value *mergeOperandValues(ArrayRef<Value *> Values, Instruction *MergedI);
   bool assignValueOperands();
   /// Assign new value operands. Return true if all operands are assigned.
   /// Return false if failed to assign any operand.
@@ -990,7 +990,7 @@ bool MSAGenFunctionBody::assignLabelOperands() {
 }
 
 Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
-                                              Instruction *InsertPt) {
+                                              Instruction *MergedI) {
   bool areAllEqual = std::all_of(Values.begin(), Values.end(),
                                  [&](Value *V) { return V == Values[0]; });
   if (areAllEqual)
@@ -1034,22 +1034,22 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   // bb.aggregate.values:
   //   %4 = phi i32 [ 0, %bb.select0 ], [ 42, %bb.select1 ]
   //   br label %insert.pt
-  // insert.pt:
+  // merged.i:
   //   add %4, i32 0
 
   auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc,
-                                      InsertPt->getParent());
+                                      MergedI->getParent());
   IRBuilder<> SwitchB(SwitchBB);
   auto *Switch = SwitchB.CreateSwitch(Discriminator, BlackholeBB);
 
-  InsertPt->getParent()->replaceAllUsesWith(SwitchBB);
+  MergedI->getParent()->replaceAllUsesWith(SwitchBB);
 
   auto *AggregateBB = BasicBlock::Create(Parent.C, "bb.aggregate.values",
-                                         MergedFunc, InsertPt->getParent());
+                                         MergedFunc, MergedI->getParent());
   IRBuilder<> AggregateB(AggregateBB);
 
   auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size());
-  AggregateB.CreateBr(InsertPt->getParent());
+  AggregateB.CreateBr(MergedI->getParent());
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
     auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
