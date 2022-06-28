@@ -42,6 +42,7 @@
 #include <vector>
 
 #define DEBUG_TYPE "multiple-func-merging"
+#define MSA_VERBOSE(X) DEBUG_WITH_TYPE("multiple-func-merging-verbose", X)
 
 using namespace llvm;
 
@@ -246,7 +247,7 @@ void MSAligner::buildAlignment(
   }
 
   while (true) {
-    LLVM_DEBUG(dbgs() << "BackCursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
+    MSA_VERBOSE(dbgs() << "BackCursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
     // If the current point is the start edge of the table, we are done.
     if (std::all_of(Cursor.begin(), Cursor.end(),
                     [](size_t v) { return v == 0; })) {
@@ -254,7 +255,7 @@ void MSAligner::buildAlignment(
     }
 
     auto &Entry = BestTransTable[Cursor];
-    LLVM_DEBUG(dbgs() << "Entry: " << Entry << "\n");
+    MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
     Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
@@ -283,9 +284,9 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
       return true;
     });
   } while (advancePointInShape(Cursor, ScoreTable.getShape()));
-  LLVM_DEBUG(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "BestTransTable:\n";
-             BestTransTable.print(llvm::dbgs()));
+  MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
+  MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
+              BestTransTable.print(llvm::dbgs()));
 
   buildAlignment(Alignment);
 
