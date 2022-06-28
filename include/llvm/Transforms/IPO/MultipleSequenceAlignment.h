@@ -35,12 +35,14 @@ class MSAFunctionMerger {
   Module *M;
   FunctionMerger &PairMerger;
   ScoringSystem Scoring;
+  OptimizationRemarkEmitter &ORE;
 
   IntegerType *DiscriminatorTy;
 
 public:
-  MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM)
-      : Functions(Functions), PairMerger(PM),
+  MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM,
+                    OptimizationRemarkEmitter &ORE)
+      : Functions(Functions), PairMerger(PM), ORE(ORE),
         Scoring(/*Gap*/ -1, /*Match*/ 0,
                 /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
@@ -69,14 +71,16 @@ class MSAGenFunction {
 
   IRBuilder<> Builder;
 
+  OptimizationRemarkEmitter &ORE;
+
   friend class MSAGenFunctionBody;
 
 public:
   MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
                  const ArrayRef<Function *> &Functions,
-                 IntegerType *DiscriminatorTy)
+                 IntegerType *DiscriminatorTy, OptimizationRemarkEmitter &ORE)
       : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),
-        DiscriminatorTy(DiscriminatorTy), Builder(C){};
+        DiscriminatorTy(DiscriminatorTy), Builder(C), ORE(ORE){};
 
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;

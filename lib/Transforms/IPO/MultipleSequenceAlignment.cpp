@@ -8,6 +8,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TensorTable.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -392,7 +393,7 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   FunctionMergingOptions Options;
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
-  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy);
+  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
   if (!Merged) {
     return nullptr;
@@ -1670,7 +1671,15 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
 
   layoutParameters(MergedArgs, ArgToMergedArgNo);
   if (!layoutReturnType(RetTy)) {
-    // TODO(katei): should emit remarks?
+    ORE.emit([&] {
+      auto remark = OptimizationRemarkMissed(DEBUG_TYPE, "MSAFunctionLayout",
+                                             Functions[0])
+                    << "Return type of functions are not compatible";
+      for (auto &F : Functions) {
+        remark << ore::NV("Function", F->getReturnType());
+      }
+      return remark;
+    });
     return nullptr;
   }
   auto *Sig = createFunctionType(MergedArgs, RetTy);
@@ -1756,8 +1765,11 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     LLVM_DEBUG(dbgs() << "Try to merge\n");
     LLVM_DEBUG(for (auto *F
                     : Functions) { dbgs() << " - " << F->getName() << "\n"; });
+
+    auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
+
     MSAStats Stats;
-    MSAFunctionMerger FM(Functions, PairMerger);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE);
     auto MergedFunction = FM.merge(Stats);
     if (!MergedFunction) {
       LLVM_DEBUG(dbgs() << "Merge failed\n");
