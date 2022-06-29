@@ -402,7 +402,7 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
   if (verifyFunction(*Merged, &llvm::errs())) {
     LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
     Merged->dump();
-    Merged->removeFromParent();
+    Merged->eraseFromParent();
     return nullptr;
   }
 
@@ -1712,7 +1712,7 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   MSAGenFunctionBody BodyEmitter(*this, Options, Stats, discriminator, VMap,
                                  MergedF);
   if (!BodyEmitter.emit()) {
-    MergedF->removeFromParent();
+    MergedF->eraseFromParent();
     return nullptr;
   }
 
