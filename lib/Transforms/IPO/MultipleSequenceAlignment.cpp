@@ -1429,8 +1429,6 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     return false;
   }
 
-  // errs() << "Fixing Domination:\n";
-  // MergedFunc->dump();
   std::set<Instruction *> Visited;
   std::vector<AllocaInst *> Allocas;
 
