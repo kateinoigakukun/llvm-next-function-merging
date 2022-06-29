@@ -56,7 +56,10 @@ public:
                        unsigned FuncId,
                        ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
   Function *merge(MSAStats &Stats);
-  void align(std::vector<MSAAlignmentEntry> &Alignment);
+
+  /// Returns `true` if successful and set Alignment. Otherwise, returns
+  /// `false`.
+  bool align(std::vector<MSAAlignmentEntry> &Alignment);
 };
 
 class MSAGenFunctionBody;

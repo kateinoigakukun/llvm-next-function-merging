@@ -121,9 +121,10 @@ class MSAligner {
   }
 
 public:
-  static void align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
+  static bool align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                     ArrayRef<Function *> Functions,
-                    std::vector<MSAAlignmentEntry> &Alignment);
+                    std::vector<MSAAlignmentEntry> &Alignment,
+                    OptimizationRemarkEmitter *ORE = nullptr);
 };
 
 void MSAligner::initScoreTable() {
@@ -294,19 +295,51 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
   return;
 }
 
-void MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
+static OptimizationRemarkMissed
+createMissedRemark(StringRef RemarkName, StringRef Reason,
+                   ArrayRef<Function *> Functions) {
+  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, Functions[0]);
+  remark << ore::NV("Reason", Reason);
+  for (auto *F : Functions) {
+    remark << ore::NV("Function", F);
+  }
+  return remark;
+}
+
+bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                       ArrayRef<Function *> Functions,
-                      std::vector<MSAAlignmentEntry> &Alignment) {
+                      std::vector<MSAAlignmentEntry> &Alignment,
+                      OptimizationRemarkEmitter *ORE) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
+  size_t ShapeSize = 1;
+
   for (size_t i = 0; i < Functions.size(); i++) {
     auto &F = *Functions[i];
     PairMerger.linearize(&F, InstrVecList[i]);
     Shape.push_back(InstrVecList[i].size() + 1);
+    ShapeSize *= Shape[i];
+  }
+
+  // FIXME(katei): The current algorithm is not optimal and consumes too much
+  // memory. We should use more efficient algorithm and unlock this limitation.
+  if (ShapeSize > 1024 * 1024 * 1024) {
+    if (ORE) {
+      ORE->emit([&] {
+        auto remark =
+            createMissedRemark("Alignment", "Too large table size", Functions);
+        for (size_t i = 0; i < Shape.size(); i++) {
+          remark << ore::NV("Shape", Shape[i]);
+        }
+        return remark;
+      });
+    }
+    return false;
   }
 
   MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
   Aligner.align(Alignment);
+  return true;
 }
 
 }; // namespace
@@ -344,8 +377,8 @@ void MSAAlignmentEntry::dump() const {
   }
 }
 
-void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
-  MSAligner::align(PairMerger, Scoring, Functions, Alignment);
+bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+  return MSAligner::align(PairMerger, Scoring, Functions, Alignment, &ORE);
 }
 
 Function *MSAFunctionMerger::writeThunk(
@@ -386,21 +419,12 @@ Function *MSAFunctionMerger::writeThunk(
   return thunk;
 }
 
-static OptimizationRemarkMissed
-createMissedRemark(StringRef RemarkName, StringRef Reason,
-                   ArrayRef<Function *> Functions) {
-  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, Functions[0]);
-  remark << ore::NV("Reason", Reason);
-  for (auto *F : Functions) {
-    remark << ore::NV("Function", F);
-  }
-  return remark;
-}
-
 Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   std::vector<MSAAlignmentEntry> Alignment;
-  align(Alignment);
+  if (!align(Alignment)) {
+    return nullptr;
+  }
 
   FunctionMergingOptions Options;
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
