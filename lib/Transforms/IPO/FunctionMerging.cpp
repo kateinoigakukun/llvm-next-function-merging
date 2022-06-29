@@ -2796,7 +2796,7 @@ unsigned instToInt(Instruction *I) {
   auto instTypeID = static_cast<uint32_t>(I->getType()->getTypeID());
   value = value * (instTypeID + 1);
   auto *ITypePtr = I->getType();
-  if (ITypePtr) {
+  if (ITypePtr && !Deterministic) {
     value = value * (reinterpret_cast<std::uintptr_t>(ITypePtr) + 1);
   }
 
@@ -2806,7 +2806,7 @@ unsigned instToInt(Instruction *I) {
 
     auto *IOperTypePtr = I->getOperand(i)->getType();
 
-    if (IOperTypePtr) {
+    if (IOperTypePtr && !Deterministic) {
       value =
           value *
           (reinterpret_cast<std::uintptr_t>(I->getOperand(i)->getType()) + 1);
@@ -2847,7 +2847,7 @@ unsigned instToInt(Instruction *I) {
     const AllocaInst *AI = dyn_cast<AllocaInst>(I);
     uint32_t aValue = AI->getAlignment(); // Alignment
 
-    if (AI->getArraySize()) {
+    if (AI->getArraySize() && !Deterministic) {
       aValue += reinterpret_cast<std::uintptr_t>(AI->getArraySize());
     }
 
@@ -2895,7 +2895,7 @@ unsigned instToInt(Instruction *I) {
         }
 
         auto i = 0;
-        if (Idx) {
+        if (Idx && !Deterministic) {
           i = reinterpret_cast<std::uintptr_t>(Idx);
         }
         gValue += i;
@@ -2916,7 +2916,7 @@ unsigned instToInt(Instruction *I) {
 
     while (CaseIt != CaseEnd) {
       auto *Case = &*CaseIt;
-      if (Case) {
+      if (Case && !Deterministic) {
         sValue += reinterpret_cast<std::uintptr_t>(Case);
       }
       CaseIt++;
@@ -2939,7 +2939,7 @@ unsigned instToInt(Instruction *I) {
       break;
     }
 
-    if (CI->getCalledFunction()) {
+    if (CI->getCalledFunction() && !Deterministic) {
       cValue = reinterpret_cast<std::uintptr_t>(CI->getCalledFunction());
     }
 
@@ -2963,7 +2963,7 @@ unsigned instToInt(Instruction *I) {
 
     iValue = static_cast<unsigned>(II->getCallingConv());
 
-    if (II->getAttributes().getRawPointer()) {
+    if (II->getAttributes().getRawPointer() && !Deterministic) {
       iValue +=
           reinterpret_cast<std::uintptr_t>(II->getAttributes().getRawPointer());
     }
