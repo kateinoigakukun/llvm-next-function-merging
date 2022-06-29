@@ -386,6 +386,17 @@ Function *MSAFunctionMerger::writeThunk(
   return thunk;
 }
 
+static OptimizationRemarkMissed
+createMissedRemark(StringRef RemarkName, StringRef Reason,
+                   ArrayRef<Function *> Functions) {
+  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, Functions[0]);
+  remark << ore::NV("Reason", Reason);
+  for (auto *F : Functions) {
+    remark << ore::NV("Function", F);
+  }
+  return remark;
+}
+
 Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   std::vector<MSAAlignmentEntry> Alignment;
@@ -403,8 +414,21 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
     LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
     LLVM_DEBUG(Merged->dump());
     Merged->eraseFromParent();
+
+    ORE.emit([&] {
+      return createMissedRemark("CodeGen", "Invalid merged function",
+                                Functions);
+    });
     return nullptr;
   }
+
+  ORE.emit([&] {
+    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", Functions[0]);
+    for (auto *F : Functions) {
+      remark << ore::NV("Function", F->getName());
+    }
+    return remark;
+  });
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
@@ -846,11 +870,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
         FV = I->getOperand(OperandIdx);
         // FIXME(katei): `VMap[FV]` is enough?
         V = MapValue(FV, VMap);
-        if (V == nullptr) {
-          LLVM_DEBUG(errs() << "ERROR: Null value mapped: V1 = "
-                               "MapValue(I1->getOperand(i), VMap);\n");
-          return false;
-        }
+        assert(V && "Operand not found in VMap!");
       } else {
         V = UndefValue::get(
             MaxNumOperandsInst->getOperand(OperandIdx)->getType());
@@ -1425,7 +1445,10 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
       };
 
   if (((float)OffendingInsts.size()) / ((float)Parent.Alignment.size()) > 4.5) {
-    LLVM_DEBUG(errs() << "Bailing out\n");
+    Parent.ORE.emit([&] {
+      return createMissedRemark("FixupCoalescingPHI", "Too many OffendingInsts",
+                                Parent.Functions);
+    });
     return false;
   }
 
@@ -1670,11 +1693,12 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   layoutParameters(MergedArgs, ArgToMergedArgNo);
   if (!layoutReturnType(RetTy)) {
     ORE.emit([&] {
-      auto remark = OptimizationRemarkMissed(DEBUG_TYPE, "MSAFunctionLayout",
-                                             Functions[0])
-                    << "Return type of functions are not compatible";
+      auto remark =
+          OptimizationRemarkMissed(DEBUG_TYPE, "ReturnTypeLayout", Functions[0])
+          << "Return type of functions are not compatible";
       for (auto &F : Functions) {
-        remark << ore::NV("Function", F->getReturnType());
+        remark << ore::NV("Function", F);
+        remark << ore::NV("Type", F->getReturnType());
       }
       return remark;
     });
@@ -1711,6 +1735,9 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
                                  MergedF);
   if (!BodyEmitter.emit()) {
     MergedF->eraseFromParent();
+    ORE.emit([&] {
+      return createMissedRemark("CodeGen", "Something went wrong", Functions);
+    });
     return nullptr;
   }
 
@@ -1760,17 +1787,12 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     if (Functions.size() < 2)
       continue;
 
-    LLVM_DEBUG(dbgs() << "Try to merge\n");
-    LLVM_DEBUG(for (auto *F
-                    : Functions) { dbgs() << " - " << F->getName() << "\n"; });
-
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
 
     MSAStats Stats;
     MSAFunctionMerger FM(Functions, PairMerger, ORE);
     auto MergedFunction = FM.merge(Stats);
     if (!MergedFunction) {
-      LLVM_DEBUG(dbgs() << "Merge failed\n");
       continue;
     }
     for (auto *F : Functions) {
