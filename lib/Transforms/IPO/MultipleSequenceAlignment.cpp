@@ -447,7 +447,7 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
   }
 
   ORE.emit([&] {
-    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", Functions[0]);
+    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", Merged);
     for (auto *F : Functions) {
       remark << ore::NV("Function", F->getName());
     }
