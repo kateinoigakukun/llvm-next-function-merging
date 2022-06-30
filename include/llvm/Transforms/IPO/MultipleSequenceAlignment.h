@@ -19,7 +19,9 @@ public:
 
   bool match() const { return IsMatched; }
   ArrayRef<Value *> getValues() const { return Values; }
-  Optional<ArrayRef<Instruction *>> getAsInstructions() const;
+  /// Collect all instructions from the values.
+  /// Returns true if all values are instructions. Otherwise returns false.
+  bool collectInstructions(std::vector<Instruction *> &Instructions) const;
   void verify() const;
   void dump() const;
 };

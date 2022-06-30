@@ -349,13 +349,18 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
 
 }; // namespace
 
-Optional<ArrayRef<Instruction *>> MSAAlignmentEntry::getAsInstructions() const {
+bool MSAAlignmentEntry::collectInstructions(
+    std::vector<Instruction *> &Instructions) const {
+  bool allInstructions = true;
   for (auto *V : Values) {
-    if (!(V && isa<Instruction>(V))) {
-      return None;
+    if (V && isa<Instruction>(V)) {
+      Instructions.push_back(cast<Instruction>(V));
+    } else {
+      allInstructions = false;
+      Instructions.push_back(nullptr);
     }
   }
-  return makeArrayRef((Instruction **)Values.data(), Values.size());
+  return allInstructions;
 }
 
 void MSAAlignmentEntry::verify() const {
@@ -1020,18 +1025,14 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
 
 bool MSAGenFunctionBody::assignLabelOperands() {
   for (auto &Entry : Parent.Alignment) {
-    ArrayRef<Instruction *> Instructions;
-    if (auto Succeed = Entry.getAsInstructions()) {
-      Instructions = *Succeed;
-    } else {
-      // Skip non-instructions
-      continue;
-    }
-
+    std::vector<Instruction *> Instructions;
+    bool allInsts = Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
     // Otherwise, just map original operand value to new value for each
     // instruction.
-    if (Entry.match()) {
+    // TODO(katei): Allow partially merged instructions when two of three
+    // instructions are merged.
+    if (Entry.match() && allInsts) {
       if (!assignMergedInstLabelOperands(Instructions)) {
         LLVM_DEBUG(
             errs() << "ERROR: Failed to assign matching label operands\n";);
@@ -1040,10 +1041,10 @@ bool MSAGenFunctionBody::assignLabelOperands() {
     } else {
       for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
         auto *F = Parent.Functions[FuncId];
-        auto *I = Instructions[FuncId];
-        assert(I != nullptr && "Instruction should not be null!");
-        if (!assignSingleInstLabelOperands(I, FuncId)) {
-          return false;
+        if (auto *I = Instructions[FuncId]) {
+          if (!assignSingleInstLabelOperands(I, FuncId)) {
+            return false;
+          }
         }
       }
     }
@@ -1179,10 +1180,9 @@ Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
 
 bool MSAGenFunctionBody::assignValueOperands() {
   for (auto &Entry : Parent.Alignment) {
-    ArrayRef<Instruction *> Instructions;
-    if (auto Succeed = Entry.getAsInstructions()) {
-      Instructions = *Succeed;
-    } else {
+    std::vector<Instruction *> Instructions;
+    bool allValuesAreInstruction = Entry.collectInstructions(Instructions);
+    if (!allValuesAreInstruction) {
       // If instructions and BBs are mixed, assign only instructions.
       for (auto *V : Entry.getValues()) {
         if (V == nullptr)
