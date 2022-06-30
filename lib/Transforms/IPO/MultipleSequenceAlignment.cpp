@@ -413,8 +413,8 @@ Function *MSAFunctionMerger::writeThunk(
     Builder.CreateRet(Call);
   }
   SrcFunction->replaceAllUsesWith(thunk);
-  SrcFunction->eraseFromParent();
   thunk->takeName(SrcFunction);
+  SrcFunction->eraseFromParent();
 
   return thunk;
 }
