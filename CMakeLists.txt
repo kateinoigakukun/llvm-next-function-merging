@@ -21,6 +21,7 @@ link_directories(${LLVM_LIBRARY_DIRS})
 add_compile_definitions(LLVM_NEXT_FM_STANDALONE)
 include_directories(include)
 add_subdirectory(lib)
+add_subdirectory(tools)
 
 if(BUILD_TESTING)
   enable_testing()
