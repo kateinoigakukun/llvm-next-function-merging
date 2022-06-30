@@ -2737,8 +2737,8 @@ void FunctionMerger::updateCallGraph(FunctionMergeResult &MFR,
   updateCallGraph(F2, MFR, AlwaysPreserved, Options);
 }
 
-static int EstimateThunkOverhead(FunctionMergeResult &MFR,
-                                 StringSet<> &AlwaysPreserved) {
+int EstimateThunkOverhead(FunctionMergeResult &MFR,
+                          StringSet<> &AlwaysPreserved) {
   // return RequiresOriginalInterfaces(MFR, AlwaysPreserved) * 3;
   return RequiresOriginalInterfaces(MFR, AlwaysPreserved) *
          (2 + MFR.getMergedFunction()->getFunctionType()->getNumParams());

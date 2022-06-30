@@ -1,4 +1,4 @@
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 < %s | FileCheck %s
+; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -multiple-func-merging-allow-unprofitable < %s | FileCheck %s
 ; RUN: %opt -S --passes="func-merging" < %s | FileCheck %s --check-prefix=F3M
 
 declare void @extern_func_1()

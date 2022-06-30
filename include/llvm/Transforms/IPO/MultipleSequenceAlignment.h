@@ -38,13 +38,15 @@ class MSAFunctionMerger {
   FunctionMerger &PairMerger;
   ScoringSystem Scoring;
   OptimizationRemarkEmitter &ORE;
+  FunctionAnalysisManager &FAM;
 
   IntegerType *DiscriminatorTy;
 
 public:
   MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM,
-                    OptimizationRemarkEmitter &ORE)
-      : Functions(Functions), PairMerger(PM), ORE(ORE),
+                    OptimizationRemarkEmitter &ORE,
+                    FunctionAnalysisManager &FAM)
+      : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
         Scoring(/*Gap*/ -1, /*Match*/ 0,
                 /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
@@ -54,6 +56,8 @@ public:
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
+  Optional<OptimizationRemarkMissed>
+  isProfitableMerge(Function *MergedFunction);
   Function *writeThunk(Function *MergedFunction, Function *SrcFunction,
                        unsigned FuncId,
                        ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);

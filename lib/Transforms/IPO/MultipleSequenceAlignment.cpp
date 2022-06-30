@@ -49,7 +49,11 @@ using namespace llvm;
 
 static cl::opt<size_t> DefaultShapeSizeLimit(
     "multiple-func-merging-shape-limit", cl::init(1024 * 1024), cl::Hidden,
-    cl::desc("Exploration threshold of evaluated functions"));
+    cl::desc("The shape size limit for the multiple function merging"));
+
+static cl::opt<bool> AllowUnprofitableMerge(
+    "multiple-func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
+    cl::desc("Allow merging functions that are not profitable"));
 
 namespace {
 
@@ -304,7 +308,8 @@ static OptimizationRemarkMissed
 createMissedRemark(StringRef RemarkName, StringRef Reason,
                    ArrayRef<Function *> Functions) {
   auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, Functions[0]);
-  remark << ore::NV("Reason", Reason);
+  if (!Reason.empty())
+    remark << ore::NV("Reason", Reason);
   for (auto *F : Functions) {
     remark << ore::NV("Function", F);
   }
@@ -430,6 +435,29 @@ Function *MSAFunctionMerger::writeThunk(
   return thunk;
 }
 
+size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
+
+Optional<OptimizationRemarkMissed>
+MSAFunctionMerger::isProfitableMerge(Function *MergedFunction) {
+  if (AllowUnprofitableMerge) {
+    return None;
+  }
+  size_t MergedSize = EstimateFunctionSize(
+      MergedFunction, &FAM.getResult<TargetIRAnalysis>(*MergedFunction));
+  size_t OriginalTotalSize = 0;
+  for (auto *F : Functions) {
+    OriginalTotalSize +=
+        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
+  }
+  size_t ThunkOverhead = 0;
+  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
+    return None;
+  }
+  return createMissedRemark("UnprofitableMerge", "", Functions)
+         << ore::NV("MergedSize", MergedSize)
+         << ore::NV("OriginalTotalSize", OriginalTotalSize);
+}
+
 Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   std::vector<MSAAlignmentEntry> Alignment;
@@ -454,6 +482,17 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
       return createMissedRemark("CodeGen", "Invalid merged function",
                                 Functions);
     });
+    return nullptr;
+  }
+
+  FunctionPassManager FPM;
+  FPM.addPass(SimplifyCFGPass());
+
+  FPM.run(*Merged, FAM);
+
+  if (auto remark = isProfitableMerge(Merged)) {
+    Merged->eraseFromParent();
+    ORE.emit(*remark);
     return nullptr;
   }
 
@@ -1780,8 +1819,6 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   return MergedF;
 }
 
-size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
-
 /// Check whether \p F is eligible to be a function merging candidate.
 static bool isEligibleToBeMergeCandidate(Function &F) {
   return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
@@ -1808,9 +1845,6 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     count++;
   }
 
-  FunctionPassManager FPM;
-  FPM.addPass(SimplifyCFGPass());
-
   while (MatchFinder->size() > 0) {
     Function *F1 = MatchFinder->next_candidate();
     auto &Rank = MatchFinder->get_matches(F1);
@@ -1826,7 +1860,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
 
     MSAStats Stats;
-    MSAFunctionMerger FM(Functions, PairMerger, ORE);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     auto MergedFunction = FM.merge(Stats);
     if (!MergedFunction) {
       continue;
@@ -1836,7 +1870,6 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
         continue;
       MatchFinder->remove_candidate(F);
     }
-    FPM.run(*MergedFunction, FAM);
   }
 
   return PreservedAnalyses::none();

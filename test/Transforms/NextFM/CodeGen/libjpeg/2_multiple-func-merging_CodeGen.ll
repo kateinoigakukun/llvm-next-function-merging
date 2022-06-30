@@ -5,8 +5,14 @@
 ; - finish_input_ppm
 
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK-NOT: --- !Missed
-; XFAIL: *
+; CHECK:      --- !Passed
+; CHECK-NEXT: Pass:            multiple-func-merging
+; CHECK-NEXT: Name:            Merge
+; CHECK-NEXT: Function:        __msa_merge_finish_input_bmp_finish_input_gif_finish_input_ppm
+; CHECK-NEXT: Args:
+; CHECK-NEXT:   - Function:        finish_input_bmp
+; CHECK-NEXT:   - Function:        finish_input_gif
+; CHECK-NEXT:   - Function:        finish_input_ppm
 
 ; ModuleID = '/tmp/tmp.XL3451GutF/libjpeg.ll'
 source_filename = "llvm-link"

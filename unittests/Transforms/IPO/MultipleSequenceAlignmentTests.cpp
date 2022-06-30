@@ -34,7 +34,8 @@ protected:
       Functions.push_back(M.getFunction(FuncName));
     }
     OptimizationRemarkEmitter ORE(Functions[0]);
-    MSAFunctionMerger Merger(Functions, PairMerger, ORE);
+    FunctionAnalysisManager FAM;
+    MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM);
     std::vector<MSAAlignmentEntry> Alignment;
     Merger.align(Alignment);
     std::reverse(Alignment.begin(), Alignment.end());
