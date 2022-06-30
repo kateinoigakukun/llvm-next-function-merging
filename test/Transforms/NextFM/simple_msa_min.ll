@@ -44,33 +44,33 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb
-; CHECK-NEXT:      i32 1, label %bb.select.values7
-; CHECK-NEXT:      i32 2, label %bb.select.values8
+; CHECK-NEXT:      i32 1, label %bb.select.values.Bfunc5
+; CHECK-NEXT:      i32 2, label %bb.select.values.Afunc6
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select.values7:                                ; preds = %entry
+; CHECK-NEXT:  bb.select.values.Bfunc5:                          ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select.values8:                                ; preds = %entry
+; CHECK-NEXT:  bb.select.values.Afunc6:                          ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values7, %bb.select.values8, %entry
-; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values7 ], [ 4, %bb.select.values8 ], [ 2, %entry ]
+; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values.Bfunc5, %bb.select.values.Afunc6, %entry
+; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values.Bfunc5 ], [ 4, %bb.select.values.Afunc6 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
 ; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
-; CHECK-NEXT:    br i1 %switch, label %split.bb, label %m.inst.bb1
+; CHECK-NEXT:    br i1 %switch, label %Cfunc..split, label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  split.bb:                                         ; preds = %m.inst.bb
+; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_1()
 ; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %split.bb
+; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %Cfunc..split
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
 ; CHECK-NEXT:    %discriminator.off = add i32 %discriminator, -1
-; CHECK-NEXT:    %switch10 = icmp ult i32 %discriminator.off, 1
-; CHECK-NEXT:    %spec.select = select i1 %switch10, i64 42, i64 0
+; CHECK-NEXT:    %switch8 = icmp ult i32 %discriminator.off, 1
+; CHECK-NEXT:    %spec.select = select i1 %switch8, i64 42, i64 0
 ; CHECK-NEXT:    ret i64 %spec.select
 ; CHECK-NEXT:  }

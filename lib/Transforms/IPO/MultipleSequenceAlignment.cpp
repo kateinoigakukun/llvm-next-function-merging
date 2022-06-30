@@ -792,7 +792,9 @@ void MSAGenFunctionBody::chainBasicBlocks() {
     if (FoundMerged != MaterialNodes.end()) {
       LastMergedBB = FoundMerged->second;
     } else {
-      std::string BBName = std::string("src.bb");
+      SmallString<128> BBName(SrcBB->getParent()->getName());
+      BBName.append(".");
+      BBName.append(SrcBB->getName());
       NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
       VMap[SrcBB] = NewBB;
       BlocksFX[NewBB] = SrcBB;
@@ -831,7 +833,10 @@ void MSAGenFunctionBody::chainBasicBlocks() {
         LastMergedBB = NodeBB;
       } else {
         if (LastMergedBB) {
-          std::string BBName = "split.bb";
+          SmallString<128> BBName(SrcBB->getParent()->getName());
+          BBName.append(".");
+          BBName.append(SrcBB->getName());
+          BBName.append(".split");
           NewBB =
               BasicBlock::Create(MergedFunc->getContext(), BBName);
           MergedFunc->getBasicBlockList().insertAfter(
@@ -922,7 +927,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
     if (areAllOperandsEqual) {
       V = Vs[0]; // assume that V1 == V2 == ... == Vn
     } else {
-      auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc);
+      auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> BuilderBB(SelectBB);
       auto *Switch = BuilderBB.CreateSwitch(Discriminator, BlackholeBB);
 
@@ -1110,8 +1115,9 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
     auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-    auto *BB = BasicBlock::Create(Parent.C, "bb.select.values", MergedFunc,
-                                  AggregateBB);
+    SmallString<128> BBName("bb.select.values.");
+    BBName.append(Parent.Functions[FuncId]->getName());
+    auto *BB = BasicBlock::Create(Parent.C, BBName, MergedFunc, AggregateBB);
 
     IRBuilder<> BuilderBB(BB);
     BuilderBB.CreateBr(AggregateBB);

@@ -44,42 +44,42 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb
-; CHECK-NEXT:      i32 1, label %bb.select.values11
-; CHECK-NEXT:      i32 2, label %bb.select.values12
+; CHECK-NEXT:      i32 1, label %bb.select.values.Bfunc7
+; CHECK-NEXT:      i32 2, label %bb.select.values.Afunc8
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry, %m.inst.bb
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select.values11:                               ; preds = %entry
+; CHECK-NEXT:  bb.select.values.Bfunc7:                          ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select.values12:                               ; preds = %entry
+; CHECK-NEXT:  bb.select.values.Afunc8:                          ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values11, %bb.select.values12, %entry
-; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values11 ], [ 4, %bb.select.values12 ], [ 2, %entry ]
+; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values.Bfunc7, %bb.select.values.Afunc8, %entry
+; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values.Bfunc7 ], [ 4, %bb.select.values.Afunc8 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
 ; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
-; CHECK-NEXT:      i32 0, label %split.bb
-; CHECK-NEXT:      i32 1, label %split.bb4
-; CHECK-NEXT:      i32 2, label %split.bb5
+; CHECK-NEXT:      i32 0, label %Cfunc..split
+; CHECK-NEXT:      i32 1, label %Bfunc..split
+; CHECK-NEXT:      i32 2, label %Afunc..split
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
-; CHECK-NEXT:  split.bb5:                                        ; preds = %m.inst.bb
+; CHECK-NEXT:  Afunc..split:                                     ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_1()
 ; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  split.bb4:                                        ; preds = %m.inst.bb
+; CHECK-NEXT:  Bfunc..split:                                     ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_2()
 ; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  split.bb:                                         ; preds = %m.inst.bb
+; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_2()
 ; CHECK-NEXT:    call void @extern_func_2()
 ; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %split.bb5, %split.bb4, %split.bb
+; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %Afunc..split, %Bfunc..split, %Cfunc..split
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
 ; CHECK-NEXT:    store i32 7, i32* %m.R.R.R, align 4
 ; CHECK-NEXT:    store i32 8, i32* %m.S.S.S, align 4

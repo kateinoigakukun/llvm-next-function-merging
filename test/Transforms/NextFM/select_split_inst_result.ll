@@ -21,15 +21,15 @@ define double @rad2deg() {
 ; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i32 %discriminator) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %0 = alloca double, align 8
-; CHECK-NEXT:    %switch4 = icmp ult i32 %discriminator, 1
-; CHECK-NEXT:    br i1 %switch4, label %split.bb, label %bb.switch.values
+; CHECK-NEXT:    %switch3 = icmp ult i32 %discriminator, 1
+; CHECK-NEXT:    br i1 %switch3, label %deg2rad..split, label %bb.switch.values
 ; CHECK-EMPTY:
-; CHECK-NEXT:  split.bb:                                         ; preds = %entry
+; CHECK-NEXT:  deg2rad..split:                                   ; preds = %entry
 ; CHECK-NEXT:    %1 = call double @atan(double 1.000000e+00)
 ; CHECK-NEXT:    br label %bb.switch.values
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.switch.values:                                 ; preds = %entry, %split.bb
-; CHECK-NEXT:    %.0 = phi double [ undef, %entry ], [ %1, %split.bb ]
+; CHECK-NEXT:  bb.switch.values:                                 ; preds = %entry, %deg2rad..split
+; CHECK-NEXT:    %.0 = phi double [ undef, %entry ], [ %1, %deg2rad..split ]
 ; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
 ; CHECK-NEXT:    %.0. = select i1 %switch, double %.0, double 1.800000e+02
 ; CHECK-NEXT:    %2 = fmul double %.0., 2.000000e+00
