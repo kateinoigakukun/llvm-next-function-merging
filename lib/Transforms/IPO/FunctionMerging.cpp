@@ -1065,46 +1065,6 @@ bool FunctionMerger::match(Value *V1, Value *V2) {
   return false;
 }
 
-bool FunctionMerger::matchWholeBlocks(Value *V1, Value *V2) {
-  if (isa<BasicBlock>(V1) && isa<BasicBlock>(V2)) {
-    auto *BB1 = dyn_cast<BasicBlock>(V1);
-    auto *BB2 = dyn_cast<BasicBlock>(V2);
-    if (BB1->isLandingPad() || BB2->isLandingPad()) {
-      LandingPadInst *LP1 = BB1->getLandingPadInst();
-      LandingPadInst *LP2 = BB2->getLandingPadInst();
-      if (LP1 == nullptr || LP2 == nullptr)
-        return false;
-      if (!matchLandingPad(LP1, LP2))
-        return false;
-    }
-
-    auto It1 = BB1->begin();
-    auto It2 = BB2->begin();
-
-    while (isa<PHINode>(*It1) || isa<LandingPadInst>(*It1))
-      It1++;
-    while (isa<PHINode>(*It2) || isa<LandingPadInst>(*It2))
-      It2++;
-
-    while (It1 != BB1->end() && It2 != BB2->end()) {
-      Instruction *I1 = &*It1;
-      Instruction *I2 = &*It2;
-
-      if (!matchInstructions(I1, I2))
-        return false;
-
-      It1++;
-      It2++;
-    }
-
-    if (It1 != BB1->end() || It2 != BB2->end())
-      return false;
-
-    return true;
-  }
-  return false;
-}
-
 static unsigned
 RandomLinearizationOfBlocks(BasicBlock *BB,
                             std::list<BasicBlock *> &OrederedBBs,
@@ -2355,84 +2315,6 @@ bool FunctionMerger::isPAProfitable(BasicBlock *BB1, BasicBlock *BB2){
   return Profitable;
 }
 
-void FunctionMerger::extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq, BasicBlock *BB1, BasicBlock *BB2, AlignmentStats &stats) {
-  if (BB1 != nullptr && BB2 == nullptr) {
-    AlignedSeq.Data.emplace_back(BB1, nullptr, false);
-    for (Instruction &I : *BB1) {
-      if (isa<PHINode>(&I) || isa<LandingPadInst>(&I))
-        continue;
-      stats.Insts++;
-      AlignedSeq.Data.emplace_back(&I, nullptr, false);
-    }
-  } else if (BB1 == nullptr && BB2 != nullptr) {
-    AlignedSeq.Data.emplace_back(nullptr, BB2, false);
-    for (Instruction &I : *BB2) {
-      if (isa<PHINode>(&I) || isa<LandingPadInst>(&I))
-        continue;
-      stats.Insts++;
-      AlignedSeq.Data.emplace_back(nullptr, &I, false);
-    }
-  } else {
-    AlignedSeq.Data.emplace_back(BB1, BB2, FunctionMerger::match(BB1, BB2));
-
-    auto It1 = BB1->begin();
-    while (isa<PHINode>(*It1) || isa<LandingPadInst>(*It1))
-      It1++;
-
-    auto It2 = BB2->begin();
-    while (isa<PHINode>(*It2) || isa<LandingPadInst>(*It2))
-      It2++;
-
-    while (It1 != BB1->end() && It2 != BB2->end()) {
-      Instruction *I1 = &*It1;
-      Instruction *I2 = &*It2;
-
-      stats.Insts++;
-      if (matchInstructions(I1, I2)) {
-        AlignedSeq.Data.emplace_back(I1, I2, true);
-        stats.Matches++;
-        if (!I1->isTerminator())
-          stats.CoreMatches++;
-      } else {
-        AlignedSeq.Data.emplace_back(I1, nullptr, false);
-        AlignedSeq.Data.emplace_back(nullptr, I2, false);
-      }
-
-      It1++;
-      It2++;
-    }
-    assert ((It1 == BB1->end()) && (It2 == BB2->end()));
-  }
-}
-
-void FunctionMerger::extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq, AlignedSequence<Value *> &AlignedSubSeq, AlignmentStats &stats) {
-  for (auto &Entry : AlignedSubSeq) {
-    Instruction *I1 = nullptr;
-    if (Entry.get(0))
-      I1 = dyn_cast<Instruction>(Entry.get(0));
-
-    Instruction *I2 = nullptr;
-    if (Entry.get(1))
-      I2 = dyn_cast<Instruction>(Entry.get(1));
-
-    bool IsInstruction = I1 != nullptr || I2 != nullptr;
-
-    AlignedSeq.Data.emplace_back(Entry.get(0), Entry.get(1), Entry.match());
-
-    if (IsInstruction) {
-      stats.Insts++;
-      if (Entry.match())
-        stats.Matches++;
-      Instruction *I = I1 ? I1 : I2;
-      if (I->isTerminator())
-        stats.CoreMatches++;
-    }
-  }
-}
-
-
-bool AcrossBlocks;
-
 FunctionMergeResult
 FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const FunctionMergingOptions &Options) {
   bool ProfitableFn = true;
@@ -2914,7 +2796,7 @@ unsigned instToInt(Instruction *I) {
   auto instTypeID = static_cast<uint32_t>(I->getType()->getTypeID());
   value = value * (instTypeID + 1);
   auto *ITypePtr = I->getType();
-  if (ITypePtr) {
+  if (ITypePtr && !Deterministic) {
     value = value * (reinterpret_cast<std::uintptr_t>(ITypePtr) + 1);
   }
 
@@ -2924,7 +2806,7 @@ unsigned instToInt(Instruction *I) {
 
     auto *IOperTypePtr = I->getOperand(i)->getType();
 
-    if (IOperTypePtr) {
+    if (IOperTypePtr && !Deterministic) {
       value =
           value *
           (reinterpret_cast<std::uintptr_t>(I->getOperand(i)->getType()) + 1);
@@ -2965,7 +2847,7 @@ unsigned instToInt(Instruction *I) {
     const AllocaInst *AI = dyn_cast<AllocaInst>(I);
     uint32_t aValue = AI->getAlignment(); // Alignment
 
-    if (AI->getArraySize()) {
+    if (AI->getArraySize() && !Deterministic) {
       aValue += reinterpret_cast<std::uintptr_t>(AI->getArraySize());
     }
 
@@ -3013,7 +2895,7 @@ unsigned instToInt(Instruction *I) {
         }
 
         auto i = 0;
-        if (Idx) {
+        if (Idx && !Deterministic) {
           i = reinterpret_cast<std::uintptr_t>(Idx);
         }
         gValue += i;
@@ -3034,7 +2916,7 @@ unsigned instToInt(Instruction *I) {
 
     while (CaseIt != CaseEnd) {
       auto *Case = &*CaseIt;
-      if (Case) {
+      if (Case && !Deterministic) {
         sValue += reinterpret_cast<std::uintptr_t>(Case);
       }
       CaseIt++;
@@ -3057,7 +2939,7 @@ unsigned instToInt(Instruction *I) {
       break;
     }
 
-    if (CI->getCalledFunction()) {
+    if (CI->getCalledFunction() && !Deterministic) {
       cValue = reinterpret_cast<std::uintptr_t>(CI->getCalledFunction());
     }
 
@@ -3081,7 +2963,7 @@ unsigned instToInt(Instruction *I) {
 
     iValue = static_cast<unsigned>(II->getCallingConv());
 
-    if (II->getAttributes().getRawPointer()) {
+    if (II->getAttributes().getRawPointer() && !Deterministic) {
       iValue +=
           reinterpret_cast<std::uintptr_t>(II->getAttributes().getRawPointer());
     }
@@ -3511,7 +3393,6 @@ bool FunctionMerging::runImpl(
              << " Valid: " << match.Valid
              << " BinSizes: " << match.OtherSize << " + " << match.Size << " <= " << match.MergedSize
              << " IRSizes: " << match.OtherMagnitude << " + " << match.Magnitude
-             << " AcrossBlocks: " << AcrossBlocks
              << " Profitable: " << match.Profitable
              << " Distance: " << match.Distance;
       if (Verbose)

@@ -1,5 +1,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
@@ -32,7 +33,8 @@ protected:
     for (auto &FuncName : FuncNames) {
       Functions.push_back(M.getFunction(FuncName));
     }
-    MSAFunctionMerger Merger(Functions, PairMerger);
+    OptimizationRemarkEmitter ORE(Functions[0]);
+    MSAFunctionMerger Merger(Functions, PairMerger, ORE);
     std::vector<MSAAlignmentEntry> Alignment;
     Merger.align(Alignment);
     std::reverse(Alignment.begin(), Alignment.end());
@@ -198,9 +200,10 @@ define void @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
   withAlignment(*M, {"Afunc", "Bfunc", "Cfunc"},
                 [&](auto Alignment, ArrayRef<Function *> Functions) {
                   LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
+                  OptimizationRemarkEmitter ORE(Functions[0]);
                   MSAGenFunction Generator(
                       M.get(), Alignment, Functions,
-                      IntegerType::getInt32Ty(M->getContext()));
+                      IntegerType::getInt32Ty(M->getContext()), ORE);
                   std::vector<std::pair<Type *, AttributeSet>> Args;
                   ValueMap<Argument *, unsigned int> ArgToMergedIndex;
                   Generator.layoutParameters(Args, ArgToMergedIndex);

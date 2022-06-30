@@ -8,23 +8,28 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TensorTable.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueMap.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
+#include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <algorithm>
 #include <cassert>
@@ -38,8 +43,13 @@
 #include <vector>
 
 #define DEBUG_TYPE "multiple-func-merging"
+#define MSA_VERBOSE(X) DEBUG_WITH_TYPE("multiple-func-merging-verbose", X)
 
 using namespace llvm;
+
+static cl::opt<size_t> DefaultShapeSizeLimit(
+    "multiple-func-merging-shape-limit", cl::init(1024 * 1024), cl::Hidden,
+    cl::desc("Exploration threshold of evaluated functions"));
 
 namespace {
 
@@ -115,9 +125,11 @@ class MSAligner {
   }
 
 public:
-  static void align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
+  static bool align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                     ArrayRef<Function *> Functions,
-                    std::vector<MSAAlignmentEntry> &Alignment);
+                    std::vector<MSAAlignmentEntry> &Alignment,
+                    size_t ShapeSizeLimit = DefaultShapeSizeLimit,
+                    OptimizationRemarkEmitter *ORE = nullptr);
 };
 
 void MSAligner::initScoreTable() {
@@ -242,7 +254,7 @@ void MSAligner::buildAlignment(
   }
 
   while (true) {
-    LLVM_DEBUG(dbgs() << "BackCursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
+    MSA_VERBOSE(dbgs() << "BackCursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
     // If the current point is the start edge of the table, we are done.
     if (std::all_of(Cursor.begin(), Cursor.end(),
                     [](size_t v) { return v == 0; })) {
@@ -250,7 +262,7 @@ void MSAligner::buildAlignment(
     }
 
     auto &Entry = BestTransTable[Cursor];
-    LLVM_DEBUG(dbgs() << "Entry: " << Entry << "\n");
+    MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
     Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
@@ -279,28 +291,60 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
       return true;
     });
   } while (advancePointInShape(Cursor, ScoreTable.getShape()));
-  LLVM_DEBUG(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "BestTransTable:\n";
-             BestTransTable.print(llvm::dbgs()));
+  MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
+  MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
+              BestTransTable.print(llvm::dbgs()));
 
   buildAlignment(Alignment);
 
   return;
 }
 
-void MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
+static OptimizationRemarkMissed
+createMissedRemark(StringRef RemarkName, StringRef Reason,
+                   ArrayRef<Function *> Functions) {
+  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, Functions[0]);
+  remark << ore::NV("Reason", Reason);
+  for (auto *F : Functions) {
+    remark << ore::NV("Function", F);
+  }
+  return remark;
+}
+
+bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                       ArrayRef<Function *> Functions,
-                      std::vector<MSAAlignmentEntry> &Alignment) {
+                      std::vector<MSAAlignmentEntry> &Alignment,
+                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
+  size_t ShapeSize = 1;
+
   for (size_t i = 0; i < Functions.size(); i++) {
     auto &F = *Functions[i];
     PairMerger.linearize(&F, InstrVecList[i]);
     Shape.push_back(InstrVecList[i].size() + 1);
+    ShapeSize *= Shape[i];
+  }
+
+  // FIXME(katei): The current algorithm is not optimal and consumes too much
+  // memory. We should use more efficient algorithm and unlock this limitation.
+  if (ShapeSize > ShapeSizeLimit) {
+    if (ORE) {
+      ORE->emit([&] {
+        auto remark =
+            createMissedRemark("Alignment", "Too large table size", Functions);
+        for (size_t i = 0; i < Shape.size(); i++) {
+          remark << ore::NV("Shape", Shape[i]);
+        }
+        return remark;
+      });
+    }
+    return false;
   }
 
   MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
   Aligner.align(Alignment);
+  return true;
 }
 
 }; // namespace
@@ -338,8 +382,9 @@ void MSAAlignmentEntry::dump() const {
   }
 }
 
-void MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
-  MSAligner::align(PairMerger, Scoring, Functions, Alignment);
+bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+  return MSAligner::align(PairMerger, Scoring, Functions, Alignment,
+                          DefaultShapeSizeLimit, &ORE);
 }
 
 Function *MSAFunctionMerger::writeThunk(
@@ -374,8 +419,8 @@ Function *MSAFunctionMerger::writeThunk(
     Builder.CreateRet(Call);
   }
   SrcFunction->replaceAllUsesWith(thunk);
-  SrcFunction->eraseFromParent();
   thunk->takeName(SrcFunction);
+  SrcFunction->eraseFromParent();
 
   return thunk;
 }
@@ -383,12 +428,37 @@ Function *MSAFunctionMerger::writeThunk(
 Function *MSAFunctionMerger::merge(MSAStats &Stats) {
 
   std::vector<MSAAlignmentEntry> Alignment;
-  align(Alignment);
+  if (!align(Alignment)) {
+    return nullptr;
+  }
 
   FunctionMergingOptions Options;
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
-  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy);
+  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
+  if (!Merged) {
+    return nullptr;
+  }
+
+  if (verifyFunction(*Merged, &llvm::errs())) {
+    LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
+    LLVM_DEBUG(Merged->dump());
+    Merged->eraseFromParent();
+
+    ORE.emit([&] {
+      return createMissedRemark("CodeGen", "Invalid merged function",
+                                Functions);
+    });
+    return nullptr;
+  }
+
+  ORE.emit([&] {
+    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", Merged);
+    for (auto *F : Functions) {
+      remark << ore::NV("Function", F->getName());
+    }
+    return remark;
+  });
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
@@ -456,18 +526,21 @@ public:
   void chainBasicBlocks();
   void chainEntryBlock();
 
-  // XXX(katei): This method name is wrong and should be changed to something
-  // more descriptive.
-  bool assignMatchingLabelOperands(ArrayRef<Instruction *> Instructions);
-  bool assignMismatchingLabelOperands(
-      Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap);
-  Value *mergeValues(ArrayRef<Value *> Values, Instruction *InsertPt);
+  bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
+  bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
+  bool assignLabelOperands();
+
+  Value *mergeOperandValues(ArrayRef<Value *> Values, Instruction *MergedI);
   bool assignValueOperands();
   /// Assign new value operands. Return true if all operands are assigned.
   /// Return false if failed to assign any operand.
-  bool assignOperands(Instruction *I);
+  /// \param SrcI Instruction to assign operands from.
+  bool assignValueOperands(Instruction *SrcI);
+  /// Assign new value operands
   bool assignOperands();
   bool assignPHIOperandsInBlock();
+
+  bool fixupCoalescingPHI();
 
   bool emit();
 
@@ -511,6 +584,37 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
 
 // Corresponding to `CodeGen` in SALSSACodeGen.cpp
 void MSAGenFunctionBody::layoutSharedBasicBlocks() {
+  // This pass splits the basic blocks into multiple basic blocks per single
+  // instruction or BB label only for merge-able instruction or BB label.
+
+  // ```
+  // define double @f0(i32 %0) {
+  //   %1 = add i32 %0, 3
+  //   %2 = add i32 %1, 1
+  //   %3 = sub i32 %2, 1  <--------
+  //   call void @f2(i32 %3)       |
+  // }                             |
+  // define double @f1(i32 %0) {   |
+  //   %1 = add i32 %0, 1          |
+  //   %2 = add i32 %1, 2          |
+  //   %3 = div i32 %2, 2  <------ not mergeable
+  //   call void @f2(i32 %3)
+  // }
+  // ```
+  //
+  // is transformed into
+  //
+  // ```
+  // define double @f01(i32 %0) {
+  // m.inst.bb0:
+  //   %1 = add i32 <null>, <null>
+  // m.inst.bb1:
+  //   %2 = add i32 <null>, <null>
+  // m.inst.bb2:
+  //   call void @f2(i32 <null>)
+  // }
+  // ```
+  //
 
   auto &Alignment = Parent.Alignment;
   for (auto it = Alignment.rbegin(), end = Alignment.rend(); it != end; ++it) {
@@ -573,23 +677,115 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 }
 
 void MSAGenFunctionBody::chainBasicBlocks() {
+  using FuncId = size_t;
 
-  auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
-                         size_t FuncId) {
-    IRBuilder<> Builder(SrcBB);
-    SwitchInst *Switch;
-    if (SrcBB->getTerminator() == nullptr) {
-      Switch = Builder.CreateSwitch(Discriminator, BlackholeBB);
-    } else {
-      Switch = dyn_cast<SwitchInst>(SrcBB->getTerminator());
+  class SwitchChainer {
+    using SwitchChain = std::vector<std::pair<FuncId, BasicBlock *>>;
+    DenseMap<BasicBlock *, SwitchChain> ChainBySrcBB;
+    const MSAGenFunctionBody &Parent;
+  public:
+    SwitchChainer(const MSAGenFunctionBody &Parent) : Parent(Parent) {}
+
+    void chainBlocks(BasicBlock *SrcBB, BasicBlock *TargetBB, FuncId FuncId) {
+      if (ChainBySrcBB.find(SrcBB) == ChainBySrcBB.end()) {
+        ChainBySrcBB[SrcBB] = SwitchChain();
+      }
+      ChainBySrcBB[SrcBB].push_back(std::make_pair(FuncId, TargetBB));
+    };
+
+    void finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
+      assert(!Chain.empty() && "Chain should have at least one dest!");
+
+      bool singleTarget =
+          std::all_of(Chain.begin(), Chain.end(),
+                      [&](const std::pair<FuncId, BasicBlock *> &Pair) {
+                        auto *TargetBB = Pair.second;
+                        return Chain[0].second == TargetBB;
+                      });
+
+      IRBuilder<> Builder(SrcBB);
+      if (singleTarget) {
+        Builder.CreateBr(Chain[0].second);
+        return;
+      }
+
+      SwitchInst *Switch =
+          Builder.CreateSwitch(Parent.Discriminator, Parent.BlackholeBB);
+
+      for (auto &FuncIdAndBB : Chain) {
+        auto *TargetBB = FuncIdAndBB.second;
+        auto *Var =
+            ConstantInt::get(Parent.Parent.DiscriminatorTy, FuncIdAndBB.first);
+        Switch->addCase(Var, TargetBB);
+      }
     }
-    auto *Var = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-    Switch->addCase(Var, TargetBB);
+
+    void finalize() {
+      for (auto &P : ChainBySrcBB) {
+        finalizeChain(P.first, P.second);
+      }
+    }
   };
+
+  SwitchChainer chainer(*this);
+
+  // Chain BBs splitted from `SrcBB` by `br` and `switch` instructions
+  // and insert un-merged instructions.
+  //
+  // e.g.
+  // source two functions:
+  // ```
+  // define double @f0(i32 %0) {
+  //   %1 = add i32 %0, 3
+  //   %2 = sub i32 %1, 1
+  //   br i32 %0, label %bb0, label %bb1
+  // bb0:
+  //   call void @f2(i32 %3)
+  // bb1:
+  //   call void @f3(i32 %3)
+  // }
+  //
+  // define double @f1(i32 %0) {
+  //   %1 = add i32 %0, 1
+  //   %2 = add i32 %1, 2
+  //   call void @f2(i32 %3)
+  // }
+  // ```
+  // current merging function:
+  // ```
+  // define double @f01(i32 %0) {
+  // m.inst.bb0:
+  //   %1 = add i32 <null>, <null>
+  // m.inst.bb1:
+  //   call void @f2(i32 <null>)
+  // }
+  // ```
+  //
+  // Then it will be transformed to:
+  // ```
+  // define double @f01(i32 %0, i32 %discriminator) {
+  // m.inst.bb0:
+  //   %1 = add i32 <null>, <null>
+  //   br %split.bb0
+  // split.bb0:
+  //   %2 = sub i32 <null>, 1
+  //   switch i32 %discriminator, label %switch.blackhole [
+  //     i32 0, label %split.bb1  <-- if @f0
+  //     i32 1, label %m.inst.bb1 <-- if @f1
+  //   ]
+  // split.bb1:
+  //   %2 = sub i32 <null>, 1
+  //   br i32 <null>, label <null>, label <null>
+  // m.inst.bb1: <-- merged from @f0#bb0 and @f1#entry
+  //   call void @f2(i32 <null>)
+  // src.bb0:
+  //   call void @f3(i32 <null>)
+  // }
+  // ```
 
   auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
                                DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
-                               size_t FuncId) {
+                               FuncId FuncId) {
     BasicBlock *LastMergedBB = nullptr;
     BasicBlock *NewBB = nullptr;
     auto FoundMerged = MaterialNodes.find(SrcBB);
@@ -626,7 +822,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       if (HasBeenMerged) {
         BasicBlock *NodeBB = MaterialNodes[&I];
         if (LastMergedBB) {
-          ChainBlocks(LastMergedBB, NodeBB, FuncId);
+          chainer.chainBlocks(LastMergedBB, NodeBB, FuncId);
         } else {
           IRBuilder<> Builder(NewBB);
           Builder.CreateBr(NodeBB);
@@ -637,8 +833,10 @@ void MSAGenFunctionBody::chainBasicBlocks() {
         if (LastMergedBB) {
           std::string BBName = "split.bb";
           NewBB =
-              BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
-          ChainBlocks(LastMergedBB, NewBB, FuncId);
+              BasicBlock::Create(MergedFunc->getContext(), BBName);
+          MergedFunc->getBasicBlockList().insertAfter(
+              LastMergedBB->getIterator(), NewBB);
+          chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
           BlocksFX[NewBB] = SrcBB;
         }
         LastMergedBB = nullptr;
@@ -656,6 +854,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       ProcessBasicBlock(&BB, MergedBBToBB[i], i);
     }
   }
+  chainer.finalize();
 }
 
 void MSAGenFunctionBody::chainEntryBlock() {
@@ -682,7 +881,7 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   return MaxNumOperandsInst;
 }
 
-bool MSAGenFunctionBody::assignMatchingLabelOperands(
+bool MSAGenFunctionBody::assignMergedInstLabelOperands(
     ArrayRef<Instruction *> Instructions) {
 
   Instruction *I = Instructions[0];
@@ -701,11 +900,7 @@ bool MSAGenFunctionBody::assignMatchingLabelOperands(
         FV = I->getOperand(OperandIdx);
         // FIXME(katei): `VMap[FV]` is enough?
         V = MapValue(FV, VMap);
-        if (V == nullptr) {
-          LLVM_DEBUG(errs() << "ERROR: Null value mapped: V1 = "
-                               "MapValue(I1->getOperand(i), VMap);\n");
-          return false;
-        }
+        assert(V && "Operand not found in VMap!");
       } else {
         V = UndefValue::get(
             MaxNumOperandsInst->getOperand(OperandIdx)->getType());
@@ -780,9 +975,10 @@ bool MSAGenFunctionBody::assignMatchingLabelOperands(
   return true;
 }
 
-bool MSAGenFunctionBody::assignMismatchingLabelOperands(
-    Instruction *I, DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) {
+bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
+                                                       size_t FuncId) {
   auto *NewI = dyn_cast<Instruction>(VMap[I]);
+  auto &BlocksReMap = MergedBBToBB[FuncId];
 
   for (unsigned i = 0; i < I->getNumOperands(); i++) {
     // handling just label operands for now
@@ -817,8 +1013,41 @@ bool MSAGenFunctionBody::assignMismatchingLabelOperands(
   return true;
 }
 
-Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
-                                       Instruction *InsertPt) {
+bool MSAGenFunctionBody::assignLabelOperands() {
+  for (auto &Entry : Parent.Alignment) {
+    ArrayRef<Instruction *> Instructions;
+    if (auto Succeed = Entry.getAsInstructions()) {
+      Instructions = *Succeed;
+    } else {
+      // Skip non-instructions
+      continue;
+    }
+
+    // If instructions are merged, select new operand values by switch-phi.
+    // Otherwise, just map original operand value to new value for each
+    // instruction.
+    if (Entry.match()) {
+      if (!assignMergedInstLabelOperands(Instructions)) {
+        LLVM_DEBUG(
+            errs() << "ERROR: Failed to assign matching label operands\n";);
+        return false;
+      }
+    } else {
+      for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
+        auto *F = Parent.Functions[FuncId];
+        auto *I = Instructions[FuncId];
+        assert(I != nullptr && "Instruction should not be null!");
+        if (!assignSingleInstLabelOperands(I, FuncId)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
+                                              Instruction *MergedI) {
   bool areAllEqual = std::all_of(Values.begin(), Values.end(),
                                  [&](Value *V) { return V == Values[0]; });
   if (areAllEqual)
@@ -839,21 +1068,53 @@ Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
   //   }
   // }
 
-  auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc);
+  // pred.0:
+  //   ...
+  //   br label %insert.pt
+  // insert.pt:
+  //   add <i32 0 or i32 42>, i32 0
+  //
+  // ====>
+  //
+  // pred.0:
+  //   ...
+  //   br label %bb.switch.values
+  // bb.switch.values:
+  //   switch i1 %discriminator, label %bb.0 [
+  //     i32 0, label %bb.select0
+  //     i32 1, label %bb.select1
+  //   ]
+  // bb.select0:
+  //   br label %insert.pt
+  // bb.select1:
+  //   br label %insert.pt
+  // bb.aggregate.values:
+  //   %4 = phi i32 [ 0, %bb.select0 ], [ 42, %bb.select1 ]
+  //   br label %insert.pt
+  // merged.i:
+  //   add %4, i32 0
+
+  auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc,
+                                      MergedI->getParent());
   IRBuilder<> SwitchB(SwitchBB);
   auto *Switch = SwitchB.CreateSwitch(Discriminator, BlackholeBB);
 
-  InsertPt->getParent()->replaceAllUsesWith(SwitchBB);
+  MergedI->getParent()->replaceAllUsesWith(SwitchBB);
 
-  IRBuilder<> AggregateB(InsertPt);
+  auto *AggregateBB = BasicBlock::Create(Parent.C, "bb.aggregate.values",
+                                         MergedFunc, MergedI->getParent());
+  IRBuilder<> AggregateB(AggregateBB);
+
   auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size());
+  AggregateB.CreateBr(MergedI->getParent());
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
     auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-    auto *BB = BasicBlock::Create(Parent.C, "bb.select", MergedFunc);
+    auto *BB = BasicBlock::Create(Parent.C, "bb.select.values", MergedFunc,
+                                  AggregateBB);
 
     IRBuilder<> BuilderBB(BB);
-    BuilderBB.CreateBr(InsertPt->getParent());
+    BuilderBB.CreateBr(AggregateBB);
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
@@ -865,11 +1126,12 @@ Value *MSAGenFunctionBody::mergeValues(ArrayRef<Value *> Values,
   return PHI;
 }
 
-bool MSAGenFunctionBody::assignOperands(Instruction *I) {
-  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
+  auto *NewI = dyn_cast<Instruction>(VMap[SrcI]);
   IRBuilder<> Builder(NewI);
 
-  if (I->getOpcode() == Instruction::Ret && Options.EnableUnifiedReturnType) {
+  if (SrcI->getOpcode() == Instruction::Ret &&
+      Options.EnableUnifiedReturnType) {
     llvm_unreachable("Unified return type is not supported yet!");
     /*
     Value *V = MapValue(I->getOperand(0), VMap);
@@ -886,11 +1148,12 @@ bool MSAGenFunctionBody::assignOperands(Instruction *I) {
     NewI->setOperand(0, V);
     */
   } else {
-    for (unsigned i = 0; i < I->getNumOperands(); i++) {
-      if (isa<BasicBlock>(I->getOperand(i)))
+    for (unsigned i = 0; i < SrcI->getNumOperands(); i++) {
+      // BB operands should be handled separately by assignLabelOperands
+      if (isa<BasicBlock>(SrcI->getOperand(i)))
         continue;
 
-      Value *V = MapValue(I->getOperand(i), VMap);
+      Value *V = MapValue(SrcI->getOperand(i), VMap);
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
@@ -914,12 +1177,13 @@ bool MSAGenFunctionBody::assignValueOperands() {
     if (auto Succeed = Entry.getAsInstructions()) {
       Instructions = *Succeed;
     } else {
+      // If instructions and BBs are mixed, assign only instructions.
       for (auto *V : Entry.getValues()) {
         if (V == nullptr)
           continue;
 
         auto *I = dyn_cast<Instruction>(V);
-        if (I != nullptr && !assignOperands(I)) {
+        if (I != nullptr && !assignValueOperands(I)) {
           LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n");
           return false;
         }
@@ -935,8 +1199,10 @@ bool MSAGenFunctionBody::assignValueOperands() {
 
     if (Options.EnableOperandReordering && isa<BinaryOperator>(NewI) &&
         MaxNumOperandsInst->isCommutative()) {
+      // Optimizable case:
 
-      std::vector<std::vector<Value *>> Operands;
+      std::vector<std::vector<Value *>> Operands(
+          MaxNumOperandsInst->getNumOperands());
       for (auto *I : Instructions) {
         auto *BO = dyn_cast<BinaryOperator>(I);
         for (size_t OpIdx = 0, e = I->getNumOperands(); OpIdx < e; ++OpIdx) {
@@ -948,19 +1214,18 @@ bool MSAGenFunctionBody::assignValueOperands() {
 
       for (unsigned i = 0; i < Operands.size(); i++) {
         auto Vs = Operands[i];
-        Value *V = mergeValues(Vs, NewI);
+        Value *V = mergeOperandValues(Vs, NewI);
+        assert(V != nullptr && "value should not be null!");
 
-        if (V == nullptr) {
-          LLVM_DEBUG(errs() << "Could Not select:\n"
-                            << "ERROR: Value should NOT be null\n");
-          return false; // ErrorResponse;
+        if (auto *LiteralOp = NewI->getOperand(i)) {
+          assert(V->getType() == LiteralOp->getType() &&
+                 "TODO(katei): Handle type mismatch?");
         }
-
-        Value *CastedV = createCastIfNeeded(V, NewI->getOperand(i)->getType(),
-                                            Builder, getIntPtrType());
-        NewI->setOperand(i, CastedV);
+        NewI->setOperand(i, V);
       }
     } else {
+      // Baseline case:
+
       auto *I = MaxNumOperandsInst;
       for (unsigned OperandIdx = 0; OperandIdx < I->getNumOperands();
            OperandIdx++) {
@@ -976,11 +1241,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
             FV = I->getOperand(OperandIdx);
             // FIXME(katei): `VMap[FV]` is enough?
             V = MapValue(FV, VMap);
-            if (V == nullptr) {
-              LLVM_DEBUG(errs() << "ERROR: Null value mapped: V1 = "
-                                   "MapValue(I1->getOperand(i), VMap);\n");
-              return false;
-            }
+            assert(V != nullptr && "Value should NOT be null!");
           } else {
             V = UndefValue::get(
                 MaxNumOperandsInst->getOperand(OperandIdx)->getType());
@@ -990,12 +1251,8 @@ bool MSAGenFunctionBody::assignValueOperands() {
           Vs.push_back(V);
         }
 
-        Value *V = mergeValues(Vs, NewI);
-        if (V == nullptr) {
-          LLVM_DEBUG(errs() << "Could Not select:\n"
-                            << "ERROR: Value should NOT be null\n";);
-          return false; // ErrorResponse;
-        }
+        Value *V = mergeOperandValues(Vs, NewI);
+        assert(V != nullptr && "Value should NOT be null!");
 
         NewI->setOperand(OperandIdx, V);
       }
@@ -1004,33 +1261,268 @@ bool MSAGenFunctionBody::assignValueOperands() {
   return true;
 }
 
-bool MSAGenFunctionBody::assignOperands() {
-  for (auto &Entry : Parent.Alignment) {
-    ArrayRef<Instruction *> Instructions;
-    if (auto Succeed = Entry.getAsInstructions()) {
-      Instructions = *Succeed;
-    } else {
-      // Skip non-instructions
-      continue;
-    }
+bool MSAGenFunctionBody::fixupCoalescingPHI() {
+  // This pass fixes up PHI nodes where its incoming BBs are non-dominated by
+  // PHI node e.g.
+  //   o   <--- switch %discriminator, [bb2, ...]
+  //  / \
+  // o   o <--- bb2: %3 = ...
+  //  \ /
+  //   o   <--- switch %discriminator, [bb4, ...]
+  //  / \
+  // o   o <--- bb4: ...
+  //  \ /
+  //   o   <--- bb5: %6 = phi [%3, bb4], ...
+  //
+  // `bb5` dominates `bb2` in theory, it is not dominated in LLVM verification.
+  // This pass fixes up the PHI node by escaping the values like %3 into
+  // alloca-ed space. This pass was taken from SALSSACodeGen.cpp as is.
 
-    if (Entry.match()) {
-      if (!assignMatchingLabelOperands(Instructions)) {
-        LLVM_DEBUG(
-            errs() << "ERROR: Failed to assign matching label operands\n";);
-        return false;
+  std::list<Instruction *> LinearOffendingInsts;
+  std::set<Instruction *> OffendingInsts;
+  BasicBlock *PreBB = EntryBB;
+  // TODO(katei): Collect candidates in `mergeOperandValues`
+  std::map<Instruction *, std::map<Instruction *, unsigned>>
+      CoalescingCandidates;
+
+  DominatorTree DT(*MergedFunc);
+
+  for (Instruction &I : instructions(MergedFunc)) {
+    if (auto *PHI = dyn_cast<PHINode>(&I)) {
+      for (unsigned i = 0; i < PHI->getNumIncomingValues(); i++) {
+        BasicBlock *BB = PHI->getIncomingBlock(i);
+        if (BB == nullptr)
+          errs() << "Null incoming block\n";
+        Value *V = PHI->getIncomingValue(i);
+        if (V == nullptr)
+          errs() << "Null incoming value\n";
+        if (auto *IV = dyn_cast<Instruction>(V)) {
+          if (BB->getTerminator() == nullptr) {
+            LLVM_DEBUG(errs() << "ERROR: Null terminator\n");
+            return false;
+          }
+          if (!DT.dominates(IV, BB->getTerminator())) {
+            if (OffendingInsts.count(IV) == 0) {
+              OffendingInsts.insert(IV);
+              LinearOffendingInsts.push_back(IV);
+            }
+          }
+        }
       }
     } else {
-      for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
-        auto *F = Parent.Functions[FuncId];
-        auto *I = Instructions[FuncId];
-        assert(I != nullptr && "Instruction should not be null!");
-        if (!assignMismatchingLabelOperands(I, MergedBBToBB[FuncId])) {
+      for (unsigned i = 0; i < I.getNumOperands(); i++) {
+        if (I.getOperand(i) == nullptr) {
+          LLVM_DEBUG(errs() << "ERROR: Null operand\n");
           return false;
+        }
+        if (auto *IV = dyn_cast<Instruction>(I.getOperand(i))) {
+          if (!DT.dominates(IV, &I)) {
+            if (OffendingInsts.count(IV) == 0) {
+              OffendingInsts.insert(IV);
+              LinearOffendingInsts.push_back(IV);
+            }
+          }
         }
       }
     }
   }
+
+  auto StoreInstIntoAddr = [](Instruction *IV, Value *Addr) {
+    IRBuilder<> Builder(IV->getParent());
+    if (IV->isTerminator()) {
+      BasicBlock *SrcBB = IV->getParent();
+      if (auto *II = dyn_cast<InvokeInst>(IV)) {
+        BasicBlock *DestBB = II->getNormalDest();
+
+        Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
+        // create PHI
+        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+        for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
+             PredIt != PredE; PredIt++) {
+          BasicBlock *PredBB = *PredIt;
+          if (PredBB == SrcBB) {
+            PHI->addIncoming(IV, PredBB);
+          } else {
+            PHI->addIncoming(UndefValue::get(IV->getType()), PredBB);
+          }
+        }
+        Builder.CreateStore(PHI, Addr);
+      } else {
+        for (auto SuccIt = succ_begin(SrcBB), SuccE = succ_end(SrcBB);
+             SuccIt != SuccE; SuccIt++) {
+          BasicBlock *DestBB = *SuccIt;
+
+          Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
+          // create PHI
+          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+          for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
+               PredIt != PredE; PredIt++) {
+            BasicBlock *PredBB = *PredIt;
+            if (PredBB == SrcBB) {
+              PHI->addIncoming(IV, PredBB);
+            } else {
+              PHI->addIncoming(UndefValue::get(IV->getType()), PredBB);
+            }
+          }
+          Builder.CreateStore(PHI, Addr);
+        }
+      }
+    } else {
+      Instruction *LastI = nullptr;
+      Instruction *InsertPt = nullptr;
+      for (Instruction &I : *IV->getParent()) {
+        InsertPt = &I;
+        if (LastI == IV)
+          break;
+        LastI = &I;
+      }
+      if (isa<PHINode>(InsertPt) || isa<LandingPadInst>(InsertPt)) {
+        Builder.SetInsertPoint(&*IV->getParent()->getFirstInsertionPt());
+        // Builder.SetInsertPoint(IV->getParent()->getTerminator());
+      } else
+        Builder.SetInsertPoint(InsertPt);
+
+      Builder.CreateStore(IV, Addr);
+    }
+  };
+
+  auto MemfyInst = [&](std::set<Instruction *> &InstSet) -> AllocaInst * {
+    if (InstSet.empty())
+      return nullptr;
+    IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
+    AllocaInst *Addr = Builder.CreateAlloca((*InstSet.begin())->getType());
+
+    for (Instruction *I : InstSet) {
+      for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
+        Use &UI = *UIt;
+        UIt++;
+
+        auto *User = cast<Instruction>(UI.getUser());
+
+        if (auto *PHI = dyn_cast<PHINode>(User)) {
+          /// TODO: make sure getOperandNo is getting the correct incoming edge
+          auto InsertionPt =
+              PHI->getIncomingBlock(UI.getOperandNo())->getTerminator();
+          /// TODO: If the terminator of the incoming block is the producer of
+          //        the value we want to store, the load cannot be inserted
+          //        between the producer and the user. Something more complex is
+          //        needed.
+          if (InsertionPt == I)
+            continue;
+          IRBuilder<> Builder(InsertionPt);
+          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(),
+                                    Addr));
+        } else {
+          IRBuilder<> Builder(User);
+          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(),
+                                    Addr));
+        }
+      }
+    }
+
+    for (Instruction *I : InstSet)
+      StoreInstIntoAddr(I, Addr);
+
+    return Addr;
+  };
+
+  auto isCoalescingProfitable = [&](Instruction *I1, Instruction *I2) -> bool {
+    std::set<BasicBlock *> BBSet1;
+    std::set<BasicBlock *> UnionBB;
+    for (User *U : I1->users()) {
+      if (auto *UI = dyn_cast<Instruction>(U)) {
+        BasicBlock *BB1 = UI->getParent();
+        BBSet1.insert(BB1);
+        UnionBB.insert(BB1);
+      }
+    }
+
+    unsigned Intersection = 0;
+    for (User *U : I2->users()) {
+      if (auto *UI = dyn_cast<Instruction>(U)) {
+        BasicBlock *BB2 = UI->getParent();
+        UnionBB.insert(BB2);
+        if (BBSet1.find(BB2) != BBSet1.end())
+          Intersection++;
+      }
+    }
+
+    const float Threshold = 0.7;
+    return (float(Intersection) / float(UnionBB.size()) > Threshold);
+  };
+
+  auto OptimizeCoalescing =
+      [&](Instruction *I, std::set<Instruction *> &InstSet,
+          std::map<Instruction *, std::map<Instruction *, unsigned>>
+              &CoalescingCandidates,
+          std::set<Instruction *> &Visited) {
+        Instruction *OtherI = nullptr;
+        unsigned Score = 0;
+        if (CoalescingCandidates.find(I) != CoalescingCandidates.end()) {
+          for (auto &Pair : CoalescingCandidates[I]) {
+            if (Pair.second > Score &&
+                Visited.find(Pair.first) == Visited.end()) {
+              if (isCoalescingProfitable(I, Pair.first)) {
+                OtherI = Pair.first;
+                Score = Pair.second;
+              }
+            }
+          }
+        }
+        if (OtherI) {
+          InstSet.insert(OtherI);
+        }
+      };
+
+  if (((float)OffendingInsts.size()) / ((float)Parent.Alignment.size()) > 4.5) {
+    Parent.ORE.emit([&] {
+      return createMissedRemark("FixupCoalescingPHI", "Too many OffendingInsts",
+                                Parent.Functions);
+    });
+    return false;
+  }
+
+  std::set<Instruction *> Visited;
+  std::vector<AllocaInst *> Allocas;
+
+  for (Instruction *I : LinearOffendingInsts) {
+    if (Visited.find(I) != Visited.end())
+      continue;
+
+    std::set<Instruction *> InstSet;
+    InstSet.insert(I);
+
+    // Create a coalescing group in InstSet
+    OptimizeCoalescing(I, InstSet, CoalescingCandidates, Visited);
+
+    for (Instruction *OtherI : InstSet)
+      Visited.insert(OtherI);
+
+    AllocaInst *Addr = MemfyInst(InstSet);
+    if (Addr)
+      Allocas.push_back(Addr);
+  }
+
+  {
+    DominatorTree DT(*MergedFunc);
+    PromoteMemToReg(Allocas, DT, nullptr);
+  }
+
+  return true;
+}
+
+bool MSAGenFunctionBody::assignOperands() {
+  // This pass assigns BB label operands and value operands.
+
+  // 1. Assign BB label operands.
+  // This phase is separated from value operands because landing pads need to
+  // be handled specially.
+  if (!assignLabelOperands()) {
+    LLVM_DEBUG(errs() << "ERROR: Failed to assign label operands\n";);
+    return false;
+  }
+
+  // 2. Assign value operands.
   if (!assignValueOperands()) {
     LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n";);
     return false;
@@ -1039,6 +1531,7 @@ bool MSAGenFunctionBody::assignOperands() {
 }
 
 bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
+  // Update incoming BB info of PHI that are come from original instructions
   auto AssignPHIOperandsInBlock =
       [&](BasicBlock *BB,
           DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) -> bool {
@@ -1098,6 +1591,9 @@ bool MSAGenFunctionBody::emit() {
     return false;
   }
   if (!assignPHIOperandsInBlock()) {
+    return false;
+  }
+  if (!fixupCoalescingPHI()) {
     return false;
   }
   return true;
@@ -1209,10 +1705,10 @@ StringRef MSAGenFunction::getFunctionName() {
   if (this->NameCache)
     return *this->NameCache;
 
-  std::string Name = "__msa_merge_";
+  std::string Name = "__msa_merge";
   for (auto &F : Functions) {
-    Name += F->getName();
     Name += "_";
+    Name += F->getName();
   }
   this->NameCache = Name;
   return *this->NameCache;
@@ -1226,7 +1722,16 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
 
   layoutParameters(MergedArgs, ArgToMergedArgNo);
   if (!layoutReturnType(RetTy)) {
-    // TODO(katei): should emit remarks?
+    ORE.emit([&] {
+      auto remark =
+          OptimizationRemarkMissed(DEBUG_TYPE, "ReturnTypeLayout", Functions[0])
+          << "Return type of functions are not compatible";
+      for (auto &F : Functions) {
+        remark << ore::NV("Function", F);
+        remark << ore::NV("Type", F->getReturnType());
+      }
+      return remark;
+    });
     return nullptr;
   }
   auto *Sig = createFunctionType(MergedArgs, RetTy);
@@ -1241,10 +1746,17 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
     for (auto &arg : F->args()) {
       Argument *MergeArg = MergedF->getArg(ArgToMergedArgNo[&arg]);
       VMap[&arg] = MergeArg;
-      if (MergeArg->getName().empty()) {
-        MergeArg->setName("m." + arg.getName());
+
+      std::string displayName;
+      if (arg.getName().empty()) {
+        displayName = std::to_string(arg.getArgNo());
       } else {
-        MergeArg->setName(MergeArg->getName() + Twine(".") + arg.getName());
+        displayName = arg.getName().str();
+      }
+      if (MergeArg->getName().empty()) {
+        MergeArg->setName("m." + displayName);
+      } else {
+        MergeArg->setName(MergeArg->getName() + Twine(".") + displayName);
       }
     }
   }
@@ -1252,7 +1764,10 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   MSAGenFunctionBody BodyEmitter(*this, Options, Stats, discriminator, VMap,
                                  MergedF);
   if (!BodyEmitter.emit()) {
-    MergedF->removeFromParent();
+    MergedF->eraseFromParent();
+    ORE.emit([&] {
+      return createMissedRemark("CodeGen", "Something went wrong", Functions);
+    });
     return nullptr;
   }
 
@@ -1302,12 +1817,14 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     if (Functions.size() < 2)
       continue;
 
-    LLVM_DEBUG(dbgs() << "Try to merge\n");
-    LLVM_DEBUG(for (auto *F
-                    : Functions) { dbgs() << " - " << F->getName() << "\n"; });
+    auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
+
     MSAStats Stats;
-    MSAFunctionMerger FM(Functions, PairMerger);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE);
     auto MergedFunction = FM.merge(Stats);
+    if (!MergedFunction) {
+      continue;
+    }
     for (auto *F : Functions) {
       if (F == F1)
         continue;

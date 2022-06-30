@@ -846,12 +846,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     }
   }
 
-  for (BranchInst *NewBr : XorBrConds) {
-    IRBuilder<> Builder(NewBr);
-    Value *XorCond = Builder.CreateXor(NewBr->getCondition(), IsFunc1);
-    NewBr->setCondition(XorCond);
-  }
-
   auto StoreInstIntoAddr = [](Instruction *IV, Value *Addr) {
     IRBuilder<> Builder(IV->getParent());
     if (IV->isTerminator()) {

@@ -40,37 +40,37 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; F3M-NEXT:  }
 
 
-; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc_(i32 %discriminator, i32* %m.P.P.P, i32* %m.Q.Q.Q, i32* %m.R.R.R, i32* %m.S.S.S) {
+; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc(i32 %discriminator, i32* %m.P.P.P, i32* %m.Q.Q.Q, i32* %m.R.R.R, i32* %m.S.S.S) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
 ; CHECK-NEXT:      i32 0, label %m.inst.bb
-; CHECK-NEXT:      i32 1, label %bb.select6
-; CHECK-NEXT:      i32 2, label %bb.select7
+; CHECK-NEXT:      i32 1, label %bb.select.values7
+; CHECK-NEXT:      i32 2, label %bb.select.values8
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
 ; CHECK-NEXT:    unreachable
 ; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb:                                        ; preds = %entry, %bb.select7, %bb.select6
-; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select6 ], [ 4, %bb.select7 ], [ 2, %entry ]
+; CHECK-NEXT:  bb.select.values7:                                ; preds = %entry
+; CHECK-NEXT:    br label %m.inst.bb
+; CHECK-EMPTY:
+; CHECK-NEXT:  bb.select.values8:                                ; preds = %entry
+; CHECK-NEXT:    br label %m.inst.bb
+; CHECK-EMPTY:
+; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values7, %bb.select.values8, %entry
+; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values7 ], [ 4, %bb.select.values8 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
 ; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
 ; CHECK-NEXT:    br i1 %switch, label %split.bb, label %m.inst.bb1
-; CHECK-EMPTY:
-; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %split.bb
-; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
-; CHECK-NEXT:    %discriminator.off = add i32 %discriminator, -1
-; CHECK-NEXT:    %switch9 = icmp ult i32 %discriminator.off, 1
-; CHECK-NEXT:    %spec.select = select i1 %switch9, i64 42, i64 0
-; CHECK-NEXT:    ret i64 %spec.select
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  split.bb:                                         ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_1()
 ; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select6:                                       ; preds = %entry
-; CHECK-NEXT:    br label %m.inst.bb
-; CHECK-EMPTY:
-; CHECK-NEXT:  bb.select7:                                       ; preds = %entry
-; CHECK-NEXT:    br label %m.inst.bb
+; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %split.bb
+; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
+; CHECK-NEXT:    %discriminator.off = add i32 %discriminator, -1
+; CHECK-NEXT:    %switch10 = icmp ult i32 %discriminator.off, 1
+; CHECK-NEXT:    %spec.select = select i1 %switch10, i64 42, i64 0
+; CHECK-NEXT:    ret i64 %spec.select
 ; CHECK-NEXT:  }
