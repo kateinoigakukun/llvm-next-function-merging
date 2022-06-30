@@ -47,6 +47,10 @@
 
 using namespace llvm;
 
+static cl::opt<size_t> DefaultShapeSizeLimit(
+    "multiple-func-merging-shape-limit", cl::init(1024 * 1024), cl::Hidden,
+    cl::desc("Exploration threshold of evaluated functions"));
+
 namespace {
 
 using TransitionOffset = std::vector<size_t>;
@@ -124,6 +128,7 @@ public:
   static bool align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                     ArrayRef<Function *> Functions,
                     std::vector<MSAAlignmentEntry> &Alignment,
+                    size_t ShapeSizeLimit = DefaultShapeSizeLimit,
                     OptimizationRemarkEmitter *ORE = nullptr);
 };
 
@@ -309,7 +314,7 @@ createMissedRemark(StringRef RemarkName, StringRef Reason,
 bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                       ArrayRef<Function *> Functions,
                       std::vector<MSAAlignmentEntry> &Alignment,
-                      OptimizationRemarkEmitter *ORE) {
+                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;
@@ -323,7 +328,7 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
 
   // FIXME(katei): The current algorithm is not optimal and consumes too much
   // memory. We should use more efficient algorithm and unlock this limitation.
-  if (ShapeSize > 1024 * 1024 * 1024) {
+  if (ShapeSize > ShapeSizeLimit) {
     if (ORE) {
       ORE->emit([&] {
         auto remark =
@@ -378,7 +383,8 @@ void MSAAlignmentEntry::dump() const {
 }
 
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
-  return MSAligner::align(PairMerger, Scoring, Functions, Alignment, &ORE);
+  return MSAligner::align(PairMerger, Scoring, Functions, Alignment,
+                          DefaultShapeSizeLimit, &ORE);
 }
 
 Function *MSAFunctionMerger::writeThunk(
