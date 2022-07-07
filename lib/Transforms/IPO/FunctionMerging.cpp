@@ -3110,6 +3110,17 @@ bool ignoreFunction(Function &F) {
   return false;
 }
 
+static OptimizationRemarkMissed createMissedRemark(StringRef RemarkName,
+                                                   StringRef Reason,
+                                                   Function *F1, Function *F2) {
+  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, F1);
+  if (!Reason.empty())
+    remark << ore::NV("Reason", Reason);
+  remark << ore::NV("Function", F1);
+  remark << ore::NV("Function", F2);
+  return remark;
+}
+
 bool FunctionMerging::runImpl(
     Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
     function_ref<OptimizationRemarkEmitter &(Function &)> GORE) {
@@ -3313,6 +3324,7 @@ bool FunctionMerging::runImpl(
       if (Debug)
         errs() << "Attempting: " << F1Name << ", " << F2Name << " : " << match.Distance << "\n";
 
+      auto &ORE = GORE(*F1);
       std::string Name = "_m_f_" + std::to_string(TotalMerges);
       FunctionMergeResult Result = FM.merge(F1, F2, Name, Options);
 #ifdef TIME_STEPS_DEBUG
@@ -3348,6 +3360,10 @@ bool FunctionMerging::runImpl(
         time_update_start = std::chrono::steady_clock::now();
 #endif
         if (!match.Valid) {
+          ORE.emit([&] {
+            return createMissedRemark("CodeGen", "Invalid merged function", F1,
+                                      F2);
+          });
           Result.getMergedFunction()->eraseFromParent();
         } else {
           size_t MergedSize = EstimateFunctionSize(Result.getMergedFunction(), GTTI(*Result.getMergedFunction()));
@@ -3360,6 +3376,13 @@ bool FunctionMerging::runImpl(
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;
 
           if (match.Profitable) {
+            ORE.emit([&] {
+              auto remark = OptimizationRemark(DEBUG_TYPE, "Merge",
+                                               Result.getMergedFunction());
+              remark << ore::NV("Function", F1->getName());
+              remark << ore::NV("Function", F2->getName());
+              return remark;
+            });
             TotalMerges++;
             matcher->remove_candidate(F2);
 
@@ -3372,6 +3395,11 @@ bool FunctionMerging::runImpl(
                   EstimateFunctionSize(Result.getMergedFunction(), GTTI(*Result.getMergedFunction())));
             }
           } else {
+            ORE.emit([&] {
+              return createMissedRemark("UnprofitableMerge", "", F1, F2)
+                     << ore::NV("MergedSize", MergedSize)
+                     << ore::NV("OriginalTotalSize", SizeF1F2);
+            });
             Result.getMergedFunction()->eraseFromParent();
           }
         }
@@ -3379,6 +3407,10 @@ bool FunctionMerging::runImpl(
         TimeUpdate.stopTimer();
         time_update_end = std::chrono::steady_clock::now();
 #endif
+      } else {
+        ORE.emit([&] {
+          return createMissedRemark("CodeGen", "Null Merged Function", F1, F2);
+        });
       }
       time_iteration_end = std::chrono::steady_clock::now();
 
