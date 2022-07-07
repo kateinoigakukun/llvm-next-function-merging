@@ -55,6 +55,10 @@ static cl::opt<bool> AllowUnprofitableMerge(
     "multiple-func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
     cl::desc("Allow merging functions that are not profitable"));
 
+static cl::opt<bool> DisablePostOpt(
+    "multiple-func-merging-disable-post-opt", cl::init(false), cl::Hidden,
+    cl::desc("Disable post-optimization of the merged function"));
+
 namespace {
 
 using TransitionOffset = std::vector<size_t>;
@@ -485,10 +489,12 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats) {
     return nullptr;
   }
 
-  FunctionPassManager FPM;
-  FPM.addPass(SimplifyCFGPass());
+  if (!DisablePostOpt) {
+    FunctionPassManager FPM;
+    FPM.addPass(SimplifyCFGPass());
 
-  FPM.run(*Merged, FAM);
+    FPM.run(*Merged, FAM);
+  }
 
   if (auto remark = isProfitableMerge(Merged)) {
     Merged->eraseFromParent();
