@@ -52,6 +52,7 @@
 
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Dominators.h"
@@ -267,12 +268,8 @@ unsigned long long getTotalSystemMemory() {
 
 class FunctionMerging {
 public:
-  bool runImpl(Module &M) {
-    TargetTransformInfo TTI(M.getDataLayout());
-    auto GTTI = [&](Function &F) -> TargetTransformInfo * { return &TTI; };
-    return runImpl(M, GTTI);
-  }
-  bool runImpl(Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI);
+  bool runImpl(Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
+               function_ref<OptimizationRemarkEmitter &(Function &)> GORE);
 };
 
 FunctionMergeResult MergeFunctions(Function *F1, Function *F2,
@@ -3114,7 +3111,8 @@ bool ignoreFunction(Function &F) {
 }
 
 bool FunctionMerging::runImpl(
-    Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI) {
+    Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
+    function_ref<OptimizationRemarkEmitter &(Function &)> GORE) {
 
 #ifdef TIME_STEPS_DEBUG
   TimeTotal.startTimer();
@@ -3503,9 +3501,14 @@ public:
     auto GTTI = [this](Function &F) -> TargetTransformInfo * {
       return &this->getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
     };
-
+    std::unique_ptr<OptimizationRemarkEmitter> ORE;
+    std::function<OptimizationRemarkEmitter &(Function &)> GORE =
+        [&ORE](Function &F) -> OptimizationRemarkEmitter & {
+      ORE.reset(new OptimizationRemarkEmitter(&F));
+      return *ORE.get();
+    };
     FunctionMerging FM;
-    return FM.runImpl(M, GTTI);
+    return FM.runImpl(M, GTTI, GORE);
   }
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<TargetTransformInfoWrapperPass>();
@@ -3528,14 +3531,17 @@ ModulePass *llvm::createFunctionMergingPass() {
 
 PreservedAnalyses FunctionMergingPass::run(Module &M,
                                            ModuleAnalysisManager &AM) {
-  //auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-  //std::function<TargetTransformInfo *(Function &)> GTTI =
-  //    [&FAM](Function &F) -> TargetTransformInfo * {
-  //  return &FAM.getResult<TargetIRAnalysis>(F);
-  //};
+  auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  std::function<TargetTransformInfo *(Function &)> GTTI =
+      [&FAM](Function &F) -> TargetTransformInfo * {
+    return &FAM.getResult<TargetIRAnalysis>(F);
+  };
+  auto GORE = [&](Function &F) -> OptimizationRemarkEmitter & {
+    return FAM.getResult<OptimizationRemarkEmitterAnalysis>(F);
+  };
 
   FunctionMerging FM;
-  if (!FM.runImpl(M)) //, GTTI))
+  if (!FM.runImpl(M, GTTI, GORE))
     return PreservedAnalyses::all();
   return PreservedAnalyses::none();
 }
