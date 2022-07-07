@@ -7,6 +7,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IRReader/IRReader.h"
+#include "llvm/Remarks/Remark.h"
 #include "llvm/Remarks/RemarkParser.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
@@ -18,6 +19,7 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 using namespace llvm;
@@ -29,6 +31,10 @@ static cl::opt<std::string> OutputDir("o", cl::desc("<output dir>"),
                                       cl::Required, cl::cat(TestGenCat));
 static cl::list<std::string> RemarkFiles("remark", cl::desc("<remark file>"),
                                          cl::ZeroOrMore, cl::cat(TestGenCat));
+static cl::opt<std::string> RegressionTrainer(
+    "regression-trainer",
+    cl::desc("Extract only missed remarks that passed in the given trainer"),
+    cl::cat(TestGenCat));
 static cl::opt<std::string> ParserFormat("format",
                                          cl::desc("The format of the remarks."),
                                          cl::init("yaml"), cl::cat(TestGenCat));
@@ -92,16 +98,95 @@ static bool HandleMissedRemark(const remarks::Remark &Remark,
   return false;
 }
 
-static bool isEligibleRemark(const remarks::Remark &Remark) {
-  if (RemarkFilter.empty())
-    return true;
+class RemarkSelector {
+  std::vector<std::set<std::string>> TrainerPassRemarks;
 
-  for (const std::string &Filter : RemarkFilter) {
-    if (Remark.RemarkName.str().find(Filter) != std::string::npos)
-      return true;
+public:
+  RemarkSelector() {
+    if (!RegressionTrainer.empty()) {
+      collectTrainerRemarks(RegressionTrainer);
+    }
   }
-  return false;
-}
+
+  void collectTrainerRemarks(std::string TrainerFile) {
+    Expected<remarks::Format> Format = remarks::parseFormat(ParserFormat);
+    if (!Format) {
+      handleAllErrors(Format.takeError(), [&](const ErrorInfoBase &PE) {
+        PE.log(WithColor::error());
+        errs() << '\n';
+      });
+      return;
+    }
+    auto Buf = MemoryBuffer::getFile(TrainerFile);
+    if (std::error_code EC = Buf.getError()) {
+      WithColor::error() << "Can't open file " << TrainerFile << ": "
+                         << EC.message() << "\n";
+      return;
+    }
+    Expected<std::unique_ptr<remarks::RemarkParser>> MaybeParser =
+        remarks::createRemarkParserFromMeta(*Format, (*Buf)->getBuffer());
+
+    if (!MaybeParser) {
+      handleAllErrors(MaybeParser.takeError(), [&](const ErrorInfoBase &PE) {
+        PE.log(WithColor::error());
+        errs() << '\n';
+      });
+      return;
+    }
+
+    remarks::RemarkParser &Parser = **MaybeParser;
+
+    while (true) {
+      Expected<std::unique_ptr<remarks::Remark>> MaybeRemark = Parser.next();
+      if (!MaybeRemark) {
+        Error E = MaybeRemark.takeError();
+        if (E.isA<remarks::EndOfFileError>()) {
+          // EOF.
+          consumeError(std::move(E));
+          break;
+        }
+        handleAllErrors(std::move(E), [&](const ErrorInfoBase &PE) {
+          PE.log(WithColor::error());
+          errs() << '\n';
+        });
+        return;
+      }
+
+      const remarks::Remark &TrainerRemark = **MaybeRemark;
+      std::set<std::string> TrainerTargetSet;
+      if (TrainerRemark.RemarkType != remarks::Type::Passed)
+        continue;
+
+      for (const remarks::Argument &Arg : TrainerRemark.Args) {
+        if (Arg.Key == "Function")
+          TrainerTargetSet.insert(Arg.Val.str());
+      }
+      if (!TrainerTargetSet.empty()) {
+        TrainerPassRemarks.push_back(TrainerTargetSet);
+      }
+    }
+  }
+
+  bool isEligibleRemark(const remarks::Remark &Remark) {
+    if (RemarkFilter.empty() && RegressionTrainer.empty())
+      return true;
+
+    for (const std::string &Filter : RemarkFilter) {
+      if (Remark.RemarkName.str().find(Filter) != std::string::npos)
+        return true;
+    }
+    std::set<std::string> TargetSet;
+    for (const remarks::Argument &Arg : Remark.Args) {
+      if (Arg.Key == "Function")
+        TargetSet.insert(Arg.Val.str());
+    }
+    for (auto &TrainerTargetSet : TrainerPassRemarks) {
+      if (TrainerTargetSet == TargetSet)
+        return true;
+    }
+    return false;
+  }
+};
 
 static bool HandleRemarkFile(StringRef RemarkFile, Module *M) {
   Expected<remarks::Format> Format = remarks::parseFormat(ParserFormat);
@@ -133,6 +218,7 @@ static bool HandleRemarkFile(StringRef RemarkFile, Module *M) {
 
   remarks::RemarkParser &Parser = **MaybeParser;
   unsigned RemarkIndex = 0;
+  RemarkSelector Selector;
 
   while (true) {
     Expected<std::unique_ptr<remarks::Remark>> MaybeRemark = Parser.next();
@@ -151,7 +237,7 @@ static bool HandleRemarkFile(StringRef RemarkFile, Module *M) {
     }
 
     const remarks::Remark &Remark = **MaybeRemark;
-    if (!isEligibleRemark(Remark))
+    if (!Selector.isEligibleRemark(Remark))
       continue;
 
     switch (Remark.RemarkType) {
