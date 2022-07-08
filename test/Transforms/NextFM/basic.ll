@@ -27,7 +27,7 @@ define internal i64 @Bfunc(i32* %P, i32* %Q) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 4, i32* %m.P.P, align 4
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q, align 4
-; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
-; CHECK-NEXT:    %spec.select = select i1 %switch, i64 42, i64 0
-; CHECK-NEXT:    ret i64 %spec.select
+; CHECK-NEXT:    %discriminator.bit = trunc i32 %discriminator to i1
+; CHECK-NEXT:    %switch.select = select i1 %discriminator.bit, i64 0, i64 42
+; CHECK-NEXT:    ret i64 %switch.select
 ; CHECK-NEXT:  }

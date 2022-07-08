@@ -1104,6 +1104,15 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   if (areAllEqual)
     return Values[0];
 
+  if (Values.size() == 2) {
+    IRBuilder<> BuilderBB(MergedI);
+    assert(Parent.Functions.size() == 2 && "Expected two functions!");
+    auto DiscriminatorBit = BuilderBB.CreateTrunc(
+        Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
+    return BuilderBB.CreateSelect(DiscriminatorBit, Values[1], Values[0],
+                                  "switch.select");
+  }
+
   // TODO(katei): Handle 0, 1, .., n => Discriminator
 
   // TODO(katei): Priotize optimizable cases?
