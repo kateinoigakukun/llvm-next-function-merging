@@ -154,6 +154,10 @@ static cl::opt<int> MergingOverheadThreshold(
     "func-merging-threshold", cl::init(0), cl::Hidden,
     cl::desc("Threshold of allowed overhead for merging function"));
 
+static cl::opt<bool> AllowUnprofitableMerge(
+    "func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
+    cl::desc("Allow merging functions that are not profitable"));
+
 static cl::opt<bool>
     MaxParamScore("func-merging-max-param", cl::init(true), cl::Hidden,
                   cl::desc("Maximizing the score for merging parameters"));
@@ -3375,7 +3379,7 @@ bool FunctionMerging::runImpl(
           match.MergedSize = SizeF12;
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;
 
-          if (match.Profitable) {
+          if (match.Profitable || AllowUnprofitableMerge) {
             ORE.emit([&] {
               auto remark = OptimizationRemark(DEBUG_TYPE, "Merge",
                                                Result.getMergedFunction());

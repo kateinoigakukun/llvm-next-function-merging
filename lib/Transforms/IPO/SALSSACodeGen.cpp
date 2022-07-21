@@ -28,6 +28,10 @@ static cl::opt<bool> EnableSALSSACoalescing(
     "func-merging-coalescing", cl::init(true), cl::Hidden,
     cl::desc("Enable phi-node coalescing during SSA reconstruction"));
 
+static cl::opt<bool> DisablePostOpt(
+    "func-merging-disable-post-opt", cl::init(false), cl::Hidden,
+    cl::desc("Disable post-optimization of the merged function"));
+
 Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
                           Type *IntPtrTy,
                           const FunctionMergingOptions &Options = {});
@@ -38,7 +42,8 @@ static void postProcessFunction(Function &F) {
   legacy::FunctionPassManager FPM(F.getParent());
 
   // FPM.add(createPromoteMemoryToRegisterPass());
-  FPM.add(createCFGSimplificationPass());
+  if (!DisablePostOpt)
+    FPM.add(createCFGSimplificationPass());
   // FPM.add(createInstructionCombiningPass(2));
   // FPM.add(createCFGSimplificationPass());
 
