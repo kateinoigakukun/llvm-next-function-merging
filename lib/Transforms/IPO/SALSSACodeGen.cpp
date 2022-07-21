@@ -114,9 +114,19 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
       auto *I1 = dyn_cast<Instruction>(Entry.get(0));
       auto *I2 = dyn_cast<Instruction>(Entry.get(1));
 
-      std::string BBName =
-          (I1 == nullptr) ? "m.label.bb"
-                          : (I1->isTerminator() ? "m.term.bb" : "m.inst.bb");
+      StringRef BBName = [&]() {
+        Value *HeadV = Entry.get(0);
+        if (auto *BB = dyn_cast<BasicBlock>(HeadV)) {
+          return BB->getName();
+        } else if (auto *I = dyn_cast<Instruction>(HeadV)) {
+          if (I->isTerminator()) {
+            return StringRef("m.term.bb");
+          } else {
+            return StringRef("m.inst.bb");
+          }
+        }
+        llvm_unreachable("Unknown value type!");
+      }();
 
       BasicBlock *MergedBB =
           BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
