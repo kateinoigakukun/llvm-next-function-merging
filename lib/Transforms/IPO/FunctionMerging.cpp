@@ -2423,7 +2423,8 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
     ArgsList.push_back(&arg);
   }
   Value *FuncId = ArgsList[0];
-  
+  FuncId->setName("discriminator");
+
   ////TODO: merging attributes might create compilation issues if we are not careful.
   ////Therefore, attributes are not being merged right now.
   //auto AttrList1 = F1->getAttributes();
@@ -2444,7 +2445,19 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
 
   ArgId = 0;
   for (auto I = F2->arg_begin(), E = F2->arg_end(); I != E; I++) {
-    VMap[&(*I)] = ArgsList[ParamMap2[ArgId]];
+    Argument *Arg = ArgsList[ParamMap2[ArgId]];
+    std::string displayName;
+    if (I->getName().empty()) {
+      displayName = std::to_string(I->getArgNo());
+    } else {
+      displayName = I->getName().str();
+    }
+    if (Arg->getName().empty()) {
+      Arg->setName("m." + displayName);
+    } else {
+      Arg->setName(Arg->getName() + Twine(".") + displayName);
+    }
+    VMap[&(*I)] = Arg;
 
     //auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
     //AttrBuilder Attrs(AttrSet2);
