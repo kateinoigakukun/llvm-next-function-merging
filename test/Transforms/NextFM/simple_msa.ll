@@ -98,16 +98,16 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; F3M-NEXT:    ret i64 42
 ; F3M-NEXT:  }
 ;
-; F3M-LABEL: define internal i64 @_m_f_0(i1 %0, i32* %1, i32* %2, i32* %3, i32* %4) {
+; F3M-LABEL: define internal i64 @_m_f_0(i1 %discriminator, i32* %m.P, i32* %m.Q, i32* %m.R, i32* %m.S) {
 ; F3M-NEXT:  entry:
-; F3M-NEXT:    %5 = select i1 %0, i32 2, i32 4
-; F3M-NEXT:    store i32 %5, i32* %1, align 4
-; F3M-NEXT:    br i1 %0, label %split.bb, label %split.bb4
+; F3M-NEXT:    %0 = select i1 %discriminator, i32 2, i32 4
+; F3M-NEXT:    store i32 %0, i32* %m.P, align 4
+; F3M-NEXT:    br i1 %discriminator, label %split.bb, label %split.bb4
 ; F3M-EMPTY:
 ; F3M-NEXT:  m.inst.bb1:                                       ; preds = %split.bb4, %split.bb
-; F3M-NEXT:    store i32 6, i32* %2, align 4
-; F3M-NEXT:    store i32 7, i32* %3, align 4
-; F3M-NEXT:    store i32 8, i32* %4, align 4
+; F3M-NEXT:    store i32 6, i32* %m.Q, align 4
+; F3M-NEXT:    store i32 7, i32* %m.R, align 4
+; F3M-NEXT:    store i32 8, i32* %m.S, align 4
 ; F3M-NEXT:    ret i64 0
 ; F3M-EMPTY:
 ; F3M-NEXT:  split.bb:                                         ; preds = %entry
