@@ -55,6 +55,10 @@ static cl::opt<bool> AllowUnprofitableMerge(
     "multiple-func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
     cl::desc("Allow merging functions that are not profitable"));
 
+static cl::list<std::string>
+    OnlyFunctions("multiple-func-merging-only", cl::Hidden,
+                  cl::desc("Merge only the specified functions"));
+
 static cl::opt<bool> DisablePostOpt(
     "multiple-func-merging-disable-post-opt", cl::init(false), cl::Hidden,
     cl::desc("Disable post-optimization of the merged function"));
@@ -1836,7 +1840,14 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
 
 /// Check whether \p F is eligible to be a function merging candidate.
 static bool isEligibleToBeMergeCandidate(Function &F) {
-  return !F.isDeclaration() && !F.hasAvailableExternallyLinkage();
+  if (F.isDeclaration() || F.hasAvailableExternallyLinkage()) {
+    return false;
+  }
+  if (OnlyFunctions.size() > 0) {
+    return std::find(OnlyFunctions.begin(), OnlyFunctions.end(), F.getName()) !=
+           OnlyFunctions.end();
+  }
+  return true;
 }
 
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
