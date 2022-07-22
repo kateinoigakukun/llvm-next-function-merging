@@ -7,8 +7,7 @@
 
 typedef unsigned char uchar;
 
-int susan_edges(uchar *in, int *r, uchar *mid, uchar *bp, int max_no,
-                int x_size, int y_size) {
+int susan_edges(uchar *in, int x_size, int y_size) {
 
   for (int i = 0; i < y_size; i++) {
     x_size += *in;
@@ -16,8 +15,7 @@ int susan_edges(uchar *in, int *r, uchar *mid, uchar *bp, int max_no,
   return 0;
 }
 
-int susan_edges_small(uchar *in, int *r, uchar *mid, uchar *bp, int max_no,
-                      int x_size, int y_size) {
+int susan_edges_small(uchar *in, int x_size, int y_size) {
   int n;
   uchar *p;
 

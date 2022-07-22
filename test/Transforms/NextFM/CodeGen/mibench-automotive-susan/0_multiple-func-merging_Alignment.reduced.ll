@@ -8,21 +8,13 @@ target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16
 target triple = "x86_64-unknown-linux-gnu"
 
 ; Function Attrs: noinline nounwind optnone uwtable
-define dso_local i32 @susan_edges(i8* %in, i32* %r, i8* %mid, i8* %bp, i32 %max_no, i32 %x_size, i32 %y_size) {
+define dso_local i32 @susan_edges(i8* %in, i32 %x_size, i32 %y_size) {
 entry:
   %in.addr = alloca i8*, align 8
-  %r.addr = alloca i32*, align 8
-  %mid.addr = alloca i8*, align 8
-  %bp.addr = alloca i8*, align 8
-  %max_no.addr = alloca i32, align 4
   %x_size.addr = alloca i32, align 4
   %y_size.addr = alloca i32, align 4
   %i = alloca i32, align 4
   store i8* %in, i8** %in.addr, align 8
-  store i32* %r, i32** %r.addr, align 8
-  store i8* %mid, i8** %mid.addr, align 8
-  store i8* %bp, i8** %bp.addr, align 8
-  store i32 %max_no, i32* %max_no.addr, align 4
   store i32 %x_size, i32* %x_size.addr, align 4
   store i32 %y_size, i32* %y_size.addr, align 4
   store i32 0, i32* %i, align 4
@@ -54,23 +46,15 @@ for.end:                                          ; preds = %for.cond
 }
 
 ; Function Attrs: noinline nounwind optnone uwtable
-define dso_local i32 @susan_edges_small(i8* %in, i32* %r, i8* %mid, i8* %bp, i32 %max_no, i32 %x_size, i32 %y_size) {
+define dso_local i32 @susan_edges_small(i8* %in, i32 %x_size, i32 %y_size) {
 entry:
   %in.addr = alloca i8*, align 8
-  %r.addr = alloca i32*, align 8
-  %mid.addr = alloca i8*, align 8
-  %bp.addr = alloca i8*, align 8
-  %max_no.addr = alloca i32, align 4
   %x_size.addr = alloca i32, align 4
   %y_size.addr = alloca i32, align 4
   %n = alloca i32, align 4
   %p = alloca i8*, align 8
   %i = alloca i32, align 4
   store i8* %in, i8** %in.addr, align 8
-  store i32* %r, i32** %r.addr, align 8
-  store i8* %mid, i8** %mid.addr, align 8
-  store i8* %bp, i8** %bp.addr, align 8
-  store i32 %max_no, i32* %max_no.addr, align 4
   store i32 %x_size, i32* %x_size.addr, align 4
   store i32 %y_size, i32* %y_size.addr, align 4
   store i32 0, i32* %i, align 4

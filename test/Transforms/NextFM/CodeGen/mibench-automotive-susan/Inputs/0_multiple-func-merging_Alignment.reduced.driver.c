@@ -1061,13 +1061,12 @@ uchar *mp;
 /* }}} */
 /* {{{ susan_edges(in,r,sf,max_no,out) */
 
-susan_edges(uchar *in, int *r, uchar *mid, uchar *bp, int max_no, int x_size, int y_size);
+susan_edges(uchar *in, int x_size, int y_size);
 
 /* }}} */
 /* {{{ susan_edges_small(in,r,sf,max_no,out) */
 
-susan_edges_small(uchar *in, int *r, uchar *mid, uchar *bp, int max_no, int x_size, int y_size);
-
+susan_edges_small(uchar *in, int x_size, int y_size);
 
 /* }}} */
 
@@ -1723,9 +1722,9 @@ CORNER_LIST corner_list;
         memset (mid,100,x_size * y_size); /* note not set to zero */
 
         if (three_by_three)
-          susan_edges_small(in,r,mid,bp,max_no_edges,x_size,y_size);
+          susan_edges_small(in, x_size, y_size);
         else
-          susan_edges(in,r,mid,bp,max_no_edges,x_size,y_size);
+          susan_edges(in, x_size, y_size);
         if(thin_post_proc)
           susan_thin(r,mid,x_size,y_size);
         edge_draw(in,mid,x_size,y_size,drawing_mode);
