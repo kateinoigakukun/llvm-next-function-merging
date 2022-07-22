@@ -633,6 +633,7 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
     NewI->setMetadata(MDPair.first, nullptr);
   }
 
+  NewI->setName(I->getName());
   return NewI;
 }
 
