@@ -54,7 +54,6 @@ entry:
   %in.addr = alloca i8*, align 8
   %x_size.addr = alloca i32, align 4
   %y_size.addr = alloca i32, align 4
-  %n = alloca i32, align 4
   %p = alloca i8*, align 8
   %i = alloca i32, align 4
   store i8* %in, i8** %in.addr, align 8
@@ -73,9 +72,9 @@ for.body:                                         ; preds = %for.cond
   %2 = load i8*, i8** %p, align 8
   %3 = load i8, i8* %2, align 1
   %conv = zext i8 %3 to i32
-  %4 = load i32, i32* %n, align 4
+  %4 = load i32, i32* %x_size.addr, align 4
   %add = add nsw i32 %4, %conv
-  store i32 %add, i32* %n, align 4
+  store i32 %add, i32* %x_size.addr, align 4
   br label %for.inc
 
 for.inc:                                          ; preds = %for.body

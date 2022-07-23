@@ -18,11 +18,10 @@ int susan_edges(uchar *in, int x_size, int y_size) {
 }
 
 int susan_edges_small(uchar *in, int x_size, int y_size) {
-  int n;
-  uchar *p;
+  uchar *p = in;
 
   for (int i = 0; i < y_size; i++) {
-    n += *p;
+    x_size += *p;
   }
   return 0;
 }
