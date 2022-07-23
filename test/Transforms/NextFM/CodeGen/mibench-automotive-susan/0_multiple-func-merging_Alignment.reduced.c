@@ -1,5 +1,5 @@
 // RUN: %clang -c -emit-llvm %s -o %t.bc
-// RUN: %opt --passes='multiple-func-merging' -func-merging-explore=1 -multiple-func-merging-allow-unprofitable %t.bc -o %t.opt.bc
+// RUN: %opt --passes='multiple-func-merging' -func-merging-explore=1 -multiple-func-merging-allow-unprofitable --multiple-func-merging-disable-post-opt %t.bc -o %t.opt.bc
 // RUN: %llc --filetype=obj %t.opt.bc -o %t.opt.o
 // RUN: %clang -Wno-all -Wno-pointer-sign -Wno-literal-conversion %t.opt.o %S/Inputs/0_multiple-func-merging_Alignment.reduced.driver.c -lm -o %t.opt
 // RUN: %clang -Wno-all -Wno-pointer-sign -Wno-literal-conversion %s %S/Inputs/0_multiple-func-merging_Alignment.reduced.driver.c -lm -o %t.safe
