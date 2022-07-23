@@ -98,7 +98,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; F3M-NEXT:    ret i64 42
 ; F3M-NEXT:  }
 ;
-; F3M-LABEL: define internal i64 @_m_f_0(i1 %discriminator, i32* %m.P, i32* %m.Q, i32* %m.R, i32* %m.S) {
+; F3M-LABEL: define internal i64 @__fm_merge_Cfunc_Afunc(i1 %discriminator, i32* %m.P, i32* %m.Q, i32* %m.R, i32* %m.S) {
 ; F3M-NEXT:  entry:
 ; F3M-NEXT:    %0 = select i1 %discriminator, i32 2, i32 4
 ; F3M-NEXT:    store i32 %0, i32* %m.P, align 4

@@ -31,7 +31,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
   ret void
 }
 
-; F3M-LABEL: define internal i64 @_m_f_0(i1 %discriminator, i32* %m.P, i32* %m.Q, i32* %m.R, i32* %m.S) {
+; F3M-LABEL: define internal i64 @__fm_merge_Bfunc_Afunc(i1 %discriminator, i32* %m.P, i32* %m.Q, i32* %m.R, i32* %m.S) {
 ; F3M-NEXT:  entry:
 ; F3M-NEXT:    store i32 4, i32* %m.P, align 4
 ; F3M-NEXT:    store i32 6, i32* %m.Q, align 4

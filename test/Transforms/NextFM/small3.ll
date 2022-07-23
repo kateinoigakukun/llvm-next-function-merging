@@ -36,7 +36,7 @@ define void @public_call(i32* %P, i32* %Q) {
   ret void
 }
 
-; CHECK-LABEL: define internal i64 @_m_f_1(i1 %discriminator, i1 %0, i32* %m.P, i32* %m.Q) {
+; CHECK-LABEL: define internal i64 @__fm_merge___fm_merge_Cfunc_Afunc_Bfunc(i1 %discriminator, i1 %0, i32* %m.P, i32* %m.Q) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %1 = select i1 %0, i32 2, i32 4
 ; CHECK-NEXT:    %.0 = select i1 %discriminator, i32 %1, i32 undef

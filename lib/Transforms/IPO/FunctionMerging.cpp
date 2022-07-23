@@ -3342,7 +3342,8 @@ bool FunctionMerging::runImpl(
         errs() << "Attempting: " << F1Name << ", " << F2Name << " : " << match.Distance << "\n";
 
       auto &ORE = GORE(*F1);
-      std::string Name = "_m_f_" + std::to_string(TotalMerges);
+      std::string Name =
+          "__fm_merge_" + F1->getName().str() + "_" + F2->getName().str();
       FunctionMergeResult Result = FM.merge(F1, F2, Name, Options);
 #ifdef TIME_STEPS_DEBUG
       TimeCodeGenTotal.stopTimer();
