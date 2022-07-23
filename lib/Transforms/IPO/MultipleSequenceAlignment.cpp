@@ -1672,6 +1672,7 @@ void MSAGenFunction::layoutParameters(
   assert(Functions.size() > 0 && "No functions to merge!");
   Args.emplace_back(DiscriminatorTy, AttributeSet());
 
+  size_t predefinedArgs = Args.size();
   auto FindReusableArg =
       [&](Argument *NewArg, AttributeSet NewAttr,
           const std::set<unsigned> &reusedArgs) -> Optional<int> {
@@ -1689,7 +1690,7 @@ void MSAGenFunction::layoutParameters(
     // In the above example, %d can be reused with both %c and %a,
     // but %a is better to avoid additonal select.
 
-    for (size_t i = 0; i < Args.size(); i++) {
+    for (size_t i = predefinedArgs; i < Args.size(); i++) {
       Type *ty;
       AttributeSet attr;
       std::tie(ty, attr) = Args[i];
