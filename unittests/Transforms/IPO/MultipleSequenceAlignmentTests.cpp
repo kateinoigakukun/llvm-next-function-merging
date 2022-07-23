@@ -183,15 +183,15 @@ TEST_F(MSAFunctionMergerAlignmentTest, ParameterLayout) {
   LLVMContext Ctx;
   SMDiagnostic Error;
   auto M = parseAssemblyString(R"(
-define void @Afunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
+define void @Afunc(i32 %x, i32* %P, i32* %Q, i32* %R, i32* %S) {
   ret void
 }
 
-define void @Bfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
+define void @Bfunc(i32 %x, i32* %P, i32* %Q, i32* %R, i32* %S) {
   ret void
 }
 
-define void @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
+define void @Cfunc(i32 %x, i32* %P, i32* %Q, i32* %R, i32* %S) {
   ret void
 }
   )",
@@ -214,6 +214,7 @@ define void @Cfunc(i32* %P, i32* %Q, i32* %R, i32* %S) {
                     MergedIndexToArgs[P.second].insert(P.first);
                   }
 
+                  ASSERT_EQ(Args.size(), 6);
                   // Start from 1 because 0 is the discriminator
                   for (size_t i = 1; i < Args.size(); ++i) {
                     SCOPED_TRACE("i=" + std::to_string(i));
