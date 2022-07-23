@@ -138,7 +138,7 @@
 
 //#define ENABLE_DEBUG_CODE
 
-#define TIME_STEPS_DEBUG
+// #define TIME_STEPS_DEBUG
 
 using namespace llvm;
 
@@ -162,7 +162,7 @@ static cl::opt<bool>
     MaxParamScore("func-merging-max-param", cl::init(true), cl::Hidden,
                   cl::desc("Maximizing the score for merging parameters"));
 
-static cl::opt<bool> Debug("func-merging-debug", cl::init(true), cl::Hidden,
+static cl::opt<bool> Debug("func-merging-debug", cl::init(false), cl::Hidden,
                            cl::desc("Outputs debug information"));
 
 static cl::opt<bool> Verbose("func-merging-verbose", cl::init(false),
@@ -3231,17 +3231,18 @@ bool FunctionMerging::runImpl(
       RankingDistance = 1.0;
 
   }
-
-  errs() << "Threshold: " << RankingDistance << "\n";
-  errs() << "LSHRows: " << LSHRows << "\n";
-  errs() << "LSHBands: " << LSHBands << "\n";
+  if (Verbose) {
+    errs() << "Threshold: " << RankingDistance << "\n";
+    errs() << "LSHRows: " << LSHRows << "\n";
+    errs() << "LSHBands: " << LSHBands << "\n";
+  }
 
   if (EnableF3M) {
     matcher = std::make_unique<MatcherLSH<Function *>>(FM, Options, LSHRows, LSHBands);
-    errs() << "LSH MH\n";
+    if (Verbose) errs() << "LSH MH\n";
   } else {
     matcher = std::make_unique<MatcherFQ<Function *>>(FM, Options);
-    errs() << "LIN SCAN FP\n";
+    if (Verbose) errs() << "LIN SCAN FP\n";
   }
   
   SearchStrategy strategy(LSHRows, LSHBands);
@@ -3259,9 +3260,10 @@ bool FunctionMerging::runImpl(
   TimePreProcess.stopTimer();
 #endif
 
-  errs() << "Number of Functions: " << matcher->size() << "\n";
   if (MatcherStats) {
+    errs() << "Number of Functions: " << matcher->size() << "\n";
     matcher->print_stats();
+#ifdef TIME_STEPS_DEBUG
     TimeRank.clear();
     TimeCodeGenTotal.clear();
     TimeAlign.clear();
@@ -3276,6 +3278,7 @@ bool FunctionMerging::runImpl(
     TimeUpdate.clear();
     TimePrinting.clear();
     TimeTotal.clear();
+#endif
     return false;
   }
 
@@ -3430,20 +3433,20 @@ bool FunctionMerging::runImpl(
           return createMissedRemark("CodeGen", "Null Merged Function", F1, F2);
         });
       }
+#ifdef TIME_STEPS_DEBUG
       time_iteration_end = std::chrono::steady_clock::now();
 
-#ifdef TIME_STEPS_DEBUG
       TimePrinting.startTimer();
 #endif
 
-      errs() << F1Name << " + " << F2Name << " <= " << Name
-             << " Tries: " << MergingTrialsCount
-             << " Valid: " << match.Valid
-             << " BinSizes: " << match.OtherSize << " + " << match.Size << " <= " << match.MergedSize
-             << " IRSizes: " << match.OtherMagnitude << " + " << match.Magnitude
-             << " Profitable: " << match.Profitable
-             << " Distance: " << match.Distance;
-      if (Verbose)
+      if (Verbose) {
+        errs() << F1Name << " + " << F2Name << " <= " << Name
+               << " Tries: " << MergingTrialsCount
+               << " Valid: " << match.Valid
+               << " BinSizes: " << match.OtherSize << " + " << match.Size << " <= " << match.MergedSize
+               << " IRSizes: " << match.OtherMagnitude << " + " << match.Magnitude
+               << " Profitable: " << match.Profitable
+               << " Distance: " << match.Distance;
         errs() << " OtherDistance: " << OtherDistance;
 #ifdef TIME_STEPS_DEBUG
       using namespace std::chrono_literals;
@@ -3454,7 +3457,8 @@ bool FunctionMerging::runImpl(
              << " VerifyTime: " << (time_verify_end - time_verify_start) / 1us
              << " UpdateTime: " << (time_update_end - time_update_start) / 1us;
 #endif
-      errs() << "\n";
+        errs() << "\n";
+      }
 
 
 #ifdef TIME_STEPS_DEBUG
