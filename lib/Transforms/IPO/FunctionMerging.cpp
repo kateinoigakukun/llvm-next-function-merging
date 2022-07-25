@@ -3419,6 +3419,7 @@ bool FunctionMerging::runImpl(
             ORE.emit([&] {
               return createMissedRemark("UnprofitableMerge", "", F1, F2)
                      << ore::NV("MergedSize", MergedSize)
+                     << ore::NV("ThunkOverhead", Overhead)
                      << ore::NV("OriginalTotalSize", SizeF1F2);
             });
             Result.getMergedFunction()->eraseFromParent();
