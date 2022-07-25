@@ -23,11 +23,10 @@ define internal i64 @Bfunc(i32* %P, i32* %Q) {
 ; F3M-NEXT:    ret i64 %0
 ; F3M-NEXT:  }
 
-; CHECK-LABEL: define internal i64 @__msa_merge_Bfunc_Afunc(i32 %discriminator, i32* %m.P.P, i32* %m.Q.Q) {
+; CHECK-LABEL: define internal i64 @__msa_merge_Bfunc_Afunc(i1 %discriminator, i32* %m.P.P, i32* %m.Q.Q) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    store i32 4, i32* %m.P.P, align 4
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q, align 4
-; CHECK-NEXT:    %discriminator.bit = trunc i32 %discriminator to i1
-; CHECK-NEXT:    %switch.select = select i1 %discriminator.bit, i64 0, i64 42
+; CHECK-NEXT:    %switch.select = select i1 %discriminator, i64 0, i64 42
 ; CHECK-NEXT:    ret i64 %switch.select
 ; CHECK-NEXT:  }

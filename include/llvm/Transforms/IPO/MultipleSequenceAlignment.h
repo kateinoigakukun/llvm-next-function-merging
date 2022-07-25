@@ -83,7 +83,8 @@ public:
                 /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
     M = Functions[0]->getParent();
-    DiscriminatorTy = IntegerType::getInt32Ty(M->getContext());
+    size_t noOfBits = std::ceil(std::log2(Functions.size()));
+    DiscriminatorTy = IntegerType::getIntNTy(M->getContext(), noOfBits);
   }
 
   FunctionMerger &getPairMerger() { return PairMerger; }

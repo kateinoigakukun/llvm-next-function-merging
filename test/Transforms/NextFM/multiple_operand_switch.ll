@@ -12,12 +12,10 @@ define double @rad2deg(double %0) {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_rad2deg_deg2rad(i32 %discriminator, double %m.0.0) {
+; CHECK-LABEL: define internal double @__msa_merge_rad2deg_deg2rad(i1 %discriminator, double %m.0.0) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    %discriminator.bit = trunc i32 %discriminator to i1
-; CHECK-NEXT:    %switch.select = select i1 %discriminator.bit, double %m.0.0, double 4.000000e+00
-; CHECK-NEXT:    %discriminator.bit1 = trunc i32 %discriminator to i1
-; CHECK-NEXT:    %switch.select2 = select i1 %discriminator.bit1, double 1.800000e+02, double %m.0.0
-; CHECK-NEXT:    %0 = fdiv double %switch.select, %switch.select2
+; CHECK-NEXT:    %switch.select = select i1 %discriminator, double %m.0.0, double 4.000000e+00
+; CHECK-NEXT:    %switch.select1 = select i1 %discriminator, double 1.800000e+02, double %m.0.0
+; CHECK-NEXT:    %0 = fdiv double %switch.select, %switch.select1
 ; CHECK-NEXT:    ret double %0
 ; CHECK-NEXT:  }

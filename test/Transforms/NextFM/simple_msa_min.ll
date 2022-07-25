@@ -40,12 +40,12 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; F3M-NEXT:  }
 
 
-; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc(i32 %discriminator, i32* %m.P.P.P, i32* %m.Q.Q.Q, i32* %m.R.R.R, i32* %m.S.S.S) {
+; CHECK-LABEL: define internal i64 @__msa_merge_Cfunc_Bfunc_Afunc(i2 %discriminator, i32* %m.P.P.P, i32* %m.Q.Q.Q, i32* %m.R.R.R, i32* %m.S.S.S) {
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    switch i32 %discriminator, label %switch.blackhole [
-; CHECK-NEXT:      i32 0, label %m.inst.bb
-; CHECK-NEXT:      i32 1, label %bb.select.values.Bfunc5
-; CHECK-NEXT:      i32 2, label %bb.select.values.Afunc6
+; CHECK-NEXT:    switch i2 %discriminator, label %switch.blackhole [
+; CHECK-NEXT:      i2 0, label %m.inst.bb
+; CHECK-NEXT:      i2 1, label %bb.select.values.Bfunc5
+; CHECK-NEXT:      i2 -2, label %bb.select.values.Afunc6
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
@@ -60,7 +60,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  m.inst.bb:                                        ; preds = %bb.select.values.Bfunc5, %bb.select.values.Afunc6, %entry
 ; CHECK-NEXT:    %0 = phi i32 [ 4, %bb.select.values.Bfunc5 ], [ 4, %bb.select.values.Afunc6 ], [ 2, %entry ]
 ; CHECK-NEXT:    store i32 %0, i32* %m.P.P.P, align 4
-; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
+; CHECK-NEXT:    %switch = icmp ult i2 %discriminator, 1
 ; CHECK-NEXT:    br i1 %switch, label %Cfunc..split, label %m.inst.bb1
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
@@ -69,8 +69,8 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %Cfunc..split
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
-; CHECK-NEXT:    %discriminator.off = add i32 %discriminator, -1
-; CHECK-NEXT:    %switch8 = icmp ult i32 %discriminator.off, 1
+; CHECK-NEXT:    %discriminator.off = add i2 %discriminator, -1
+; CHECK-NEXT:    %switch8 = icmp ult i2 %discriminator.off, 1
 ; CHECK-NEXT:    %spec.select = select i1 %switch8, i64 42, i64 0
 ; CHECK-NEXT:    ret i64 %spec.select
 ; CHECK-NEXT:  }

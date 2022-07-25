@@ -18,10 +18,10 @@ define double @rad2deg() {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i32 %discriminator) {
+; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i1 %discriminator) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %0 = alloca double, align 8
-; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
+; CHECK-NEXT:    %switch = icmp ult i1 %discriminator, true
 ; CHECK-NEXT:    br i1 %switch, label %deg2rad..split, label %m.inst.bb1
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  deg2rad..split:                                   ; preds = %entry
@@ -30,8 +30,7 @@ define double @rad2deg() {
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %entry, %deg2rad..split
 ; CHECK-NEXT:    %.0 = phi double [ undef, %entry ], [ %1, %deg2rad..split ]
-; CHECK-NEXT:    %discriminator.bit = trunc i32 %discriminator to i1
-; CHECK-NEXT:    %switch.select = select i1 %discriminator.bit, double 1.800000e+02, double %.0
+; CHECK-NEXT:    %switch.select = select i1 %discriminator, double 1.800000e+02, double %.0
 ; CHECK-NEXT:    %2 = fmul double %switch.select, 2.000000e+00
 ; CHECK-NEXT:    ret double %2
 ; CHECK-NEXT:  }
