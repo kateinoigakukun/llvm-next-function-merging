@@ -669,7 +669,6 @@ public:
   }
 
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
-  BasicBlock *cloneBasicBlock(IRBuilder<> &Builder, BasicBlock *I);
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
