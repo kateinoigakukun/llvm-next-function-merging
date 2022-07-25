@@ -30,6 +30,38 @@ struct MSAStats {
   unsigned NumSelection;
 };
 
+class MSAThunkFunction {
+  Function *SrcFunction;
+  Function *Thunk;
+
+  MSAThunkFunction(Function *SrcFunction, Function *Thunk)
+      : SrcFunction(SrcFunction), Thunk(Thunk) {}
+
+public:
+  static MSAThunkFunction
+  create(Function *MergedFunction, Function *SrcFunction, unsigned int FuncId,
+         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+  void applyReplacements();
+  void discard();
+  Function *getFunction() const { return Thunk; }
+};
+
+class MSACallReplacement {
+  size_t FuncId;
+  Function *SrcFunction;
+  std::vector<CallBase *> Calls;
+
+  MSACallReplacement(size_t FuncId, Function *SrcFunction,
+                     std::vector<CallBase *> Calls)
+      : FuncId(FuncId), SrcFunction(SrcFunction), Calls(Calls) {}
+
+public:
+  static Optional<MSACallReplacement> create(size_t FuncId,
+                                             Function *SrcFunction);
+  void applyReplacements(Function *MergedFunction,
+                         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+};
+
 /// \brief This pass merges multiple functions into a single function by
 /// multiple sequence alignment algorithm.
 class MSAFunctionMerger {
@@ -57,10 +89,8 @@ public:
   FunctionMerger &getPairMerger() { return PairMerger; }
 
   Optional<OptimizationRemarkMissed>
-  isProfitableMerge(Function *MergedFunction);
-  Function *writeThunk(Function *MergedFunction, Function *SrcFunction,
-                       unsigned FuncId,
-                       ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+  isProfitableMerge(Function *MergedFunction,
+                    std::vector<MSAThunkFunction> &Thunks);
   Function *merge(MSAStats &Stats);
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
