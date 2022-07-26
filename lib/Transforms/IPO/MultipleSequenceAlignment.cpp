@@ -654,11 +654,12 @@ public:
         BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
 
     EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
-    BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
-    {
-      IRBuilder<> B(BlackholeBB);
-      B.CreateUnreachable();
-    }
+    // BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole",
+    // MergedFunc);
+    // {
+    //   IRBuilder<> B(BlackholeBB);
+    //   B.CreateUnreachable();
+    // }
   };
 
   inline LLVMContext &getContext() const { return Parent.C; }
@@ -852,19 +853,19 @@ void MSAGenFunctionBody::chainBasicBlocks() {
                       });
 
       IRBuilder<> Builder(SrcBB);
-      if (singleTarget) {
-        Builder.CreateBr(Chain[0].second);
-        return;
-      }
+      // if (singleTarget) {
+      //   Builder.CreateBr(Chain[0].second);
+      //   return;
+      // }
 
       if (Chain.size() == 2) {
         // switch %discriminator, [
-        //  i32 0 label %targetBB0,
-        //  i32 1 label %targetBB1
+        //  i32 0 label %targetBB1,
+        //  i32 1 label %targetBB0
         // ]
         // => br %discriminator, label %targetBB1, label %targetBB0
-        Builder.CreateCondBr(Parent.Discriminator, Chain[1].second,
-                             Chain[0].second);
+        Builder.CreateCondBr(Parent.Discriminator, Chain[0].second,
+                             Chain[1].second);
         return;
       }
 
