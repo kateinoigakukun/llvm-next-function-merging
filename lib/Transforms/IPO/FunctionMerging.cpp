@@ -64,6 +64,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
 
 #include "llvm/Support/Error.h"
@@ -272,17 +273,10 @@ unsigned long long getTotalSystemMemory() {
 
 class FunctionMerging {
 public:
-  bool runImpl(Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
+  bool runImpl(Module &M, ModuleAnalysisManager &MAM,
+               function_ref<TargetTransformInfo *(Function &)> GTTI,
                function_ref<OptimizationRemarkEmitter &(Function &)> GORE);
 };
-
-FunctionMergeResult MergeFunctions(Function *F1, Function *F2,
-                                   const FunctionMergingOptions &Options) {
-  if (F1->getParent() != F2->getParent())
-    return FunctionMergeResult(F1, F2, nullptr);
-  FunctionMerger Merger(F1->getParent());
-  return Merger.merge(F1, F2, "", Options);
-}
 
 static bool CmpNumbers(uint64_t L, uint64_t R) { return L == R; }
 
@@ -2197,6 +2191,7 @@ public:
   }
 
   void report() const {
+    /*
     char distance_mh_str[20];
 
     for (auto &entry: candidates) {
@@ -2225,6 +2220,7 @@ public:
         FunctionMergeResult Result = FM.merge(it1->candidate, it2->candidate, Name, Options);
       }
     }
+    */
   }
 };
 
@@ -2488,7 +2484,7 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
         .setMergedReturnType(ReturnType, RequiresUnifiedReturn)
         .setContext(ContextPtr)
         .setIntPtrType(IntPtrTy);
-    if (!CG.generate(AlignedSeq, VMap, Options)) {
+    if (!CG.generate(AlignedSeq, VMap, FAM, Options)) {
       // F1->dump();
       // F2->dump();
       // MergedFunc->dump();
@@ -3139,7 +3135,8 @@ static OptimizationRemarkMissed createMissedRemark(StringRef RemarkName,
 }
 
 bool FunctionMerging::runImpl(
-    Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
+    Module &M, ModuleAnalysisManager &MAM,
+    function_ref<TargetTransformInfo *(Function &)> GTTI,
     function_ref<OptimizationRemarkEmitter &(Function &)> GORE) {
 
 #ifdef TIME_STEPS_DEBUG
@@ -3166,7 +3163,9 @@ bool FunctionMerging::runImpl(
   // TODO: We could use a TTI ModulePass instead but current TTI analysis pass
   // is a FunctionPass.
 
-  FunctionMerger FM(&M);
+  FunctionAnalysisManager &FAM =
+      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  FunctionMerger FM(&M, FAM);
 
   if (ReportStats) {
     MatcherReport<Function *> reporter(LSHRows, LSHBands, FM, Options);
@@ -3402,6 +3401,9 @@ bool FunctionMerging::runImpl(
                                                Result.getMergedFunction());
               remark << ore::NV("Function", F1->getName());
               remark << ore::NV("Function", F2->getName());
+              remark << ore::NV("MergedSize", MergedSize);
+              remark << ore::NV("ThunkOverhead", Overhead);
+              remark << ore::NV("OriginalTotalSize", SizeF1F2);
               return remark;
             });
             TotalMerges++;
@@ -3544,6 +3546,7 @@ bool FunctionMerging::runImpl(
   return true;
 }
 
+/*
 class FunctionMergingLegacyPass : public ModulePass {
 public:
   static char ID;
@@ -3583,6 +3586,7 @@ ModulePass *llvm::createFunctionMergingPass() {
   return new FunctionMergingLegacyPass();
 }
 #endif
+*/
 
 PreservedAnalyses FunctionMergingPass::run(Module &M,
                                            ModuleAnalysisManager &AM) {
@@ -3596,7 +3600,7 @@ PreservedAnalyses FunctionMergingPass::run(Module &M,
   };
 
   FunctionMerging FM;
-  if (!FM.runImpl(M, GTTI, GORE))
+  if (!FM.runImpl(M, AM, GTTI, GORE))
     return PreservedAnalyses::all();
   return PreservedAnalyses::none();
 }

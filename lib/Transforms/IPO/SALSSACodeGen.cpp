@@ -7,6 +7,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 
 #include <unordered_map>
@@ -38,18 +39,11 @@ Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
 
 ////////////////////////////////////   SALSSA   ////////////////////////////////
 
-static void postProcessFunction(Function &F) {
-  legacy::FunctionPassManager FPM(F.getParent());
-
-  // FPM.add(createPromoteMemoryToRegisterPass());
-  if (!DisablePostOpt)
-    FPM.add(createCFGSimplificationPass());
-  // FPM.add(createInstructionCombiningPass(2));
-  // FPM.add(createCFGSimplificationPass());
-
-  FPM.doInitialization();
-  FPM.run(F);
-  FPM.doFinalization();
+static void postProcessFunction(Function &F, FunctionAnalysisManager &FAM) {
+  if (DisablePostOpt) return;
+  FunctionPassManager FPM;
+  FPM.addPass(SimplifyCFGPass());
+  FPM.run(F, FAM);
 }
 
 template <typename BlockListType>
@@ -296,6 +290,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
 template <class BlockListType>
 bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     AlignedSequence<Value *> &AlignedSeq, ValueToValueMapTy &VMap,
+    FunctionAnalysisManager &FAM,
     const FunctionMergingOptions &Options) {
 
   bool Debug = false;
@@ -1041,7 +1036,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
         errs() << "ERROR: Produced Broken Function!\n";
       return false;
     }
-    postProcessFunction(*MergedFunc);
+    postProcessFunction(*MergedFunc, FAM);
   }
   return MergedFunc != nullptr;
 }

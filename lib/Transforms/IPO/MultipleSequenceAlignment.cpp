@@ -1963,7 +1963,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   FunctionAnalysisManager &FAM =
       MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
 
-  FunctionMerger PairMerger(&M);
+  FunctionMerger PairMerger(&M, FAM);
   auto Options = MSAOptions();
 
   std::unique_ptr<Matcher<Function *>> MatchFinder =
