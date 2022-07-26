@@ -522,12 +522,11 @@ MSAFunctionMerger::isProfitableMerge(Function *MergedFunction,
     OriginalTotalSize +=
         EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
   }
-  size_t ThunkOverhead = 0;
+  size_t ThunkOverhead = 2;
 
   for (auto &thunk : Thunks) {
     auto *F = thunk.getFunction();
-    ThunkOverhead +=
-        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
+    ThunkOverhead += MergedFunction->getFunctionType()->getNumParams();
   }
 
   if (MergedSize + ThunkOverhead < OriginalTotalSize) {
