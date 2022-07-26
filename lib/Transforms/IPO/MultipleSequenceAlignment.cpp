@@ -858,6 +858,17 @@ void MSAGenFunctionBody::chainBasicBlocks() {
         return;
       }
 
+      if (Chain.size() == 2) {
+        // switch %discriminator, [
+        //  i32 0 label %targetBB0,
+        //  i32 1 label %targetBB1
+        // ]
+        // => br %discriminator, label %targetBB1, label %targetBB0
+        Builder.CreateCondBr(Parent.Discriminator, Chain[1].second,
+                             Chain[0].second);
+        return;
+      }
+
       SwitchInst *Switch =
           Builder.CreateSwitch(Parent.Discriminator, Parent.BlackholeBB);
 

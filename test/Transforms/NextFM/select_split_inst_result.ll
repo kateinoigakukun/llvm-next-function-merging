@@ -1,5 +1,5 @@
 ; Check when selecting an operand from split inst results.
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -multiple-func-merging-allow-unprofitable < %s | FileCheck %s
+; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -multiple-func-merging-allow-unprofitable %s | FileCheck %s
 
 declare double @atan(double)
 
@@ -21,8 +21,7 @@ define double @rad2deg() {
 ; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i1 %discriminator) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %0 = alloca double, align 8
-; CHECK-NEXT:    %switch = icmp ult i1 %discriminator, true
-; CHECK-NEXT:    br i1 %switch, label %deg2rad..split, label %m.inst.bb1
+; CHECK-NEXT:    br i1 %discriminator, label %m.inst.bb1, label %deg2rad..split
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  deg2rad..split:                                   ; preds = %entry
 ; CHECK-NEXT:    %1 = call double @atan(double 1.000000e+00)
