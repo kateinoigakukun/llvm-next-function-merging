@@ -48,9 +48,6 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:      i2 -2, label %bb.select.values.Afunc6
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
-; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
-; CHECK-NEXT:    unreachable
-; CHECK-EMPTY:
 ; CHECK-NEXT:  bb.select.values.Bfunc5:                          ; preds = %entry
 ; CHECK-NEXT:    br label %m.inst.bb
 ; CHECK-EMPTY:
@@ -73,4 +70,7 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
 ; CHECK-NEXT:    call void @extern_func_1()
 ; CHECK-NEXT:    br label %m.inst.bb1
+; CHECK-EMPTY:
+; CHECK-NEXT:  switch.blackhole:                                 ; preds = %entry
+; CHECK-NEXT:    unreachable
 ; CHECK-NEXT:  }

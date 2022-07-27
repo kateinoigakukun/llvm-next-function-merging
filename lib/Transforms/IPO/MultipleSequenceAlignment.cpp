@@ -643,7 +643,7 @@ class MSAGenFunctionBody {
   DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
   BasicBlock *EntryBB;
-  BasicBlock *BlackholeBB;
+  mutable BasicBlock *BlackholeBBCache;
 
 public:
   MSAGenFunctionBody(const MSAGenFunction &Parent,
@@ -655,17 +655,26 @@ public:
         BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
 
     EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
-    BlackholeBB = BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
-    {
-      IRBuilder<> B(BlackholeBB);
-      B.CreateUnreachable();
-    }
+    BlackholeBBCache = nullptr;
   };
 
   inline LLVMContext &getContext() const { return Parent.C; }
   Type *getReturnType() const { return MergedFunc->getReturnType(); }
   IntegerType *getIntPtrType() const {
     return Parent.M->getDataLayout().getIntPtrType(Parent.C);
+  }
+
+  BasicBlock *getBlackholeBB() const {
+    if (BlackholeBBCache) {
+      return BlackholeBBCache;
+    }
+    BlackholeBBCache =
+        BasicBlock::Create(Parent.C, "switch.blackhole", MergedFunc);
+    {
+      IRBuilder<> B(BlackholeBBCache);
+      B.CreateUnreachable();
+    }
+    return BlackholeBBCache;
   }
 
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
@@ -870,7 +879,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       }
 
       SwitchInst *Switch =
-          Builder.CreateSwitch(Parent.Discriminator, Parent.BlackholeBB);
+          Builder.CreateSwitch(Parent.Discriminator, Parent.getBlackholeBB());
 
       for (auto &FuncIdAndBB : Chain) {
         auto *TargetBB = FuncIdAndBB.second;
@@ -1087,7 +1096,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> BuilderBB(SelectBB);
-      auto *Switch = BuilderBB.CreateSwitch(Discriminator, BlackholeBB);
+      auto *Switch = BuilderBB.CreateSwitch(Discriminator, getBlackholeBB());
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         auto *I = Instructions[FuncId];
@@ -1265,7 +1274,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   auto *SwitchBB = BasicBlock::Create(Parent.C, "bb.switch.values", MergedFunc,
                                       MergedI->getParent());
   IRBuilder<> SwitchB(SwitchBB);
-  auto *Switch = SwitchB.CreateSwitch(Discriminator, BlackholeBB);
+  auto *Switch = SwitchB.CreateSwitch(Discriminator, getBlackholeBB());
 
   MergedI->getParent()->replaceAllUsesWith(SwitchBB);
 
