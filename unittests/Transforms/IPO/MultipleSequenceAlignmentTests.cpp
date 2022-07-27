@@ -28,13 +28,13 @@ protected:
           Test) {
     ASSERT_GT(M.getFunctionList().size(), 0);
 
-    FunctionAnalysisManager FAM;
-    FunctionMerger PairMerger(&M, FAM);
+    FunctionMerger PairMerger(&M);
     std::vector<Function *> Functions;
     for (auto &FuncName : FuncNames) {
       Functions.push_back(M.getFunction(FuncName));
     }
     OptimizationRemarkEmitter ORE(Functions[0]);
+    FunctionAnalysisManager FAM;
     MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM);
     std::vector<MSAAlignmentEntry> Alignment;
     Merger.align(Alignment);

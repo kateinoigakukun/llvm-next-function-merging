@@ -16,7 +16,7 @@ private:
 
   const DataLayout *DL;
   LLVMContext *ContextPtr;
-  FunctionAnalysisManager &FAM;
+
   // cache of linear functions
   // KeyValueCache<Function *, SmallVector<Value *, 8>> LFCache;
 
@@ -39,7 +39,7 @@ private:
                        const FunctionMergingOptions &Options);
 
 public:
-  FunctionMerger(Module *M, FunctionAnalysisManager &FAM) : M(M), IntPtrTy(nullptr), FAM(FAM) {
+  FunctionMerger(Module *M) : M(M), IntPtrTy(nullptr) {
     //, ProfileSummaryInfo *PSI=nullptr, function_ref<BlockFrequencyInfo
     //*(Function &)> LookupBFI=nullptr) : M(M), PSI(PSI), LookupBFI(LookupBFI),
     // IntPtrTy(nullptr) {
@@ -188,7 +188,6 @@ public:
 
     virtual bool generate(AlignedSequence<Value *> &AlignedSeq,
                           ValueToValueMapTy &VMap,
-                          FunctionAnalysisManager &FAM,
                           const FunctionMergingOptions &Options = {}) = 0;
 
     void destroyGeneratedCode();
@@ -210,7 +209,6 @@ public:
     virtual ~SALSSACodeGen() {}
     virtual bool generate(AlignedSequence<Value *> &AlignedSeq,
                           ValueToValueMapTy &VMap,
-                          FunctionAnalysisManager &FAM,
                           const FunctionMergingOptions &Options = {}) override;
   };
 };
