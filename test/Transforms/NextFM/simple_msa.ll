@@ -66,19 +66,6 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:      i2 -2, label %Afunc..split
 ; CHECK-NEXT:    ]
 ; CHECK-EMPTY:
-; CHECK-NEXT:  Afunc..split:                                     ; preds = %m.inst.bb
-; CHECK-NEXT:    call void @extern_func_1()
-; CHECK-NEXT:    br label %m.inst.bb1
-; CHECK-EMPTY:
-; CHECK-NEXT:  Bfunc..split:                                     ; preds = %m.inst.bb
-; CHECK-NEXT:    call void @extern_func_2()
-; CHECK-NEXT:    br label %m.inst.bb1
-; CHECK-EMPTY:
-; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
-; CHECK-NEXT:    call void @extern_func_2()
-; CHECK-NEXT:    call void @extern_func_2()
-; CHECK-NEXT:    br label %m.inst.bb1
-; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %Afunc..split, %Bfunc..split, %Cfunc..split
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
 ; CHECK-NEXT:    store i32 7, i32* %m.R.R.R, align 4
@@ -87,6 +74,19 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:    %switch = icmp ult i2 %discriminator.off, 1
 ; CHECK-NEXT:    %spec.select = select i1 %switch, i64 42, i64 0
 ; CHECK-NEXT:    ret i64 %spec.select
+; CHECK-EMPTY:
+; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
+; CHECK-NEXT:    call void @extern_func_2()
+; CHECK-NEXT:    call void @extern_func_2()
+; CHECK-NEXT:    br label %m.inst.bb1
+; CHECK-EMPTY:
+; CHECK-NEXT:  Bfunc..split:                                     ; preds = %m.inst.bb
+; CHECK-NEXT:    call void @extern_func_2()
+; CHECK-NEXT:    br label %m.inst.bb1
+; CHECK-EMPTY:
+; CHECK-NEXT:  Afunc..split:                                     ; preds = %m.inst.bb
+; CHECK-NEXT:    call void @extern_func_1()
+; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-NEXT:  }
 
 ; F3M-LABEL: define internal i64 @Bfunc(i32* %P, i32* %Q, i32* %R, i32* %S)

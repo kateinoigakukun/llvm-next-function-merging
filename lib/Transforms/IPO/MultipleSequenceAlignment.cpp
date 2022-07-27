@@ -998,9 +998,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
           BBName.append(SrcBB->getName());
           BBName.append(".split");
           NewBB =
-              BasicBlock::Create(MergedFunc->getContext(), BBName);
-          MergedFunc->getBasicBlockList().insertAfter(
-              LastMergedBB->getIterator(), NewBB);
+              BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
           chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
           BlocksFX[NewBB] = SrcBB;
         }

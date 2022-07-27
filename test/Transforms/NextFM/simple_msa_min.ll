@@ -63,14 +63,14 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; CHECK-NEXT:    %switch = icmp ult i2 %discriminator, 1
 ; CHECK-NEXT:    br i1 %switch, label %Cfunc..split, label %m.inst.bb1
 ; CHECK-EMPTY:
-; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
-; CHECK-NEXT:    call void @extern_func_1()
-; CHECK-NEXT:    br label %m.inst.bb1
-; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %m.inst.bb, %Cfunc..split
 ; CHECK-NEXT:    store i32 6, i32* %m.Q.Q.Q, align 4
 ; CHECK-NEXT:    %discriminator.off = add i2 %discriminator, -1
 ; CHECK-NEXT:    %switch8 = icmp ult i2 %discriminator.off, 1
 ; CHECK-NEXT:    %spec.select = select i1 %switch8, i64 42, i64 0
 ; CHECK-NEXT:    ret i64 %spec.select
+; CHECK-EMPTY:
+; CHECK-NEXT:  Cfunc..split:                                     ; preds = %m.inst.bb
+; CHECK-NEXT:    call void @extern_func_1()
+; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-NEXT:  }
