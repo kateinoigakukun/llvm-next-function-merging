@@ -209,7 +209,9 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
           if (HasBeenMerged) {
             LastMergedBB = MaterialNodes[BB];
           } else {
-            std::string BBName = std::string("src.bb");
+            SmallString<128> BBName(BB->getParent()->getName());
+            BBName.append(".");
+            BBName.append(BB->getName());
             NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                        MergedFunc);
             VMap[BB] = NewBB;
@@ -254,7 +256,10 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
               LastMergedBB = NodeBB;
             } else {
               if (LastMergedBB) {
-                std::string BBName = std::string("split.bb");
+                SmallString<128> BBName(BB->getParent()->getName());
+                BBName.append(".");
+                BBName.append(BB->getName());
+                BBName.append(".split");
                 NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                            MergedFunc);
                 ChainBlocks(LastMergedBB, NewBB, IsFunc1);

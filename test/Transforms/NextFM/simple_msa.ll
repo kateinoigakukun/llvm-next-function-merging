@@ -102,20 +102,20 @@ define void @public_call(i32* %P, i32* %Q, i32* %R, i32* %S) {
 ; F3M-NEXT:  entry:
 ; F3M-NEXT:    %0 = select i1 %discriminator, i32 2, i32 4
 ; F3M-NEXT:    store i32 %0, i32* %m.P, align 4
-; F3M-NEXT:    br i1 %discriminator, label %split.bb, label %split.bb4
+; F3M-NEXT:    br i1 %discriminator, label %Cfunc..split, label %Afunc..split
 ; F3M-EMPTY:
-; F3M-NEXT:  m.inst.bb1:                                       ; preds = %split.bb4, %split.bb
+; F3M-NEXT:  m.inst.bb1:                                       ; preds = %Afunc..split, %Cfunc..split
 ; F3M-NEXT:    store i32 6, i32* %m.Q, align 4
 ; F3M-NEXT:    store i32 7, i32* %m.R, align 4
 ; F3M-NEXT:    store i32 8, i32* %m.S, align 4
 ; F3M-NEXT:    ret i64 0
 ; F3M-EMPTY:
-; F3M-NEXT:  split.bb:                                         ; preds = %entry
+; F3M-NEXT:  Cfunc..split:                                     ; preds = %entry
 ; F3M-NEXT:    call void @extern_func_2()
 ; F3M-NEXT:    call void @extern_func_2()
 ; F3M-NEXT:    br label %m.inst.bb1
 ; F3M-EMPTY:
-; F3M-NEXT:  split.bb4:                                        ; preds = %entry
+; F3M-NEXT:  Afunc..split:                                     ; preds = %entry
 ; F3M-NEXT:    call void @extern_func_1()
 ; F3M-NEXT:    br label %m.inst.bb1
 ; F3M-NEXT:  }
