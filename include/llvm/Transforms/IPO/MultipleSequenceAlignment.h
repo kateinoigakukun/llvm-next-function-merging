@@ -92,7 +92,7 @@ public:
   Optional<OptimizationRemarkMissed>
   isProfitableMerge(Function *MergedFunction,
                     std::vector<MSAThunkFunction> &Thunks);
-  Function *merge(MSAStats &Stats);
+  Function *merge(MSAStats &Stats, FunctionMergingOptions Options = {});
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.

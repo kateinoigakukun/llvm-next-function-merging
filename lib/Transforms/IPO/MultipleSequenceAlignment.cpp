@@ -539,14 +539,14 @@ MSAFunctionMerger::isProfitableMerge(Function *MergedFunction,
          << ore::NV("OriginalTotalSize", OriginalTotalSize);
 }
 
-Function *MSAFunctionMerger::merge(MSAStats &Stats) {
+Function *MSAFunctionMerger::merge(MSAStats &Stats,
+                                   FunctionMergingOptions Options) {
 
   std::vector<MSAAlignmentEntry> Alignment;
   if (!align(Alignment)) {
     return nullptr;
   }
 
-  FunctionMergingOptions Options;
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
   MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
@@ -623,7 +623,7 @@ struct MSAOptions : public FunctionMergingOptions {
   size_t LSHRows = 2;
   size_t LSHBands = 100;
 
-  MSAOptions() : FunctionMergingOptions() {}
+  MSAOptions() : FunctionMergingOptions() { EnableUnifiedReturnType = false; }
 };
 
 } // namespace
@@ -2001,7 +2001,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
     MSAStats Stats;
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    auto MergedFunction = FM.merge(Stats);
+    auto MergedFunction = FM.merge(Stats, Options);
     if (!MergedFunction) {
       continue;
     }
