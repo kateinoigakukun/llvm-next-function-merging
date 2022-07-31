@@ -2431,10 +2431,26 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
   //auto AttrList2 = F2->getAttributes();
   //auto AttrListM = MergedFunc->getAttributes();
 
+  auto assignArgName = [&](Argument *MergedArg, Argument *SrcArg) {
+    std::string displayName;
+    if (SrcArg->getName().empty()) {
+      displayName = std::to_string(SrcArg->getArgNo());
+    } else {
+      displayName = SrcArg->getName().str();
+    }
+    if (MergedArg->getName().empty()) {
+      MergedArg->setName("m." + displayName);
+    } else {
+      MergedArg->setName(MergedArg->getName() + Twine(".") + displayName);
+    }
+
+  };
   int ArgId = 0;
   for (auto I = F1->arg_begin(), E = F1->arg_end(); I != E; I++) {
-    VMap[&(*I)] = ArgsList[ParamMap1[ArgId]];
+    Argument *Arg = ArgsList[ParamMap1[ArgId]];
+    VMap[&(*I)] = Arg;
 
+    assignArgName(Arg, I);
     //auto AttrSet1 = AttrList1.getParamAttributes((*I).getArgNo());
     //AttrBuilder Attrs(AttrSet1);
     //AttrListM = AttrListM.addParamAttributes(
@@ -2446,19 +2462,9 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
   ArgId = 0;
   for (auto I = F2->arg_begin(), E = F2->arg_end(); I != E; I++) {
     Argument *Arg = ArgsList[ParamMap2[ArgId]];
-    std::string displayName;
-    if (I->getName().empty()) {
-      displayName = std::to_string(I->getArgNo());
-    } else {
-      displayName = I->getName().str();
-    }
-    if (Arg->getName().empty()) {
-      Arg->setName("m." + displayName);
-    } else {
-      Arg->setName(Arg->getName() + Twine(".") + displayName);
-    }
     VMap[&(*I)] = Arg;
 
+    assignArgName(Arg, I);
     //auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
     //AttrBuilder Attrs(AttrSet2);
     //AttrListM = AttrListM.addParamAttributes(
