@@ -413,7 +413,6 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
   auto *thunk = Function::Create(SrcFunction->getFunctionType(),
                                  SrcFunction->getLinkage(), "");
   thunk->setCallingConv(SrcFunction->getCallingConv());
-  thunk->setAttributes(SrcFunction->getAttributes());
   auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
   IRBuilder<> Builder(BB);
 
