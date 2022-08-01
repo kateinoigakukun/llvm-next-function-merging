@@ -1,4 +1,5 @@
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
+#include "FunctionMergingUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
@@ -837,68 +838,8 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 }
 
 void MSAGenFunctionBody::chainBasicBlocks() {
-  using FuncId = size_t;
-
-  class SwitchChainer {
-    using SwitchChain = std::vector<std::pair<FuncId, BasicBlock *>>;
-    DenseMap<BasicBlock *, SwitchChain> ChainBySrcBB;
-    const MSAGenFunctionBody &Parent;
-  public:
-    SwitchChainer(const MSAGenFunctionBody &Parent) : Parent(Parent) {}
-
-    void chainBlocks(BasicBlock *SrcBB, BasicBlock *TargetBB, FuncId FuncId) {
-      if (ChainBySrcBB.find(SrcBB) == ChainBySrcBB.end()) {
-        ChainBySrcBB[SrcBB] = SwitchChain();
-      }
-      ChainBySrcBB[SrcBB].push_back(std::make_pair(FuncId, TargetBB));
-    };
-
-    void finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
-      assert(!Chain.empty() && "Chain should have at least one dest!");
-
-      bool singleTarget =
-          std::all_of(Chain.begin(), Chain.end(),
-                      [&](const std::pair<FuncId, BasicBlock *> &Pair) {
-                        auto *TargetBB = Pair.second;
-                        return Chain[0].second == TargetBB;
-                      });
-
-      IRBuilder<> Builder(SrcBB);
-      if (singleTarget) {
-        Builder.CreateBr(Chain[0].second);
-        return;
-      }
-
-      if (Chain.size() == 2) {
-        // switch %discriminator, [
-        //  i32 0 label %targetBB0,
-        //  i32 1 label %targetBB1
-        // ]
-        // => br %discriminator, label %targetBB1, label %targetBB0
-        Builder.CreateCondBr(Parent.Discriminator, Chain[1].second,
-                             Chain[0].second);
-        return;
-      }
-
-      SwitchInst *Switch =
-          Builder.CreateSwitch(Parent.Discriminator, Parent.getBlackholeBB());
-
-      for (auto &FuncIdAndBB : Chain) {
-        auto *TargetBB = FuncIdAndBB.second;
-        auto *Var =
-            ConstantInt::get(Parent.Parent.DiscriminatorTy, FuncIdAndBB.first);
-        Switch->addCase(Var, TargetBB);
-      }
-    }
-
-    void finalize() {
-      for (auto &P : ChainBySrcBB) {
-        finalizeChain(P.first, P.second);
-      }
-    }
-  };
-
-  SwitchChainer chainer(*this);
+  fmutils::SwitchChainer chainer(Discriminator,
+                                 [&]() { return this->getBlackholeBB(); });
 
   // Chain BBs splitted from `SrcBB` by `br` and `switch` instructions
   // and insert un-merged instructions.
@@ -956,7 +897,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
 
   auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
                                DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
-                               FuncId FuncId) {
+                               fmutils::FuncId FuncId) {
     BasicBlock *LastMergedBB = nullptr;
     BasicBlock *NewBB = nullptr;
     auto FoundMerged = MaterialNodes.find(SrcBB);

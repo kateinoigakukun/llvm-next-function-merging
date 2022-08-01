@@ -2,6 +2,8 @@ add_library(LLVMNextFMObjects OBJECT
   Transforms/IPO/FastFM.cpp
   Transforms/IPO/FMSA.cpp
   Transforms/IPO/FunctionMerging.cpp
+  Transforms/IPO/FunctionMergingUtils.cpp
+  Transforms/IPO/FunctionMergingUtils.h
   Transforms/IPO/MatchingUtils.h
   Transforms/IPO/MergeSimilarFunctions.cpp
   Transforms/IPO/MinSizeAttr.cpp
