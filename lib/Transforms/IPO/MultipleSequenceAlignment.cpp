@@ -189,8 +189,7 @@ void MSAligner::computeBestTransition(
   // | (1, 0, 0) | (1, 1, 0) | /
   // |           |           |/
   // +-----------+-----------+
-  const std::vector<int32_t> TransScore{Scoring.getMatchProfit(),
-                                        Scoring.getGapPenalty()};
+  const std::vector<int32_t> TransScore{0, Scoring.getGapPenalty()};
   const std::vector<size_t> TransTableShape(ScoreTable.getShape().size(),
                                             TransScore.size());
   // The current visiting point in the virtual tensor table.
