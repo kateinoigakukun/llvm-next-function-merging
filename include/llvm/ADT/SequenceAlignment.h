@@ -17,6 +17,8 @@
 #define LLVM_ADT_SEQUENCE_ALIGNMENT_H
 
 #include "llvm/ADT/ArrayView.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
 #include <list>
@@ -62,6 +64,21 @@ public:
         return Pair.second;
     }
 
+    void print(llvm::raw_ostream &OS) {
+      OS << "AlignmentEntry:\n";
+      if (auto *V = Pair.first) {
+        OS << "- " << *V << "\n";
+      } else {
+        OS << "-   nullptr\n";
+      }
+      if (auto *V = Pair.second) {
+        OS << "- " << *V << "\n";
+      } else {
+        OS << "-   nullptr\n";
+      }
+    }
+
+    void dump() { print(llvm::dbgs()); }
   };
 
   std::list< Entry > Data;
@@ -90,7 +107,11 @@ public:
   typename std::list< Entry >::iterator end() { return Data.end(); }
 
   size_t size() { return Data.size(); }
-
+  void dump() {
+    for (auto &E : Data) {
+      E.dump();
+    }
+  }
 };
 
 class ScoringSystem {
