@@ -394,7 +394,11 @@ void MSAAlignmentEntry::print(raw_ostream &OS) const {
   OS << "MSAAlignmentEntry:\n";
   for (auto *V : Values) {
     if (V) {
-      OS << "- " << *V << "\n";
+      if (auto *BB = dyn_cast<BasicBlock>(V)) {
+        OS << "- bb" << BB->getName() << "\n";
+      } else {
+        OS << "- " << *V << "\n";
+      }
     } else {
       OS << "-   nullptr\n";
     }

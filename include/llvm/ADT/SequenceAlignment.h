@@ -17,6 +17,8 @@
 #define LLVM_ADT_SEQUENCE_ALIGNMENT_H
 
 #include "llvm/ADT/ArrayView.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Value.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -66,16 +68,19 @@ public:
 
     void print(llvm::raw_ostream &OS) {
       OS << "AlignmentEntry:\n";
-      if (auto *V = Pair.first) {
-        OS << "- " << *V << "\n";
-      } else {
-        OS << "-   nullptr\n";
-      }
-      if (auto *V = Pair.second) {
-        OS << "- " << *V << "\n";
-      } else {
-        OS << "-   nullptr\n";
-      }
+      auto dumpEntry = [&](llvm::Value *V) {
+        if (V) {
+          if (auto *BB = llvm::dyn_cast<llvm::BasicBlock>(V)) {
+            OS << "- bb" << BB->getName() << "\n";
+          } else {
+            OS << "- " << *V << "\n";
+          }
+        } else {
+          OS << "-   nullptr\n";
+        }
+      };
+      dumpEntry(Pair.first);
+      dumpEntry(Pair.second);
     }
 
     void dump() { print(llvm::dbgs()); }

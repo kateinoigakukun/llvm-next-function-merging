@@ -139,6 +139,16 @@ define i32 @susan_edges_small() #1 {
                                                        FunctionMerger::match);
         LegacySeq = SA.getAlignment(F1Vec, F2Vec);
 
+        if (Alignment.size() != LegacySeq.size()) {
+          llvm::errs() << "Alignment size: " << Alignment.size()
+                       << " LegacySeq size: " << LegacySeq.size() << "\n";
+          for (auto &Entry : Alignment) {
+            Entry.dump();
+          }
+          for (auto &Entry : LegacySeq) {
+            Entry.dump();
+          }
+        }
         ASSERT_EQ(Alignment.size(), LegacySeq.size());
         auto actualIt = Alignment.begin();
         auto legacyIt = LegacySeq.begin();
