@@ -3408,6 +3408,9 @@ bool FunctionMerging::runImpl(
                                                Result.getMergedFunction());
               remark << ore::NV("Function", F1->getName());
               remark << ore::NV("Function", F2->getName());
+              remark << ore::NV("MergedSize", MergedSize);
+              remark << ore::NV("ThunkOverhead", Overhead);
+              remark << ore::NV("OriginalTotalSize", SizeF1F2);
               return remark;
             });
             TotalMerges++;
