@@ -412,6 +412,8 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
   auto *M = MergedFunction->getParent();
   auto *thunk = Function::Create(SrcFunction->getFunctionType(),
                                  SrcFunction->getLinkage(), "");
+  M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
+  // In order to preserve function order, we move Clone after old Function
   thunk->setCallingConv(SrcFunction->getCallingConv());
   auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
   IRBuilder<> Builder(BB);
@@ -443,9 +445,6 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
 }
 
 void MSAThunkFunction::applyReplacements() {
-  auto *M = SrcFunction->getParent();
-  // In order to preserve function order, we move Clone after old Function
-  M->getFunctionList().insertAfter(SrcFunction->getIterator(), Thunk);
   SrcFunction->replaceAllUsesWith(Thunk);
   Thunk->takeName(SrcFunction);
   SrcFunction->eraseFromParent();
