@@ -28,7 +28,8 @@ void SwitchChainer::finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
     return;
   }
 
-  if (Chain.size() == 2) {
+  // fast-path for simple conditional branch
+  if (Chain.size() == 2 && Chain[0].first == 0 && Chain[1].first != 0) {
     // switch %discriminator, [
     //  i32 0 label %targetBB0,
     //  i32 1 label %targetBB1

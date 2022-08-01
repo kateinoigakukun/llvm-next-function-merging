@@ -24,8 +24,10 @@ public:
 
   void chainBlocks(BasicBlock *SrcBB, BasicBlock *TargetBB, FuncId FuncId);
 
-  void finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain);
   void finalize();
+
+private:
+  void finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain);
 };
 } // namespace fmutils
 } // namespace llvm

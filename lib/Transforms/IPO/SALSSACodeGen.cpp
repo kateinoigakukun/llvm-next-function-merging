@@ -1,4 +1,5 @@
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
+#include "FunctionMergingUtils.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/InstIterator.h"
@@ -181,27 +182,16 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
     }
   }
 
-  auto ChainBlocks = [](BasicBlock *SrcBB, BasicBlock *TargetBB,
-                        Value *IsFunc1) {
-    IRBuilder<> Builder(SrcBB);
-    if (SrcBB->getTerminator() == nullptr) {
-      Builder.CreateBr(TargetBB);
-    } else {
-      auto *Br = dyn_cast<BranchInst>(SrcBB->getTerminator());
-      assert(Br && Br->isUnconditional() &&
-             "Branch should be unconditional at this point!");
-      BasicBlock *SuccBB = Br->getSuccessor(0);
-      // if (SuccBB != TargetBB) {
-      Br->eraseFromParent();
-      Builder.CreateCondBr(IsFunc1, SuccBB, TargetBB);
-      //}
-    }
+  fmutils::SwitchChainer chainer(IsFunc1, [&]() { return nullptr; });
+  auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
+                         fmutils::FuncId FuncId) {
+    chainer.chainBlocks(SrcBB, TargetBB, FuncId);
   };
 
   auto ProcessEachFunction =
       [&](BlockListType &Blocks,
           std::unordered_map<BasicBlock *, BasicBlock *> &BlocksFX,
-          Value *IsFunc1) {
+          fmutils::FuncId FuncId) {
         for (BasicBlock *BB : Blocks) {
           BasicBlock *LastMergedBB = nullptr;
           BasicBlock *NewBB = nullptr;
@@ -245,7 +235,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
               if (LastMergedBB) {
                 // errs() << "Chaining last merged " << LastMergedBB->getName()
                 // << " with " << NodeBB->getName() << "\n";
-                ChainBlocks(LastMergedBB, NodeBB, IsFunc1);
+                ChainBlocks(LastMergedBB, NodeBB, FuncId);
               } else {
                 IRBuilder<> Builder(NewBB);
                 Builder.CreateBr(NodeBB);
@@ -262,7 +252,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
                 BBName.append(".split");
                 NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                            MergedFunc);
-                ChainBlocks(LastMergedBB, NewBB, IsFunc1);
+                ChainBlocks(LastMergedBB, NewBB, FuncId);
                 BlocksFX[NewBB] = BB;
                 // errs() << "Splitting last merged " << LastMergedBB->getName()
                 // << " into " << NewBB->getName() << "\n";
@@ -279,8 +269,9 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
           }
         }
       };
-  ProcessEachFunction(Blocks1, BlocksF1, IsFunc1);
-  ProcessEachFunction(Blocks2, BlocksF2, IsFunc1);
+  ProcessEachFunction(Blocks2, BlocksF2, 0);
+  ProcessEachFunction(Blocks1, BlocksF1, 1);
+  chainer.finalize();
 
   auto *BB1 = dyn_cast<BasicBlock>(VMap[EntryBB1]);
   auto *BB2 = dyn_cast<BasicBlock>(VMap[EntryBB2]);
