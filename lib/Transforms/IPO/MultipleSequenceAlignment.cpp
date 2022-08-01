@@ -390,13 +390,13 @@ void MSAAlignmentEntry::verify() const {
   }
 }
 
-void MSAAlignmentEntry::dump() const {
-  llvm::dbgs() << "MSAAlignmentEntry:\n";
+void MSAAlignmentEntry::print(raw_ostream &OS) const {
+  OS << "MSAAlignmentEntry:\n";
   for (auto *V : Values) {
     if (V) {
-      llvm::dbgs() << "- " << *V << "\n";
+      OS << "- " << *V << "\n";
     } else {
-      llvm::dbgs() << "-   nullptr\n";
+      OS << "-   nullptr\n";
     }
   }
 }

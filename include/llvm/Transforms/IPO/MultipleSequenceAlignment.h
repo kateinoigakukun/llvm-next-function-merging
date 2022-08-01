@@ -5,6 +5,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 namespace llvm {
@@ -23,7 +24,8 @@ public:
   /// Returns true if all values are instructions. Otherwise returns false.
   bool collectInstructions(std::vector<Instruction *> &Instructions) const;
   void verify() const;
-  void dump() const;
+  void print(raw_ostream &OS) const;
+  void dump() const { print(dbgs()); }
 };
 
 struct MSAStats {
