@@ -269,8 +269,8 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
           }
         }
       };
-  ProcessEachFunction(Blocks2, BlocksF2, 0);
   ProcessEachFunction(Blocks1, BlocksF1, 1);
+  ProcessEachFunction(Blocks2, BlocksF2, 0);
   chainer.finalize();
 
   auto *BB1 = dyn_cast<BasicBlock>(VMap[EntryBB1]);

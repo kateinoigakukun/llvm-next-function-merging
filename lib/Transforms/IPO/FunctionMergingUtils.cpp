@@ -29,13 +29,31 @@ void SwitchChainer::finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
   }
 
   // fast-path for simple conditional branch
-  if (Chain.size() == 2 && Chain[0].first == 0 && Chain[1].first != 0) {
+  auto optimizeSimpleCondBr = [&]() {
+    if (Chain.size() != 2) {
+      return false;
+    }
     // switch %discriminator, [
     //  i32 0 label %targetBB0,
     //  i32 1 label %targetBB1
     // ]
     // => br %discriminator, label %targetBB1, label %targetBB0
-    Builder.CreateCondBr(Discriminator, Chain[1].second, Chain[0].second);
+    BasicBlock *TrueBB;
+    BasicBlock *FalseBB;
+    if (Chain[0].first == 0 && Chain[1].first != 0) {
+      TrueBB = Chain[1].second;
+      FalseBB = Chain[0].second;
+    } else if (Chain[0].first != 0 && Chain[1].first != 1) {
+      TrueBB = Chain[0].second;
+      FalseBB = Chain[1].second;
+    } else {
+      return false;
+    }
+    Builder.CreateCondBr(Discriminator, TrueBB, FalseBB);
+    return true;
+  };
+
+  if (optimizeSimpleCondBr()) {
     return;
   }
 
