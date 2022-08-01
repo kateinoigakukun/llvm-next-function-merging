@@ -115,15 +115,15 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
       auto *I1 = dyn_cast<Instruction>(Entry.get(0));
       auto *I2 = dyn_cast<Instruction>(Entry.get(1));
 
-      StringRef BBName = [&]() {
+      Twine BBName = [&]() {
         Value *HeadV = Entry.get(0);
         if (auto *BB = dyn_cast<BasicBlock>(HeadV)) {
-          return BB->getName();
+          return "m.bb." + BB->getName();
         } else if (auto *I = dyn_cast<Instruction>(HeadV)) {
           if (I->isTerminator()) {
-            return StringRef("m.term.bb");
+            return Twine("m.term.bb");
           } else {
-            return StringRef("m.inst.bb");
+            return Twine("m.inst.bb");
           }
         }
         llvm_unreachable("Unknown value type!");
