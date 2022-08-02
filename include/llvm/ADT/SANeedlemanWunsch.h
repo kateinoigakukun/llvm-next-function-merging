@@ -140,6 +140,15 @@ private:
     }
   }
 
+  void print(llvm::raw_ostream &OS) {
+    for (unsigned i = 0; i < MatrixRows; i++) {
+      for (unsigned j = 0; j < MatrixCols; j++) {
+        OS << j << "," << i << "=" << Matrix[i * MatrixCols + j] << " ";
+      }
+      OS << "\n";
+    }
+  }
+
   void buildResult(ContainerType &Seq1, ContainerType &Seq2,
                    AlignedSequence<Ty, Blank> &Result) {
     auto &Data = Result.Data;
