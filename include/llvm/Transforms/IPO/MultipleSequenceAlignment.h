@@ -2,6 +2,7 @@
 #define LLVM_TRANSFORMS_IPO_MULTIPLESEQUENCEALIGNMENT_H
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
@@ -52,16 +53,41 @@ class MSACallReplacement {
   size_t FuncId;
   Function *SrcFunction;
   std::vector<WeakTrackingVH> Calls;
+  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
 
   MSACallReplacement(size_t FuncId, Function *SrcFunction,
-                     std::vector<WeakTrackingVH> Calls)
-      : FuncId(FuncId), SrcFunction(SrcFunction), Calls(Calls) {}
+                     std::vector<WeakTrackingVH> Calls,
+                     SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo)
+      : FuncId(FuncId), SrcFunction(SrcFunction), Calls(Calls),
+        SrcArgNoToMergedArgNo(SrcArgNoToMergedArgNo) {}
 
 public:
-  static Optional<MSACallReplacement> create(size_t FuncId,
-                                             Function *SrcFunction);
-  void applyReplacements(Function *MergedFunction,
-                         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+  static Optional<MSACallReplacement>
+  create(size_t FuncId, Function *SrcFunction,
+         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+  void applyReplacements(Function *MergedFunction);
+};
+
+class MSAMergePlan {
+  Function *Merged;
+  std::vector<MSAThunkFunction> Thunks;
+  std::vector<MSACallReplacement> CallReplacements;
+  ArrayRef<Function *> Functions;
+
+public:
+  MSAMergePlan(Function *Merged, ArrayRef<Function *> Functions)
+      : Merged(Merged), Functions(Functions) {}
+  void addThunk(MSAThunkFunction Thunk) { Thunks.push_back(Thunk); }
+  void addCallReplacement(MSACallReplacement CallReplacement) {
+    CallReplacements.push_back(CallReplacement);
+  }
+
+  Optional<OptimizationRemarkMissed>
+  isProfitableMerge(FunctionAnalysisManager &FAM);
+
+  Function *applyMerge(FunctionAnalysisManager &FAM,
+                       OptimizationRemarkEmitter &ORE);
+  void discard();
 };
 
 /// \brief This pass merges multiple functions into a single function by
@@ -91,10 +117,8 @@ public:
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
-  Optional<OptimizationRemarkMissed>
-  isProfitableMerge(Function *MergedFunction,
-                    std::vector<MSAThunkFunction> &Thunks);
-  Function *merge(MSAStats &Stats, FunctionMergingOptions Options = {});
+  Optional<MSAMergePlan> planMerge(MSAStats &Stats,
+                                   FunctionMergingOptions Options = {});
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.

@@ -459,8 +459,9 @@ void MSAThunkFunction::applyReplacements() {
 
 void MSAThunkFunction::discard() { Thunk->eraseFromParent(); }
 
-Optional<MSACallReplacement> MSACallReplacement::create(size_t FuncId,
-                                                        Function *SrcFunction) {
+Optional<MSACallReplacement> MSACallReplacement::create(
+    size_t FuncId, Function *SrcFunction,
+    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
   std::vector<WeakTrackingVH> Calls;
   for (User *U : SrcFunction->users()) {
     if (auto *Call = dyn_cast<CallBase>(U)) {
@@ -472,12 +473,19 @@ Optional<MSACallReplacement> MSACallReplacement::create(size_t FuncId,
       return None;
     }
   }
-  return MSACallReplacement(FuncId, SrcFunction, Calls);
+
+  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
+  for (auto &srcArg : SrcFunction->args()) {
+    unsigned srcArgNo = srcArg.getArgNo();
+    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+    SrcArgNoToMergedArgNo[srcArgNo] = newArgNo;
+  }
+
+  return MSACallReplacement(FuncId, SrcFunction, std::move(Calls),
+                            std::move(SrcArgNoToMergedArgNo));
 }
 
-void MSACallReplacement::applyReplacements(
-    Function *MergedFunction,
-    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
+void MSACallReplacement::applyReplacements(Function *MergedFunction) {
 
   for (auto V : Calls) {
     if (!V) {
@@ -494,7 +502,7 @@ void MSACallReplacement::applyReplacements(
 
     for (auto &srcArg : SrcFunction->args()) {
       unsigned srcArgNo = srcArg.getArgNo();
-      unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+      unsigned newArgNo = SrcArgNoToMergedArgNo[srcArgNo];
       Args[newArgNo] = CI->getArgOperand(srcArgNo);
     }
     for (size_t i = 0; i < Args.size(); i++) {
@@ -524,13 +532,12 @@ void MSACallReplacement::applyReplacements(
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 Optional<OptimizationRemarkMissed>
-MSAFunctionMerger::isProfitableMerge(Function *MergedFunction,
-                                     std::vector<MSAThunkFunction> &Thunks) {
+MSAMergePlan::isProfitableMerge(FunctionAnalysisManager &FAM) {
   if (AllowUnprofitableMerge) {
     return None;
   }
-  size_t MergedSize = EstimateFunctionSize(
-      MergedFunction, &FAM.getResult<TargetIRAnalysis>(*MergedFunction));
+  size_t MergedSize =
+      EstimateFunctionSize(Merged, &FAM.getResult<TargetIRAnalysis>(*Merged));
   size_t OriginalTotalSize = 0;
   for (auto *F : Functions) {
     OriginalTotalSize +=
@@ -541,7 +548,7 @@ MSAFunctionMerger::isProfitableMerge(Function *MergedFunction,
 
   for (auto &thunk : Thunks) {
     auto *F = thunk.getFunction();
-    ThunkOverhead += MergedFunction->getFunctionType()->getNumParams();
+    ThunkOverhead += Merged->getFunctionType()->getNumParams();
   }
 
   if (MergedSize + ThunkOverhead < OriginalTotalSize) {
@@ -553,61 +560,10 @@ MSAFunctionMerger::isProfitableMerge(Function *MergedFunction,
          << ore::NV("OriginalTotalSize", OriginalTotalSize);
 }
 
-Function *MSAFunctionMerger::merge(MSAStats &Stats,
-                                   FunctionMergingOptions Options) {
-
-  std::vector<MSAAlignmentEntry> Alignment;
-  if (!align(Alignment)) {
-    return nullptr;
-  }
-
-  ValueMap<Argument *, unsigned> ArgToMergedArgNo;
-  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
-  auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
-  if (!Merged) {
-    return nullptr;
-  }
-
-  if (verifyFunction(*Merged, &llvm::errs())) {
-    LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
-    LLVM_DEBUG(Merged->dump());
-    Merged->eraseFromParent();
-
-    ORE.emit([&] {
-      return createMissedRemark("CodeGen", "Invalid merged function",
-                                Functions);
-    });
-    return nullptr;
-  }
-
-  if (!DisablePostOpt) {
-    FunctionPassManager FPM;
-    FPM.addPass(SimplifyCFGPass());
-
-    FPM.run(*Merged, FAM);
-  }
-
-  std::vector<MSACallReplacement> callReplacements;
-  std::vector<MSAThunkFunction> thunks;
-
-  for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
-    auto *F = Functions[FuncId];
-    if (!F->hasAddressTaken() && F->isDiscardableIfUnused()) {
-      if (auto replacement = MSACallReplacement::create(FuncId, F)) {
-        // We don't need to create a thunk if we can just replace calls.
-        callReplacements.push_back(*replacement);
-        continue;
-      }
-    }
-    thunks.push_back(
-        MSAThunkFunction::create(Merged, F, FuncId, ArgToMergedArgNo));
-  }
-
-  if (auto remark = isProfitableMerge(Merged, thunks)) {
-    for (auto &thunk : thunks) {
-      thunk.discard();
-    }
-    Merged->eraseFromParent();
+Function *MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
+                                   OptimizationRemarkEmitter &ORE) {
+  if (auto remark = isProfitableMerge(FAM)) {
+    discard();
     ORE.emit(*remark);
     return nullptr;
   }
@@ -620,15 +576,73 @@ Function *MSAFunctionMerger::merge(MSAStats &Stats,
     return remark;
   });
 
-  for (auto replacement : callReplacements) {
-    replacement.applyReplacements(Merged, ArgToMergedArgNo);
+  for (auto replacement : CallReplacements) {
+    replacement.applyReplacements(Merged);
   }
 
-  for (auto &thunk : thunks) {
+  for (auto &thunk : Thunks) {
     thunk.applyReplacements();
   }
-
   return Merged;
+}
+
+void MSAMergePlan::discard() {
+  for (auto &thunk : Thunks) {
+    thunk.discard();
+  }
+  Merged->eraseFromParent();
+}
+
+Optional<MSAMergePlan>
+MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
+
+  std::vector<MSAAlignmentEntry> Alignment;
+  if (!align(Alignment)) {
+    return None;
+  }
+
+  ValueMap<Argument *, unsigned> ArgToMergedArgNo;
+  MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
+  auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
+  if (!Merged) {
+    return None;
+  }
+
+  if (verifyFunction(*Merged, &llvm::errs())) {
+    LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
+    LLVM_DEBUG(Merged->dump());
+    Merged->eraseFromParent();
+
+    ORE.emit([&] {
+      return createMissedRemark("CodeGen", "Invalid merged function",
+                                Functions);
+    });
+    return None;
+  }
+
+  if (!DisablePostOpt) {
+    FunctionPassManager FPM;
+    FPM.addPass(SimplifyCFGPass());
+
+    FPM.run(*Merged, FAM);
+  }
+
+  MSAMergePlan plan(Merged, Functions);
+
+  for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
+    auto *F = Functions[FuncId];
+    if (!F->hasAddressTaken() && F->isDiscardableIfUnused()) {
+      if (auto replacement =
+              MSACallReplacement::create(FuncId, F, ArgToMergedArgNo)) {
+        // We don't need to create a thunk if we can just replace calls.
+        plan.addCallReplacement(*replacement);
+        continue;
+      }
+    }
+    plan.addThunk(
+        MSAThunkFunction::create(Merged, F, FuncId, ArgToMergedArgNo));
+  }
+  return plan;
 }
 
 namespace {
@@ -1957,7 +1971,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     auto tryMerge = [&](SmallVectorImpl<Function *> &Functions) -> bool {
       MSAStats Stats;
       MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-      auto MergedFunction = FM.merge(Stats, Options);
+      auto plan = FM.planMerge(Stats, Options);
+      auto *MergedFunction = plan->applyMerge(FAM, ORE);
       if (!MergedFunction) {
         return false;
       }
