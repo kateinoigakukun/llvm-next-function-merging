@@ -51,10 +51,10 @@ public:
 class MSACallReplacement {
   size_t FuncId;
   Function *SrcFunction;
-  std::vector<CallBase *> Calls;
+  std::vector<WeakTrackingVH> Calls;
 
   MSACallReplacement(size_t FuncId, Function *SrcFunction,
-                     std::vector<CallBase *> Calls)
+                     std::vector<WeakTrackingVH> Calls)
       : FuncId(FuncId), SrcFunction(SrcFunction), Calls(Calls) {}
 
 public:

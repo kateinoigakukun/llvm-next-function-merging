@@ -18,6 +18,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
@@ -460,13 +461,13 @@ void MSAThunkFunction::discard() { Thunk->eraseFromParent(); }
 
 Optional<MSACallReplacement> MSACallReplacement::create(size_t FuncId,
                                                         Function *SrcFunction) {
-  std::vector<CallBase *> Calls;
+  std::vector<WeakTrackingVH> Calls;
   for (User *U : SrcFunction->users()) {
     if (auto *Call = dyn_cast<CallBase>(U)) {
       if (Call->getCalledFunction() != SrcFunction) {
         return None;
       }
-      Calls.push_back(Call);
+      Calls.emplace_back(Call);
     } else {
       return None;
     }
@@ -478,7 +479,12 @@ void MSACallReplacement::applyReplacements(
     Function *MergedFunction,
     ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
 
-  for (auto *CI : Calls) {
+  for (auto V : Calls) {
+    if (!V) {
+      continue;
+    }
+
+    auto *CI = cast<CallBase>(V);
     IRBuilder<> Builder(CI);
 
     SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
