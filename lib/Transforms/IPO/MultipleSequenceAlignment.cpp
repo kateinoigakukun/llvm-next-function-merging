@@ -1939,6 +1939,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     count++;
   }
 
+  bool Changed = false;
+
   while (MatchFinder->size() > 0) {
     Function *F1 = MatchFinder->next_candidate();
     auto &Rank = MatchFinder->get_matches(F1);
@@ -1952,18 +1954,46 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       continue;
 
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
+    auto tryMerge = [&](SmallVectorImpl<Function *> &Functions) -> bool {
+      MSAStats Stats;
+      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+      auto MergedFunction = FM.merge(Stats, Options);
+      if (!MergedFunction) {
+        return false;
+      }
+      for (auto *F : Functions) {
+        if (F == F1)
+          continue;
+        MatchFinder->remove_candidate(F);
+      }
+      return true;
+    };
 
-    MSAStats Stats;
-    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    auto MergedFunction = FM.merge(Stats, Options);
-    if (!MergedFunction) {
-      continue;
-    }
-    for (auto *F : Functions) {
-      if (F == F1)
-        continue;
-      MatchFinder->remove_candidate(F);
-    }
+    SmallVector<Function *, 16> MergingSet{F1};
+    // Find a set of functions to merge beneficialy by DFS.
+    std::function<bool(int32_t, bool)> FindProfitableSet =
+        [&](int32_t selectCursor, bool pick) {
+          if (pick) {
+            MergingSet.push_back(Functions[selectCursor]);
+          }
+          bool result = false;
+          if (selectCursor == Functions.size() - 1) {
+            if (MergingSet.size() >= 2) {
+              result = tryMerge(MergingSet);
+            }
+          } else {
+            if (FindProfitableSet(selectCursor + 1, true) ||
+                FindProfitableSet(selectCursor + 1, false)) {
+              result = true;
+            }
+          }
+          if (pick) {
+            assert(MergingSet.back() == Functions[selectCursor]);
+            MergingSet.pop_back();
+          }
+          return result;
+        };
+    Changed |= FindProfitableSet(1, true) || FindProfitableSet(1, false);
   }
 
   return PreservedAnalyses::none();
