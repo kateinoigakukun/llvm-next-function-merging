@@ -531,13 +531,9 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
 
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
-Optional<OptimizationRemarkMissed>
-MSAMergePlan::isProfitableMerge(FunctionAnalysisManager &FAM) {
-  if (AllowUnprofitableMerge) {
-    return None;
-  }
+MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
   size_t MergedSize =
-      EstimateFunctionSize(Merged, &FAM.getResult<TargetIRAnalysis>(*Merged));
+      EstimateFunctionSize(&Merged, &FAM.getResult<TargetIRAnalysis>(Merged));
   size_t OriginalTotalSize = 0;
   for (auto *F : Functions) {
     OriginalTotalSize +=
@@ -548,36 +544,57 @@ MSAMergePlan::isProfitableMerge(FunctionAnalysisManager &FAM) {
 
   for (auto &thunk : Thunks) {
     auto *F = thunk.getFunction();
-    ThunkOverhead += Merged->getFunctionType()->getNumParams();
+    ThunkOverhead += Merged.getFunctionType()->getNumParams();
   }
-
-  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
-    return None;
-  }
-  return createMissedRemark("UnprofitableMerge", "", Functions)
-         << ore::NV("MergedSize", MergedSize)
-         << ore::NV("ThunkOverhead", ThunkOverhead)
-         << ore::NV("OriginalTotalSize", OriginalTotalSize);
+  return Score{
+      .MergedSize = MergedSize,
+      .ThunkOverhead = ThunkOverhead,
+      .OriginalTotalSize = OriginalTotalSize,
+  };
 }
 
-Function *MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
-                                   OptimizationRemarkEmitter &ORE) {
-  if (auto remark = isProfitableMerge(FAM)) {
-    discard();
-    ORE.emit(*remark);
-    return nullptr;
+bool MSAMergePlan::Score::isProfitableMerge() const {
+  if (AllowUnprofitableMerge) {
+    return true;
   }
+  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
+    return true;
+  }
+  return false;
+}
 
+void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
+                                           OptimizationRemarkEmitter &ORE) {
+  auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
+                << ore::NV("MergedSize", MergedSize)
+                << ore::NV("ThunkOverhead", ThunkOverhead)
+                << ore::NV("OriginalTotalSize", OriginalTotalSize);
+  ORE.emit(remark);
+}
+
+void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
+                                           OptimizationRemarkEmitter &ORE) {
   ORE.emit([&] {
-    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", Merged);
-    for (auto *F : Functions) {
+    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", &plan.getMerged());
+    for (auto *F : plan.getFunctions()) {
       remark << ore::NV("Function", F->getName());
     }
+    remark << ore::NV("MergedSize", MergedSize)
+           << ore::NV("ThunkOverhead", ThunkOverhead)
+           << ore::NV("OriginalTotalSize", OriginalTotalSize);
     return remark;
   });
+}
 
+bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
+  return (MergedSize + ThunkOverhead + Other.OriginalTotalSize) <
+         (Other.MergedSize + Other.ThunkOverhead + OriginalTotalSize);
+}
+
+Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
+                                   OptimizationRemarkEmitter &ORE) {
   for (auto replacement : CallReplacements) {
-    replacement.applyReplacements(Merged);
+    replacement.applyReplacements(&Merged);
   }
 
   for (auto &thunk : Thunks) {
@@ -590,7 +607,7 @@ void MSAMergePlan::discard() {
   for (auto &thunk : Thunks) {
     thunk.discard();
   }
-  Merged->eraseFromParent();
+  Merged.eraseFromParent();
 }
 
 Optional<MSAMergePlan>
@@ -627,7 +644,7 @@ MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
     FPM.run(*Merged, FAM);
   }
 
-  MSAMergePlan plan(Merged, Functions);
+  MSAMergePlan plan(*Merged, Functions);
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
@@ -1968,47 +1985,78 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       continue;
 
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
-    auto tryMerge = [&](SmallVectorImpl<Function *> &Functions) -> bool {
+
+    Optional<std::pair<MSAMergePlan, MSAMergePlan::Score>> bestPlan;
+
+    auto tryPlanMerge = [&](SmallVectorImpl<Function *> &Functions) {
       MSAStats Stats;
       MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-      auto plan = FM.planMerge(Stats, Options);
-      auto *MergedFunction = plan->applyMerge(FAM, ORE);
-      if (!MergedFunction) {
-        return false;
+      auto maybePlan = FM.planMerge(Stats, Options);
+      if (!maybePlan) {
+        return;
       }
-      for (auto *F : Functions) {
-        if (F == F1)
-          continue;
-        MatchFinder->remove_candidate(F);
+      auto disposePlan = [&](MSAMergePlan &plan, MSAMergePlan::Score &score) {
+        score.emitMissedRemark(plan.getFunctions(), ORE);
+        plan.discard();
+      };
+      auto plan = *maybePlan;
+      auto score = plan.computeScore(FAM);
+      if (!score.isProfitableMerge()) {
+        disposePlan(plan, score);
+        return;
       }
-      return true;
+
+      if (bestPlan) {
+        auto bestScore = bestPlan->second;
+        if (score.isBetterThan(bestScore)) {
+          disposePlan(bestPlan->first, bestPlan->second);
+          bestPlan.emplace(plan, score);
+        } else {
+          disposePlan(plan, score);
+          return;
+        }
+      } else {
+        bestPlan.emplace(plan, score);
+      }
     };
 
     SmallVector<Function *, 16> MergingSet{F1};
     // Find a set of functions to merge beneficialy by DFS.
-    std::function<bool(int32_t, bool)> FindProfitableSet =
+    std::function<void(int32_t, bool)> FindProfitableSet =
         [&](int32_t selectCursor, bool pick) {
           if (pick) {
             MergingSet.push_back(Functions[selectCursor]);
           }
-          bool result = false;
           if (selectCursor == Functions.size() - 1) {
             if (MergingSet.size() >= 2) {
-              result = tryMerge(MergingSet);
+              tryPlanMerge(MergingSet);
             }
           } else {
-            if (FindProfitableSet(selectCursor + 1, true) ||
-                FindProfitableSet(selectCursor + 1, false)) {
-              result = true;
-            }
+            FindProfitableSet(selectCursor + 1, true);
+            FindProfitableSet(selectCursor + 1, false);
           }
           if (pick) {
             assert(MergingSet.back() == Functions[selectCursor]);
             MergingSet.pop_back();
           }
-          return result;
         };
-    Changed |= FindProfitableSet(1, true) || FindProfitableSet(1, false);
+    FindProfitableSet(1, true);
+    FindProfitableSet(1, false);
+
+    if (bestPlan) {
+      auto plan = bestPlan->first;
+      auto score = bestPlan->second;
+
+      // Emit remarks before replacing original functions with thunks.
+      score.emitPassedRemark(plan, ORE);
+
+      auto &Merged = plan.applyMerge(FAM, ORE);
+      for (auto *F : plan.getFunctions()) {
+        if (F == F1)
+          continue;
+        MatchFinder->remove_candidate(F);
+      }
+    }
   }
 
   return PreservedAnalyses::none();

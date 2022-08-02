@@ -69,23 +69,37 @@ public:
 };
 
 class MSAMergePlan {
-  Function *Merged;
+  Function &Merged;
   std::vector<MSAThunkFunction> Thunks;
   std::vector<MSACallReplacement> CallReplacements;
-  ArrayRef<Function *> Functions;
+  std::vector<Function *> Functions;
 
 public:
-  MSAMergePlan(Function *Merged, ArrayRef<Function *> Functions)
+  MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions)
       : Merged(Merged), Functions(Functions) {}
+
+  ArrayRef<Function *> getFunctions() const { return Functions; }
+  Function &getMerged() const { return Merged; }
   void addThunk(MSAThunkFunction Thunk) { Thunks.push_back(Thunk); }
   void addCallReplacement(MSACallReplacement CallReplacement) {
     CallReplacements.push_back(CallReplacement);
   }
 
-  Optional<OptimizationRemarkMissed>
-  isProfitableMerge(FunctionAnalysisManager &FAM);
+  struct Score {
+    size_t MergedSize;
+    size_t ThunkOverhead;
+    size_t OriginalTotalSize;
 
-  Function *applyMerge(FunctionAnalysisManager &FAM,
+    bool isProfitableMerge() const;
+    bool isBetterThan(const Score &Other) const;
+    void emitMissedRemark(ArrayRef<Function *> Functions,
+                          OptimizationRemarkEmitter &ORE);
+    void emitPassedRemark(MSAMergePlan &plan, OptimizationRemarkEmitter &ORE);
+  };
+
+  Score computeScore(FunctionAnalysisManager &FAM);
+
+  Function &applyMerge(FunctionAnalysisManager &FAM,
                        OptimizationRemarkEmitter &ORE);
   void discard();
 };
