@@ -225,15 +225,17 @@ void MSAligner::computeBestTransition(
     auto fromScore = *ScoreTable[Point];
     int32_t newScore = AddScore(fromScore, similarity);
     int32_t maxScore;
-    if (auto existingScore = ScoreTable.get(Point, TransOffset, false)) {
-      maxScore = std::max(*existingScore, newScore);
-    } else {
-      maxScore = newScore;
-    }
-    if (maxScore == newScore) {
-      ScoreTable.set(Point, TransOffset, false, maxScore);
+    auto updateBestScore = [&](int32_t newScore) {
+      ScoreTable.set(Point, TransOffset, false, newScore);
       BestTransTable.set(Point, TransOffset, false,
                          TransitionEntry(TransOffset, IsMatched));
+    };
+    if (auto existingScore = ScoreTable.get(Point, TransOffset, false)) {
+      if (newScore > *existingScore) {
+        updateBestScore(newScore);
+      }
+    } else {
+      updateBestScore(newScore);
     }
   }
 }
