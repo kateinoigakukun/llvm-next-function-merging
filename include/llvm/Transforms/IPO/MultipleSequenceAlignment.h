@@ -81,7 +81,7 @@ public:
                     OptimizationRemarkEmitter &ORE,
                     FunctionAnalysisManager &FAM)
       : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
-        Scoring(/*Gap*/ -1, /*Match*/ 0,
+        Scoring(/*Gap*/ -1, /*Match*/ 2,
                 /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
     M = Functions[0]->getParent();
