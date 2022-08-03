@@ -8,6 +8,10 @@ config.substitutions.append(('%opt',
                                os.path.join(config.llvm_tools_dir, "opt"),
                                config.llvm_next_fm_plugin_path,
                                config.llvm_next_fm_plugin_path)))
+config.substitutions.append(('%llc', os.path.join(config.llvm_tools_dir, "llc")))
+config.substitutions.append(('%clang', os.path.join(config.llvm_tools_dir, "clang")))
+config.substitutions.append(('%strip', os.path.join(config.llvm_tools_dir, "llvm-strip")))
+
 
 lit_config.load_config(
     config, os.path.join(config.llvm_next_fm_source_dir, "test", "lit.cfg"))

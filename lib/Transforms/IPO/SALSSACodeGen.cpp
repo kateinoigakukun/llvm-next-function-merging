@@ -1,4 +1,5 @@
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
+#include "FunctionMergingUtils.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/InstIterator.h"
@@ -28,6 +29,10 @@ static cl::opt<bool> EnableSALSSACoalescing(
     "func-merging-coalescing", cl::init(true), cl::Hidden,
     cl::desc("Enable phi-node coalescing during SSA reconstruction"));
 
+static cl::opt<bool> DisablePostOpt(
+    "func-merging-disable-post-opt", cl::init(false), cl::Hidden,
+    cl::desc("Disable post-optimization of the merged function"));
+
 Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
                           Type *IntPtrTy,
                           const FunctionMergingOptions &Options = {});
@@ -38,7 +43,8 @@ static void postProcessFunction(Function &F) {
   legacy::FunctionPassManager FPM(F.getParent());
 
   // FPM.add(createPromoteMemoryToRegisterPass());
-  FPM.add(createCFGSimplificationPass());
+  if (!DisablePostOpt)
+    FPM.add(createCFGSimplificationPass());
   // FPM.add(createInstructionCombiningPass(2));
   // FPM.add(createCFGSimplificationPass());
 
@@ -109,9 +115,19 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
       auto *I1 = dyn_cast<Instruction>(Entry.get(0));
       auto *I2 = dyn_cast<Instruction>(Entry.get(1));
 
-      std::string BBName =
-          (I1 == nullptr) ? "m.label.bb"
-                          : (I1->isTerminator() ? "m.term.bb" : "m.inst.bb");
+      Twine BBName = [&]() {
+        Value *HeadV = Entry.get(0);
+        if (auto *BB = dyn_cast<BasicBlock>(HeadV)) {
+          return "m.bb." + BB->getName();
+        } else if (auto *I = dyn_cast<Instruction>(HeadV)) {
+          if (I->isTerminator()) {
+            return Twine("m.term.bb");
+          } else {
+            return Twine("m.inst.bb");
+          }
+        }
+        llvm_unreachable("Unknown value type!");
+      }();
 
       BasicBlock *MergedBB =
           BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
@@ -166,27 +182,16 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
     }
   }
 
-  auto ChainBlocks = [](BasicBlock *SrcBB, BasicBlock *TargetBB,
-                        Value *IsFunc1) {
-    IRBuilder<> Builder(SrcBB);
-    if (SrcBB->getTerminator() == nullptr) {
-      Builder.CreateBr(TargetBB);
-    } else {
-      auto *Br = dyn_cast<BranchInst>(SrcBB->getTerminator());
-      assert(Br && Br->isUnconditional() &&
-             "Branch should be unconditional at this point!");
-      BasicBlock *SuccBB = Br->getSuccessor(0);
-      // if (SuccBB != TargetBB) {
-      Br->eraseFromParent();
-      Builder.CreateCondBr(IsFunc1, SuccBB, TargetBB);
-      //}
-    }
+  fmutils::SwitchChainer chainer(IsFunc1, [&]() { return nullptr; });
+  auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
+                         fmutils::FuncId FuncId) {
+    chainer.chainBlocks(SrcBB, TargetBB, FuncId);
   };
 
   auto ProcessEachFunction =
       [&](BlockListType &Blocks,
           std::unordered_map<BasicBlock *, BasicBlock *> &BlocksFX,
-          Value *IsFunc1) {
+          fmutils::FuncId FuncId) {
         for (BasicBlock *BB : Blocks) {
           BasicBlock *LastMergedBB = nullptr;
           BasicBlock *NewBB = nullptr;
@@ -194,7 +199,9 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
           if (HasBeenMerged) {
             LastMergedBB = MaterialNodes[BB];
           } else {
-            std::string BBName = std::string("src.bb");
+            SmallString<128> BBName(BB->getParent()->getName());
+            BBName.append(".");
+            BBName.append(BB->getName());
             NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                        MergedFunc);
             VMap[BB] = NewBB;
@@ -228,7 +235,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
               if (LastMergedBB) {
                 // errs() << "Chaining last merged " << LastMergedBB->getName()
                 // << " with " << NodeBB->getName() << "\n";
-                ChainBlocks(LastMergedBB, NodeBB, IsFunc1);
+                ChainBlocks(LastMergedBB, NodeBB, FuncId);
               } else {
                 IRBuilder<> Builder(NewBB);
                 Builder.CreateBr(NodeBB);
@@ -239,10 +246,13 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
               LastMergedBB = NodeBB;
             } else {
               if (LastMergedBB) {
-                std::string BBName = std::string("split.bb");
+                SmallString<128> BBName(BB->getParent()->getName());
+                BBName.append(".");
+                BBName.append(BB->getName());
+                BBName.append(".split");
                 NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                            MergedFunc);
-                ChainBlocks(LastMergedBB, NewBB, IsFunc1);
+                ChainBlocks(LastMergedBB, NewBB, FuncId);
                 BlocksFX[NewBB] = BB;
                 // errs() << "Splitting last merged " << LastMergedBB->getName()
                 // << " into " << NewBB->getName() << "\n";
@@ -259,8 +269,9 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
           }
         }
       };
-  ProcessEachFunction(Blocks1, BlocksF1, IsFunc1);
-  ProcessEachFunction(Blocks2, BlocksF2, IsFunc1);
+  ProcessEachFunction(Blocks1, BlocksF1, 1);
+  ProcessEachFunction(Blocks2, BlocksF2, 0);
+  chainer.finalize();
 
   auto *BB1 = dyn_cast<BasicBlock>(VMap[EntryBB1]);
   auto *BB2 = dyn_cast<BasicBlock>(VMap[EntryBB2]);

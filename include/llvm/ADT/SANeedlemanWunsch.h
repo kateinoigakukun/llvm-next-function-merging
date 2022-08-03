@@ -11,14 +11,6 @@ private:
   size_t MatchesRows;
   size_t MatchesCols;
 
-  const static unsigned END = 0;
-  const static unsigned DIAGONAL = 1;
-  const static unsigned UP = 2;
-  const static unsigned LEFT = 3;
-
-  size_t MaxRow;
-  size_t MaxCol;
-
   using BaseType = SequenceAligner<ContainerType, Ty, Blank, MatchFnTy>;
 
   void cacheAllMatches(ContainerType &Seq1, ContainerType &Seq2) {
@@ -31,18 +23,18 @@ private:
 
     MatchesRows = SizeSeq1;
     MatchesCols = SizeSeq2;
-    Matches = new bool[SizeSeq1 * SizeSeq2];
-    for (unsigned i = 0; i < SizeSeq1; i++)
-      for (unsigned j = 0; j < SizeSeq2; j++)
-        Matches[i * SizeSeq2 + j] = BaseType::match(Seq1[i], Seq2[j]);
+    Matches = new bool[MatchesRows * MatchesCols];
+    for (unsigned i = 0; i < MatchesRows; i++)
+      for (unsigned j = 0; j < MatchesCols; j++)
+        Matches[i * MatchesCols + j] = BaseType::match(Seq1[i], Seq2[j]);
   }
 
   void computeScoreMatrix(ContainerType &Seq1, ContainerType &Seq2) {
     const size_t SizeSeq1 = Seq1.size();
     const size_t SizeSeq2 = Seq2.size();
 
-    const size_t NumRows = SizeSeq1 + 1;
-    const size_t NumCols = SizeSeq2 + 1;
+    const size_t NumRows = MatchesRows + 1;
+    const size_t NumCols = MatchesCols + 1;
     Matrix = new ScoreSystemType[NumRows * NumCols];
     MatrixRows = NumRows;
     MatrixCols = NumCols;
@@ -51,9 +43,7 @@ private:
     const ScoreSystemType Gap = Scoring.getGapPenalty();
     const ScoreSystemType Match = Scoring.getMatchProfit();
     const bool AllowMismatch = Scoring.getAllowMismatch();
-    const ScoreSystemType Mismatch =
-        AllowMismatch ? Scoring.getMismatchPenalty()
-                      : std::numeric_limits<ScoreSystemType>::min();
+    const ScoreSystemType Mismatch = Scoring.getMismatchPenalty();
 
     for (unsigned i = 0; i < NumRows; i++)
       Matrix[i * NumCols + 0] = i * Gap;
@@ -61,82 +51,29 @@ private:
       Matrix[0 * NumCols + j] = j * Gap;
 
     ScoreSystemType MaxScore = std::numeric_limits<ScoreSystemType>::min();
-    if (Matches) {
-      if (AllowMismatch) {
-        for (unsigned i = 1; i < NumRows; i++) {
-          for (unsigned j = 1; j < NumCols; j++) {
-            ScoreSystemType Similarity =
-                Matches[(i - 1) * MatchesCols + j - 1] ? Match : Mismatch;
-            ScoreSystemType Diagonal =
-                Matrix[(i - 1) * NumCols + j - 1] + Similarity;
-            ScoreSystemType Upper = Matrix[(i - 1) * NumCols + j] + Gap;
-            ScoreSystemType Left = Matrix[i * NumCols + j - 1] + Gap;
-            ScoreSystemType Score = std::max(std::max(Diagonal, Upper), Left);
-            Matrix[i * NumCols + j] = Score;
-            if (Score >= MaxScore) {
-              MaxScore = Score;
-              MaxRow = i;
-              MaxCol = j;
-            }
-          }
-        }
-      } else {
-        for (unsigned i = 1; i < NumRows; i++) {
-          for (unsigned j = 1; j < NumCols; j++) {
-            ScoreSystemType Diagonal =
-            	    Matches[(i - 1) * MatchesCols + j - 1]
-                    ? (Matrix[(i - 1) * NumCols + j - 1] + Match)
-                    : Mismatch;
-            ScoreSystemType Upper = Matrix[(i - 1) * NumCols + j] + Gap;
-            ScoreSystemType Left = Matrix[i * NumCols + j - 1] + Gap;
-            ScoreSystemType Score = std::max(std::max(Diagonal, Upper), Left);
-            Matrix[i * NumCols + j] = Score;
-            if (Score >= MaxScore) {
-              MaxScore = Score;
-              MaxRow = i;
-              MaxCol = j;
-            }
-          }
+    for (unsigned i = 1; i < NumRows; i++) {
+      for (unsigned j = 1; j < NumCols; j++) {
+        ScoreSystemType Diagonal =
+            Matches[(i - 1) * MatchesCols + j - 1]
+                ? (Matrix[(i - 1) * NumCols + j - 1] + Match)
+                : Mismatch;
+        ScoreSystemType Upper = Matrix[(i - 1) * NumCols + j] + Gap;
+        ScoreSystemType Left = Matrix[i * NumCols + j - 1] + Gap;
+        ScoreSystemType Score = std::max(std::max(Diagonal, Upper), Left);
+        Matrix[i * NumCols + j] = Score;
+        if (Score >= MaxScore) {
+          MaxScore = Score;
         }
       }
-    } else {
-      if (AllowMismatch) {
-        for (unsigned i = 1; i < NumRows; i++) {
-          for (unsigned j = 1; j < NumCols; j++) {
-            ScoreSystemType Similarity =
-                (Seq1[i - 1] == Seq2[j - 1]) ? Match : Mismatch;
-            ScoreSystemType Diagonal =
-                Matrix[(i - 1) * NumCols + j - 1] + Similarity;
-            ScoreSystemType Upper = Matrix[(i - 1) * NumCols + j] + Gap;
-            ScoreSystemType Left = Matrix[i * NumCols + j - 1] + Gap;
-            ScoreSystemType Score = std::max(std::max(Diagonal, Upper), Left);
-            Matrix[i * NumCols + j] = Score;
-            if (Score >= MaxScore) {
-              MaxScore = Score;
-              MaxRow = i;
-              MaxCol = j;
-            }
-          }
-        }
-      } else {
-        for (unsigned i = 1; i < NumRows; i++) {
-          for (unsigned j = 1; j < NumCols; j++) {
-            ScoreSystemType Diagonal =
-                (Seq1[i - 1] == Seq2[j - 1])
-                    ? (Matrix[(i - 1) * NumCols + j - 1] + Match)
-                    : Mismatch;
-            ScoreSystemType Upper = Matrix[(i - 1) * NumCols + j] + Gap;
-            ScoreSystemType Left = Matrix[i * NumCols + j - 1] + Gap;
-            ScoreSystemType Score = std::max(std::max(Diagonal, Upper), Left);
-            Matrix[i * NumCols + j] = Score;
-            if (Score >= MaxScore) {
-              MaxScore = Score;
-              MaxRow = i;
-              MaxCol = j;
-            }
-          }
-        }
+    }
+  }
+
+  void print(llvm::raw_ostream &OS) {
+    for (unsigned i = 0; i < MatrixRows; i++) {
+      for (unsigned j = 0; j < MatrixCols; j++) {
+        OS << j << "," << i << "=" << Matrix[i * MatrixCols + j] << " ";
       }
+      OS << "\n";
     }
   }
 
@@ -147,78 +84,53 @@ private:
     ScoringSystem &Scoring = BaseType::getScoring();
     const ScoreSystemType Gap = Scoring.getGapPenalty();
     const ScoreSystemType Match = Scoring.getMatchProfit();
-    const bool AllowMismatch = Scoring.getAllowMismatch();
-    const ScoreSystemType Mismatch =
-        AllowMismatch ? Scoring.getMismatchPenalty()
-                      : std::numeric_limits<ScoreSystemType>::min();
+    const ScoreSystemType Mismatch = Scoring.getMismatchPenalty();
 
-    int i = MatrixRows - 1, j = MatrixCols - 1;
+    int rowCursor = MatrixRows - 1, columnCursor = MatrixCols - 1;
 
-    size_t LongestMatch = 0;
-    size_t CurrentMatch = 0;
-
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0) {
+    while (rowCursor > 0 || columnCursor > 0) {
+      auto Left = Seq1[rowCursor - 1];
+      auto Right = Seq2[columnCursor - 1];
+      if (rowCursor > 0 && columnCursor > 0) {
         // Diagonal
 
-        bool IsValidMatch = false;
+        bool IsValidMatch =
+            Matches[(rowCursor - 1) * MatchesCols + columnCursor - 1];
+        ScoreSystemType Score =
+            IsValidMatch
+                ? (Matrix[(rowCursor - 1) * MatrixCols + columnCursor - 1] +
+                   Match)
+                : Mismatch;
 
-        ScoreSystemType Score = std::numeric_limits<ScoreSystemType>::min();
-        if (Matches) {
-          IsValidMatch = Matches[(i - 1) * MatchesCols + j - 1];
-        } else {
-          IsValidMatch = (Seq1[i - 1] == Seq2[j - 1]);
-        }
-
-        if (!IsValidMatch) {
-          if (CurrentMatch > LongestMatch)
-            LongestMatch = CurrentMatch;
-          CurrentMatch = 0;
-        } else
-          CurrentMatch += 1;
-
-        if (AllowMismatch) {
-          Score = Matrix[(i - 1) * MatrixCols + j - 1] +
-                  (IsValidMatch ? Match : Mismatch);
-        } else {
-          Score = IsValidMatch ? (Matrix[(i - 1) * MatrixCols + j - 1] + Match)
-                               : Mismatch;
-        }
-
-        if (Matrix[i * MatrixCols + j] == Score) {
-          if (IsValidMatch || AllowMismatch) {
-            Data.push_front(typename BaseType::EntryType(
-                Seq1[i - 1], Seq2[j - 1], IsValidMatch));
+        if (Matrix[rowCursor * MatrixCols + columnCursor] == Score) {
+          if (IsValidMatch) {
+            Data.push_front(
+                typename BaseType::EntryType(Left, Right, IsValidMatch));
           } else {
-            Data.push_front(
-                typename BaseType::EntryType(Seq1[i - 1], Blank, false));
-            Data.push_front(
-                typename BaseType::EntryType(Blank, Seq2[j - 1], false));
+            Data.push_front(typename BaseType::EntryType(Left, Blank, false));
+            Data.push_front(typename BaseType::EntryType(Blank, Right, false));
           }
 
-          i--;
-          j--;
+          rowCursor--;
+          columnCursor--;
           continue;
         }
       }
-      if (i > 0 && Matrix[i * MatrixCols + j] ==
-                       (Matrix[(i - 1) * MatrixCols + j] + Gap)) {
+      if (rowCursor > 0 &&
+          Matrix[rowCursor * MatrixCols + columnCursor] ==
+              (Matrix[(rowCursor - 1) * MatrixCols + columnCursor] + Gap)) {
         // Up
-        Data.push_front(
-            typename BaseType::EntryType(Seq1[i - 1], Blank, false));
-        i--;
-      }
-      else if (j > 0 && Matrix[i * MatrixCols + j] ==
-                       (Matrix[i * MatrixCols + (j - 1)] + Gap)) {
+        Data.push_front(typename BaseType::EntryType(Left, Blank, false));
+        rowCursor--;
+      } else if (columnCursor > 0 &&
+                 Matrix[rowCursor * MatrixCols + columnCursor] ==
+                     (Matrix[rowCursor * MatrixCols + (columnCursor - 1)] +
+                      Gap)) {
         // Left
-        Data.push_front(
-            typename BaseType::EntryType(Blank, Seq2[j - 1], false));
-        j--;
+        Data.push_front(typename BaseType::EntryType(Blank, Right, false));
+        columnCursor--;
       }
     }
-
-    if (CurrentMatch > LongestMatch)
-      LongestMatch = CurrentMatch;
   }
 
   void clearAll() {

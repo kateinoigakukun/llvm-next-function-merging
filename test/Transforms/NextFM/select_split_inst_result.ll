@@ -1,5 +1,5 @@
 ; Check when selecting an operand from split inst results.
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -multiple-func-merging-allow-unprofitable < %s | FileCheck %s
+; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -multiple-func-merging-allow-unprofitable %s | FileCheck %s
 
 declare double @atan(double)
 
@@ -18,20 +18,18 @@ define double @rad2deg() {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i32 %discriminator) {
+; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i1 %discriminator) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %0 = alloca double, align 8
-; CHECK-NEXT:    %switch3 = icmp ult i32 %discriminator, 1
-; CHECK-NEXT:    br i1 %switch3, label %deg2rad..split, label %bb.switch.values
+; CHECK-NEXT:    br i1 %discriminator, label %m.inst.bb1, label %deg2rad..split
+; CHECK-EMPTY:
+; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %entry, %deg2rad..split
+; CHECK-NEXT:    %.0 = phi double [ undef, %entry ], [ %2, %deg2rad..split ]
+; CHECK-NEXT:    %switch.select = select i1 %discriminator, double 1.800000e+02, double %.0
+; CHECK-NEXT:    %1 = fmul double %switch.select, 2.000000e+00
+; CHECK-NEXT:    ret double %1
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  deg2rad..split:                                   ; preds = %entry
-; CHECK-NEXT:    %1 = call double @atan(double 1.000000e+00)
-; CHECK-NEXT:    br label %bb.switch.values
-; CHECK-EMPTY:
-; CHECK-NEXT:  bb.switch.values:                                 ; preds = %entry, %deg2rad..split
-; CHECK-NEXT:    %.0 = phi double [ undef, %entry ], [ %1, %deg2rad..split ]
-; CHECK-NEXT:    %switch = icmp ult i32 %discriminator, 1
-; CHECK-NEXT:    %.0. = select i1 %switch, double %.0, double 1.800000e+02
-; CHECK-NEXT:    %2 = fmul double %.0., 2.000000e+00
-; CHECK-NEXT:    ret double %2
+; CHECK-NEXT:    %2 = call double @atan(double 1.000000e+00)
+; CHECK-NEXT:    br label %m.inst.bb1
 ; CHECK-NEXT:  }

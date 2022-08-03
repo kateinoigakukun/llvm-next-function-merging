@@ -2,9 +2,11 @@
 #define LLVM_TRANSFORMS_IPO_MULTIPLESEQUENCEALIGNMENT_H
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 namespace llvm {
@@ -23,11 +25,83 @@ public:
   /// Returns true if all values are instructions. Otherwise returns false.
   bool collectInstructions(std::vector<Instruction *> &Instructions) const;
   void verify() const;
-  void dump() const;
+  void print(raw_ostream &OS) const;
+  void dump() const { print(dbgs()); }
 };
 
 struct MSAStats {
   unsigned NumSelection;
+};
+
+class MSAThunkFunction {
+  Function *SrcFunction;
+  Function *Thunk;
+
+  MSAThunkFunction(Function *SrcFunction, Function *Thunk)
+      : SrcFunction(SrcFunction), Thunk(Thunk) {}
+
+public:
+  static MSAThunkFunction
+  create(Function *MergedFunction, Function *SrcFunction, unsigned int FuncId,
+         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+  void applyReplacements();
+  void discard();
+  Function *getFunction() const { return Thunk; }
+};
+
+class MSACallReplacement {
+  size_t FuncId;
+  Function *SrcFunction;
+  std::vector<WeakTrackingVH> Calls;
+  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
+
+  MSACallReplacement(size_t FuncId, Function *SrcFunction,
+                     std::vector<WeakTrackingVH> Calls,
+                     SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo)
+      : FuncId(FuncId), SrcFunction(SrcFunction), Calls(Calls),
+        SrcArgNoToMergedArgNo(SrcArgNoToMergedArgNo) {}
+
+public:
+  static Optional<MSACallReplacement>
+  create(size_t FuncId, Function *SrcFunction,
+         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
+  void applyReplacements(Function *MergedFunction);
+};
+
+class MSAMergePlan {
+  Function &Merged;
+  std::vector<MSAThunkFunction> Thunks;
+  std::vector<MSACallReplacement> CallReplacements;
+  std::vector<Function *> Functions;
+
+public:
+  MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions)
+      : Merged(Merged), Functions(Functions) {}
+
+  ArrayRef<Function *> getFunctions() const { return Functions; }
+  Function &getMerged() const { return Merged; }
+  void addThunk(MSAThunkFunction Thunk) { Thunks.push_back(Thunk); }
+  void addCallReplacement(MSACallReplacement CallReplacement) {
+    CallReplacements.push_back(CallReplacement);
+  }
+
+  struct Score {
+    size_t MergedSize;
+    size_t ThunkOverhead;
+    size_t OriginalTotalSize;
+
+    bool isProfitableMerge() const;
+    bool isBetterThan(const Score &Other) const;
+    void emitMissedRemark(ArrayRef<Function *> Functions,
+                          OptimizationRemarkEmitter &ORE);
+    void emitPassedRemark(MSAMergePlan &plan, OptimizationRemarkEmitter &ORE);
+  };
+
+  Score computeScore(FunctionAnalysisManager &FAM);
+
+  Function &applyMerge(FunctionAnalysisManager &FAM,
+                       OptimizationRemarkEmitter &ORE);
+  void discard();
 };
 
 /// \brief This pass merges multiple functions into a single function by
@@ -47,21 +121,18 @@ public:
                     OptimizationRemarkEmitter &ORE,
                     FunctionAnalysisManager &FAM)
       : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
-        Scoring(/*Gap*/ -1, /*Match*/ 0,
+        Scoring(/*Gap*/ -1, /*Match*/ 2,
                 /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
     assert(!Functions.empty() && "No functions to merge");
     M = Functions[0]->getParent();
-    DiscriminatorTy = IntegerType::getInt32Ty(M->getContext());
+    size_t noOfBits = std::ceil(std::log2(Functions.size()));
+    DiscriminatorTy = IntegerType::getIntNTy(M->getContext(), noOfBits);
   }
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
-  Optional<OptimizationRemarkMissed>
-  isProfitableMerge(Function *MergedFunction);
-  Function *writeThunk(Function *MergedFunction, Function *SrcFunction,
-                       unsigned FuncId,
-                       ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
-  Function *merge(MSAStats &Stats);
+  Optional<MSAMergePlan> planMerge(MSAStats &Stats,
+                                   FunctionMergingOptions Options = {});
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.

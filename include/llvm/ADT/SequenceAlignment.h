@@ -17,6 +17,10 @@
 #define LLVM_ADT_SEQUENCE_ALIGNMENT_H
 
 #include "llvm/ADT/ArrayView.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Value.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
 #include <list>
@@ -62,6 +66,24 @@ public:
         return Pair.second;
     }
 
+    void print(llvm::raw_ostream &OS) {
+      OS << "AlignmentEntry:\n";
+      auto dumpEntry = [&](llvm::Value *V) {
+        if (V) {
+          if (auto *BB = llvm::dyn_cast<llvm::BasicBlock>(V)) {
+            OS << "- bb" << BB->getName() << "\n";
+          } else {
+            OS << "- " << *V << "\n";
+          }
+        } else {
+          OS << "-   nullptr\n";
+        }
+      };
+      dumpEntry(Pair.first);
+      dumpEntry(Pair.second);
+    }
+
+    void dump() { print(llvm::dbgs()); }
   };
 
   std::list< Entry > Data;
@@ -90,7 +112,11 @@ public:
   typename std::list< Entry >::iterator end() { return Data.end(); }
 
   size_t size() { return Data.size(); }
-
+  void dump() {
+    for (auto &E : Data) {
+      E.dump();
+    }
+  }
 };
 
 class ScoringSystem {

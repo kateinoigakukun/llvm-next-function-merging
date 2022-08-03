@@ -138,7 +138,7 @@
 
 //#define ENABLE_DEBUG_CODE
 
-#define TIME_STEPS_DEBUG
+// #define TIME_STEPS_DEBUG
 
 using namespace llvm;
 
@@ -154,11 +154,15 @@ static cl::opt<int> MergingOverheadThreshold(
     "func-merging-threshold", cl::init(0), cl::Hidden,
     cl::desc("Threshold of allowed overhead for merging function"));
 
+static cl::opt<bool> AllowUnprofitableMerge(
+    "func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
+    cl::desc("Allow merging functions that are not profitable"));
+
 static cl::opt<bool>
     MaxParamScore("func-merging-max-param", cl::init(true), cl::Hidden,
                   cl::desc("Maximizing the score for merging parameters"));
 
-static cl::opt<bool> Debug("func-merging-debug", cl::init(true), cl::Hidden,
+static cl::opt<bool> Debug("func-merging-debug", cl::init(false), cl::Hidden,
                            cl::desc("Outputs debug information"));
 
 static cl::opt<bool> Verbose("func-merging-verbose", cl::init(false),
@@ -1439,91 +1443,6 @@ static void SetFunctionAttributes(Function *F1, Function *F2,
   }
 }
 
-static Function *RemoveFuncIdArg(Function *F,
-                                 std::vector<Argument *> &ArgsList) {
-
-  // Start by computing a new prototype for the function, which is the same as
-  // the old function, but doesn't have isVarArg set.
-  FunctionType *FTy = F->getFunctionType();
-
-  std::vector<Type *> NewArgs;
-  for (unsigned i = 1; i < ArgsList.size(); i++) {
-    NewArgs.push_back(ArgsList[i]->getType());
-  }
-  ArrayRef<llvm::Type *> Params(NewArgs);
-
-  // std::vector<Type *> Params(FTy->param_begin(), FTy->param_end());
-  FunctionType *NFTy = FunctionType::get(FTy->getReturnType(), Params, false);
-  // unsigned NumArgs = Params.size();
-
-  // Create the new function body and insert it into the module...
-  Function *NF = Function::Create(NFTy, F->getLinkage());
-
-  NF->copyAttributesFrom(F);
-
-  if (F->getAlignment())
-    NF->setAlignment(Align(F->getAlignment()));
-  NF->setCallingConv(F->getCallingConv());
-  NF->setLinkage(F->getLinkage());
-  NF->setDSOLocal(F->isDSOLocal());
-  NF->setSubprogram(F->getSubprogram());
-  NF->setUnnamedAddr(F->getUnnamedAddr());
-  NF->setVisibility(F->getVisibility());
-  // Exception Handling requires landing pads to have the same personality
-  // function
-  if (F->hasPersonalityFn())
-    NF->setPersonalityFn(F->getPersonalityFn());
-  if (F->hasComdat())
-    NF->setComdat(F->getComdat());
-  if (F->hasSection())
-    NF->setSection(F->getSection());
-
-  F->getParent()->getFunctionList().insert(F->getIterator(), NF);
-  NF->takeName(F);
-
-  // Since we have now created the new function, splice the body of the old
-  // function right into the new function, leaving the old rotting hulk of the
-  // function empty.
-  NF->getBasicBlockList().splice(NF->begin(), F->getBasicBlockList());
-
-  std::vector<Argument *> NewArgsList;
-  for (Argument &arg : NF->args()) {
-    NewArgsList.push_back(&arg);
-  }
-
-  // Loop over the argument list, transferring uses of the old arguments over to
-  // the new arguments, also transferring over the names as well.  While we're
-  // at it, remove the dead arguments from the DeadArguments list.
-  /*
-  for (Function::arg_iterator I = F->arg_begin(), E = F->arg_end(),
-       I2 = NF->arg_begin(); I != E; ++I, ++I2) {
-    // Move the name and users over to the new version.
-    I->replaceAllUsesWith(&*I2);
-    I2->takeName(&*I);
-  }
-  */
-
-  for (unsigned i = 0; i < NewArgsList.size(); i++) {
-    ArgsList[i + 1]->replaceAllUsesWith(NewArgsList[i]);
-    NewArgsList[i]->takeName(ArgsList[i + 1]);
-  }
-
-  // Clone metadatas from the old function, including debug info descriptor.
-  SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
-  F->getAllMetadata(MDs);
-  for (auto MD : MDs)
-    NF->addMetadata(MD.first, *MD.second);
-
-  // Fix up any BlockAddresses that refer to the function.
-  F->replaceAllUsesWith(ConstantExpr::getBitCast(NF, F->getType()));
-  // Delete the bitcast that we just created, so that NF does not
-  // appear to be address-taken.
-  NF->removeDeadConstantUsers();
-  // Finally, nuke the old function.
-  F->eraseFromParent();
-  return NF;
-}
-
 Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
                           Type *IntPtrTy,
                           const FunctionMergingOptions &Options = {});
@@ -2419,17 +2338,34 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
     ArgsList.push_back(&arg);
   }
   Value *FuncId = ArgsList[0];
-  
+  FuncId->setName("discriminator");
+
   ////TODO: merging attributes might create compilation issues if we are not careful.
   ////Therefore, attributes are not being merged right now.
   //auto AttrList1 = F1->getAttributes();
   //auto AttrList2 = F2->getAttributes();
   //auto AttrListM = MergedFunc->getAttributes();
 
+  auto assignArgName = [&](Argument *MergedArg, Argument *SrcArg) {
+    std::string displayName;
+    if (SrcArg->getName().empty()) {
+      displayName = std::to_string(SrcArg->getArgNo());
+    } else {
+      displayName = SrcArg->getName().str();
+    }
+    if (MergedArg->getName().empty()) {
+      MergedArg->setName("m." + displayName);
+    } else {
+      MergedArg->setName(MergedArg->getName() + Twine(".") + displayName);
+    }
+
+  };
   int ArgId = 0;
   for (auto I = F1->arg_begin(), E = F1->arg_end(); I != E; I++) {
-    VMap[&(*I)] = ArgsList[ParamMap1[ArgId]];
+    Argument *Arg = ArgsList[ParamMap1[ArgId]];
+    VMap[&(*I)] = Arg;
 
+    assignArgName(Arg, I);
     //auto AttrSet1 = AttrList1.getParamAttributes((*I).getArgNo());
     //AttrBuilder Attrs(AttrSet1);
     //AttrListM = AttrListM.addParamAttributes(
@@ -2440,8 +2376,10 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
 
   ArgId = 0;
   for (auto I = F2->arg_begin(), E = F2->arg_end(); I != E; I++) {
-    VMap[&(*I)] = ArgsList[ParamMap2[ArgId]];
+    Argument *Arg = ArgsList[ParamMap2[ArgId]];
+    VMap[&(*I)] = Arg;
 
+    assignArgName(Arg, I);
     //auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
     //AttrBuilder Attrs(AttrSet2);
     //AttrListM = AttrListM.addParamAttributes(
@@ -3214,17 +3152,18 @@ bool FunctionMerging::runImpl(
       RankingDistance = 1.0;
 
   }
-
-  errs() << "Threshold: " << RankingDistance << "\n";
-  errs() << "LSHRows: " << LSHRows << "\n";
-  errs() << "LSHBands: " << LSHBands << "\n";
+  if (Verbose) {
+    errs() << "Threshold: " << RankingDistance << "\n";
+    errs() << "LSHRows: " << LSHRows << "\n";
+    errs() << "LSHBands: " << LSHBands << "\n";
+  }
 
   if (EnableF3M) {
     matcher = std::make_unique<MatcherLSH<Function *>>(FM, Options, LSHRows, LSHBands);
-    errs() << "LSH MH\n";
+    if (Verbose) errs() << "LSH MH\n";
   } else {
     matcher = std::make_unique<MatcherFQ<Function *>>(FM, Options);
-    errs() << "LIN SCAN FP\n";
+    if (Verbose) errs() << "LIN SCAN FP\n";
   }
   
   SearchStrategy strategy(LSHRows, LSHBands);
@@ -3242,9 +3181,10 @@ bool FunctionMerging::runImpl(
   TimePreProcess.stopTimer();
 #endif
 
-  errs() << "Number of Functions: " << matcher->size() << "\n";
   if (MatcherStats) {
+    errs() << "Number of Functions: " << matcher->size() << "\n";
     matcher->print_stats();
+#ifdef TIME_STEPS_DEBUG
     TimeRank.clear();
     TimeCodeGenTotal.clear();
     TimeAlign.clear();
@@ -3259,6 +3199,7 @@ bool FunctionMerging::runImpl(
     TimeUpdate.clear();
     TimePrinting.clear();
     TimeTotal.clear();
+#endif
     return false;
   }
 
@@ -3325,7 +3266,8 @@ bool FunctionMerging::runImpl(
         errs() << "Attempting: " << F1Name << ", " << F2Name << " : " << match.Distance << "\n";
 
       auto &ORE = GORE(*F1);
-      std::string Name = "_m_f_" + std::to_string(TotalMerges);
+      std::string Name =
+          "__fm_merge_" + F1->getName().str() + "_" + F2->getName().str();
       FunctionMergeResult Result = FM.merge(F1, F2, Name, Options);
 #ifdef TIME_STEPS_DEBUG
       TimeCodeGenTotal.stopTimer();
@@ -3375,12 +3317,15 @@ bool FunctionMerging::runImpl(
           match.MergedSize = SizeF12;
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;
 
-          if (match.Profitable) {
+          if (match.Profitable || AllowUnprofitableMerge) {
             ORE.emit([&] {
               auto remark = OptimizationRemark(DEBUG_TYPE, "Merge",
                                                Result.getMergedFunction());
               remark << ore::NV("Function", F1->getName());
               remark << ore::NV("Function", F2->getName());
+              remark << ore::NV("MergedSize", MergedSize);
+              remark << ore::NV("ThunkOverhead", Overhead);
+              remark << ore::NV("OriginalTotalSize", SizeF1F2);
               return remark;
             });
             TotalMerges++;
@@ -3398,6 +3343,7 @@ bool FunctionMerging::runImpl(
             ORE.emit([&] {
               return createMissedRemark("UnprofitableMerge", "", F1, F2)
                      << ore::NV("MergedSize", MergedSize)
+                     << ore::NV("ThunkOverhead", Overhead)
                      << ore::NV("OriginalTotalSize", SizeF1F2);
             });
             Result.getMergedFunction()->eraseFromParent();
@@ -3412,20 +3358,20 @@ bool FunctionMerging::runImpl(
           return createMissedRemark("CodeGen", "Null Merged Function", F1, F2);
         });
       }
+#ifdef TIME_STEPS_DEBUG
       time_iteration_end = std::chrono::steady_clock::now();
 
-#ifdef TIME_STEPS_DEBUG
       TimePrinting.startTimer();
 #endif
 
-      errs() << F1Name << " + " << F2Name << " <= " << Name
-             << " Tries: " << MergingTrialsCount
-             << " Valid: " << match.Valid
-             << " BinSizes: " << match.OtherSize << " + " << match.Size << " <= " << match.MergedSize
-             << " IRSizes: " << match.OtherMagnitude << " + " << match.Magnitude
-             << " Profitable: " << match.Profitable
-             << " Distance: " << match.Distance;
-      if (Verbose)
+      if (Verbose) {
+        errs() << F1Name << " + " << F2Name << " <= " << Name
+               << " Tries: " << MergingTrialsCount
+               << " Valid: " << match.Valid
+               << " BinSizes: " << match.OtherSize << " + " << match.Size << " <= " << match.MergedSize
+               << " IRSizes: " << match.OtherMagnitude << " + " << match.Magnitude
+               << " Profitable: " << match.Profitable
+               << " Distance: " << match.Distance;
         errs() << " OtherDistance: " << OtherDistance;
 #ifdef TIME_STEPS_DEBUG
       using namespace std::chrono_literals;
@@ -3436,7 +3382,8 @@ bool FunctionMerging::runImpl(
              << " VerifyTime: " << (time_verify_end - time_verify_start) / 1us
              << " UpdateTime: " << (time_update_end - time_update_start) / 1us;
 #endif
-      errs() << "\n";
+        errs() << "\n";
+      }
 
 
 #ifdef TIME_STEPS_DEBUG
