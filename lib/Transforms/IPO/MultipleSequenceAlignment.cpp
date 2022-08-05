@@ -4,6 +4,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SequenceAlignment.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -67,7 +68,7 @@ static cl::opt<bool> DisablePostOpt(
 
 namespace {
 
-using TransitionOffset = std::vector<size_t>;
+using TransitionOffset = SmallBitVector;
 struct TransitionEntry {
   TransitionOffset Offset;
   bool Match;
@@ -128,6 +129,18 @@ class MSAligner {
     return false;
   }
 
+  static bool advancePointInShape(SmallBitVector &Point,
+                                  const std::vector<size_t> &Shape) {
+    for (size_t i = 0; i < Point.size(); i++) {
+      if (!Point[i]) {
+        Point[i] = true;
+        return true;
+      }
+      Point[i] = false;
+    }
+    return false;
+  }
+
   MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
             std::vector<size_t> Shape,
             std::vector<SmallVector<Value *, 16>> &InstrVecList)
@@ -173,7 +186,7 @@ void MSAligner::computeBestTransition(
     const std::function<bool(std::vector<size_t> Point)> Match) {
 
   // Build a virtual tensor table for transition scores.
-  // e.g. If the shape is (3, 3), the virtual tensor table is:
+  // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
   //
   //       +-----------+-----------+
   //      / (0, 0, 1) / (0, 1, 1) /|
@@ -194,7 +207,7 @@ void MSAligner::computeBestTransition(
   const std::vector<size_t> TransTableShape(ScoreTable.getShape().size(),
                                             TransScore.size());
   // The current visiting point in the virtual tensor table.
-  std::vector<size_t> TransOffset(ScoreTable.getShape().size(), 0);
+  TransitionOffset TransOffset(ScoreTable.getShape().size(), 0);
 
   auto AddScore = [](int32_t Score, int32_t addend) {
     if (addend > 0 && Score >= INT32_MAX - addend)
@@ -209,15 +222,13 @@ void MSAligner::computeBestTransition(
     if (!ScoreTable.contains(Point, TransOffset))
       continue;
 
-    int32_t similarity =
-        std::accumulate(TransOffset.begin(), TransOffset.end(), 0,
-                        [&](int32_t Acc, size_t Val) {
-                          return AddScore(Acc, TransScore[Val]);
-                        });
+    int32_t similarity = 0;
+    for (unsigned bit : TransOffset.set_bits()) {
+      similarity = AddScore(similarity, TransScore[bit]);
+    }
     bool IsMatched = false;
     // If diagonal transition, add the match score.
-    if (std::all_of(TransOffset.begin(), TransOffset.end(),
-                    [](size_t v) { return v == 1; })) {
+    if (TransOffset.all()) {
       IsMatched = Match(Point);
       similarity =
           IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
@@ -249,7 +260,7 @@ void MSAligner::buildAlignment(
   auto BuildAlignmentEntry = [&](const TransitionEntry &Entry,
                                  std::vector<size_t> Cursor) {
     std::vector<Value *> Instrs;
-    const std::vector<size_t> &TransOffset = Entry.Offset;
+    const TransitionOffset &TransOffset = Entry.Offset;
     for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
       size_t diff = TransOffset[FuncIdx];
       if (diff == 1) {
