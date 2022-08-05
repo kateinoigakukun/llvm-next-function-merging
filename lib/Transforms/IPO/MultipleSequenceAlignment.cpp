@@ -107,7 +107,7 @@ class MSAligner {
   std::vector<size_t> Shape;
 
   std::vector<SmallVector<Value *, 16>> &InstrVecList;
-  TensorTable<Optional<int32_t>> ScoreTable;
+  TensorTable<fmutils::OptionalScore> ScoreTable;
   TensorTable<TransitionEntry> BestTransTable;
 
   void initScoreTable();
@@ -145,7 +145,8 @@ class MSAligner {
             std::vector<size_t> Shape,
             std::vector<SmallVector<Value *, 16>> &InstrVecList)
       : Scoring(Scoring), Functions(Functions), Shape(Shape),
-        InstrVecList(InstrVecList), ScoreTable(Shape, None),
+        InstrVecList(InstrVecList),
+        ScoreTable(Shape, fmutils::OptionalScore::None()),
         BestTransTable(Shape, {}) {
 
     initScoreTable();
@@ -210,10 +211,10 @@ void MSAligner::computeBestTransition(
   TransitionOffset TransOffset(ScoreTable.getShape().size(), 0);
 
   auto AddScore = [](int32_t Score, int32_t addend) {
-    if (addend > 0 && Score >= INT32_MAX - addend)
-      return INT32_MAX;
-    if (addend < 0 && Score <= INT32_MIN - addend)
-      return INT32_MIN;
+    if (addend > 0 && Score >= fmutils::OptionalScore::max() - addend)
+      return fmutils::OptionalScore::max();
+    if (addend < 0 && Score <= fmutils::OptionalScore::min() - addend)
+      return fmutils::OptionalScore::min();
     return Score + addend;
   };
 
@@ -619,6 +620,19 @@ void MSAMergePlan::discard() {
     thunk.discard();
   }
   Merged.eraseFromParent();
+}
+
+MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
+                                     FunctionMerger &PM,
+                                     OptimizationRemarkEmitter &ORE,
+                                     FunctionAnalysisManager &FAM)
+    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
+      Scoring(/*Gap*/ -1, /*Match*/ 2,
+              /*Mismatch*/ fmutils::OptionalScore::min()) {
+  assert(!Functions.empty() && "No functions to merge");
+  M = Functions[0]->getParent();
+  size_t noOfBits = std::ceil(std::log2(Functions.size()));
+  DiscriminatorTy = IntegerType::getIntNTy(M->getContext(), noOfBits);
 }
 
 Optional<MSAMergePlan>
