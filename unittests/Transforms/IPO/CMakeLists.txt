@@ -1,4 +1,5 @@
 add_executable(LLVMNextFMTests
+  FunctionMergingUtilsTests.cpp
   MultipleSequenceAlignmentTests.cpp
   TensorTableTests.cpp)
 
