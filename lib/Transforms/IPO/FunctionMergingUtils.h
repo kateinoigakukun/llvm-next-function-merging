@@ -33,19 +33,22 @@ private:
 
 /// Nullable 31-bit signed integer.
 class OptionalScore {
-  int32_t Value;
-  bool HasValue;
-  OptionalScore() : HasValue(false), Value(0) {}
+  uint32_t Value;
+
+  static const uint32_t HasValueBitMask = 0x00000001;
+
+  OptionalScore() : Value(0) {}
 
 public:
-  OptionalScore(int32_t value) : HasValue(true), Value(value * 2) {
+  OptionalScore(int32_t value)
+      : Value((static_cast<uint32_t>(value << 1)) | HasValueBitMask) {
     assert(value >= min() && value <= max());
   }
   static OptionalScore None() { return OptionalScore(); }
 
-  bool hasValue() const { return HasValue; }
-  operator bool() const { return HasValue; }
-  int32_t operator*() const { return Value / 2; }
+  bool hasValue() const { return Value & HasValueBitMask; }
+  operator bool() const { return hasValue(); }
+  int32_t operator*() const { return static_cast<int32_t>(Value) >> 1; }
 
   static int32_t min() { return INT32_MIN / 2; }
   static int32_t max() { return INT32_MAX / 2; }
