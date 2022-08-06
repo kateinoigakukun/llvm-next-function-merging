@@ -114,7 +114,7 @@ class MSAligner {
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
   void computeBestTransition(
       const std::vector<size_t> &Point,
-      const std::function<bool(std::vector<size_t> Point)> Match);
+      const std::function<bool(std::vector<Optional<size_t>> Indices)> Match);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   static bool advancePointInShape(std::vector<size_t> &Point,
@@ -184,7 +184,7 @@ void MSAligner::initScoreTable() {
 
 void MSAligner::computeBestTransition(
     const std::vector<size_t> &Point,
-    const std::function<bool(std::vector<size_t> Point)> Match) {
+    const std::function<bool(std::vector<Optional<size_t>> Indices)> Match) {
 
   // Build a virtual tensor table for transition scores.
   // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
@@ -224,13 +224,23 @@ void MSAligner::computeBestTransition(
       continue;
 
     int32_t similarity = 0;
-    for (unsigned bit : TransOffset.set_bits()) {
-      similarity = AddScore(similarity, TransScore[bit]);
-    }
     bool IsMatched = false;
-    // If diagonal transition, add the match score.
-    if (TransOffset.all()) {
-      IsMatched = Match(Point);
+
+    // If straight transition, add gap penalty.
+    // If diagonal transition, compute mathcing score.
+    if (TransOffset.count() == 1) {
+      similarity = Scoring.getGapPenalty();
+    } else {
+      // Check if the transitioning direction is matching.
+      std::vector<Optional<size_t>> matchingIndices;
+      for (size_t i = 0; i < Point.size(); i++) {
+        if (TransOffset[i]) {
+          matchingIndices.push_back(Point[i]);
+        } else {
+          matchingIndices.push_back(None);
+        }
+      }
+      IsMatched = Match(matchingIndices);
       similarity =
           IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
     }
@@ -262,7 +272,7 @@ void MSAligner::buildAlignment(
                                  std::vector<size_t> Cursor) {
     std::vector<Value *> Instrs;
     const TransitionOffset &TransOffset = Entry.Offset;
-    for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
+    for (int FuncIdx = 0; FuncIdx < Functions.size(); FuncIdx++) {
       size_t diff = TransOffset[FuncIdx];
       if (diff == 1) {
         Value *I = InstrVecList[FuncIdx][Cursor[FuncIdx] - 1];
@@ -292,7 +302,11 @@ void MSAligner::buildAlignment(
     MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
-    Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
+
+    auto alignmentEntry = BuildAlignmentEntry(Entry, Cursor);
+    alignmentEntry.verify();
+    Alignment.emplace_back(alignmentEntry);
+
     for (size_t dim = 0; dim < MaxDim; dim++) {
       assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
                                            "table!");
@@ -307,14 +321,23 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
   do {
-    computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
-      auto *TheInstr = InstrVecList[0][Point[0]];
-      for (size_t i = 1; i < InstrVecList.size(); i++) {
-        auto *OtherInstr = InstrVecList[i][Point[i]];
-        if (!FunctionMerger::match(OtherInstr, TheInstr)) {
-          return false;
+    computeBestTransition(Cursor, [&](std::vector<Optional<size_t>> Indices) {
+      assert(!Indices.empty() && "empty indices");
+      Value *theInstr = nullptr;
+      for (size_t i = 0; i < Indices.size(); i++) {
+        if (!Indices[i])
+          continue;
+        size_t idx = *Indices[i];
+        if (!theInstr) {
+          theInstr = InstrVecList[i][idx];
+        } else {
+          auto *OtherInstr = InstrVecList[i][idx];
+          if (!FunctionMerger::match(theInstr, OtherInstr)) {
+            return false;
+          }
         }
       }
+      assert(theInstr && "no instruction specified");
       return true;
     });
   } while (advancePointInShape(Cursor, ScoreTable.getShape()));
@@ -372,6 +395,24 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
 
   MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
   Aligner.align(Alignment);
+
+  for (auto &Entry : Alignment) {
+    if (!Entry.match())
+      continue;
+    for (auto *I : Entry.getValues()) {
+      if (I != nullptr)
+        continue;
+      if (ORE) {
+        ORE->emit([&] {
+          auto remark = createMissedRemark(
+              "Alignment", "Unsupported alignment style", Functions);
+          return remark;
+        });
+      }
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -395,11 +436,17 @@ void MSAAlignmentEntry::verify() const {
   if (!match() || Values.empty()) {
     return;
   }
-  bool isBB = isa<BasicBlock>(Values[0]);
-  for (size_t i = 1; i < Values.size(); i++) {
-    if (isBB != isa<BasicBlock>(Values[i])) {
-      llvm_unreachable(
-          "all values must be either basic blocks or instructions");
+  Optional<bool> isBB = None;
+  for (size_t i = 0; i < Values.size(); i++) {
+    if (!Values[i]) {
+      continue;
+    }
+    if (isBB) {
+      if (*isBB != isa<BasicBlock>(Values[i])) {
+        llvm_unreachable("all values must be either basic blocks or null");
+      }
+    } else {
+      isBB = isa<BasicBlock>(Values[i]);
     }
   }
 }
@@ -847,7 +894,6 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
   auto &Alignment = Parent.Alignment;
   for (auto it = Alignment.rbegin(), end = Alignment.rend(); it != end; ++it) {
     auto &Entry = *it;
-    Entry.verify();
     if (!Entry.match()) {
       continue;
     }
