@@ -1692,8 +1692,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       if (auto *PHI = dyn_cast<PHINode>(&I)) {
         auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
-        std::set<int> FoundIndices;
-
         for (auto It = pred_begin(NewPHI->getParent()),
                   E = pred_end(NewPHI->getParent());
              It != E; It++) {
@@ -1706,7 +1704,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
-              FoundIndices.insert(Index);
             }
           }
 
@@ -1718,8 +1715,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
           // IntPtrTy);
           NewPHI->addIncoming(V, NewPredBB);
         }
-        if (FoundIndices.size() != PHI->getNumIncomingValues())
-          return false;
       }
     }
     return true;
