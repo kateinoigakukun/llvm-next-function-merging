@@ -40,4 +40,9 @@ if(BUILD_TESTING)
 
   add_subdirectory(test)
   add_subdirectory(unittests)
+
+  add_custom_target(check
+    USES_TERMINAL
+    COMMAND ctest
+    COMMAND lit test -v)
 endif()
