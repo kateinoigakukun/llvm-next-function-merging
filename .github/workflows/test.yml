@@ -86,13 +86,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
-      with:
-        repository: kateinoigakukun/llvm-size-benchmark-suite
-        ref: ${{ env.LLVM_SIZE_BENCHMARK_SUITE_VERSION }}
     - uses: ./.github/actions/install-llvm-toolchain
       with:
         version: ${{ matrix.llvm-version }}
         os: ${{ matrix.os }}
+    - uses: actions/checkout@v3
+      with:
+        repository: kateinoigakukun/llvm-size-benchmark-suite
+        ref: ${{ env.LLVM_SIZE_BENCHMARK_SUITE_VERSION }}
     - uses: actions/download-artifact@v3
       with:
         name: benchmark-suite-tarball
