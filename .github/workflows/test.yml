@@ -1,38 +1,89 @@
 name: Tests
 on: [push]
+env:
+  LLVM_SIZE_BENCHMARK_SUITE_VERSION: f4eb88101783494060b7dbae0ec0a8845d666ec1
 jobs:
   build-and-test:
     strategy:
       fail-fast: true
       matrix:
-        llvm:
-        - version: 13
-          apt-source: "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main"
-          packages: llvm-13 llvm-13-dev llvm-13-tools clang-13
-          root: /usr/lib/llvm-13
-          build-os: ubuntu-20.04
-      # TODO: Enable after LLVM 14 support
-      # - version: 14
-      #   apt-source: "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main"
-      #   packages: llvm-14 llvm-14-dev llvm-14-tools clang-14
-      #   root: /usr/lib/llvm-14
-      #   build-os: ubuntu-20.04
-        task: [check]
-    name: Build and Test with LLVM ${{ matrix.llvm.version }} (${{ matrix.llvm.build-os }})
-    runs-on: ${{ matrix.llvm.build-os }}
+        # TODO: Enable after LLVM 14 support
+        llvm-version: [13]
+        os: [ubuntu-20.04]
+    name: Build and Test with LLVM ${{ matrix.llvm-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - run: sudo apt-get install -y ninja-build
     - run: sudo pip3 install lit
-    - name: Install LLVM ${{ matrix.llvm.version }}
-      run: |
-        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        sudo apt-add-repository "${{ matrix.llvm.apt-source }}"
-        sudo apt-get update
-        sudo apt-get install -y ${{ matrix.llvm.packages }}
-        echo "${{ matrix.llvm.root }}/bin" >> $GITHUB_PATH
+    - uses: ./.github/actions/install-llvm-toolchain
+      with:
+        version: ${{ matrix.llvm-version }}
+        os: ${{ matrix.os }}
 
-    - run: cmake -B build -G Ninja -DBUILD_TESTING:BOOL=ON -DLLVM_DIR:PATH="${{ matrix.llvm.root }}/lib/cmake/llvm"
+    - run: cmake -B build -G Ninja -DBUILD_TESTING:BOOL=ON -DLLVM_DIR:PATH="$LLVM_ROOT/lib/cmake/llvm"
     - run: cmake --build ./build
-    - run: cmake --build ./build --target "${{ matrix.task }}"
+    - run: DESTDIR=./install cmake --install ./build
+    - uses: actions/upload-artifact@v3
+      with:
+        name: LLVMNextFM-${{ matrix.llvm-version }}-${{ matrix.os }}
+        path: ./install/usr
+    - run: cmake --build ./build --target check
 
+  build-benchmark-suite:
+    name: Build Benchmark Suite
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        repository: kateinoigakukun/llvm-size-benchmark-suite
+        ref: ${{ env.LLVM_SIZE_BENCHMARK_SUITE_VERSION }}
+    - uses: bazelbuild/setup-bazelisk@v2
+    - uses: actions/cache@v3
+      with:
+        path: "~/.cache/bazel"
+        key: bazel-v1
+    - run: sudo apt-get install -y libelf-dev
+    - run: bazel build //:bitcode_tar
+    - uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-suite-tarball
+        path: bazel-bin/bitcode_tar.tar
+
+  run-benchmark-suite:
+    name: Run Benchmark Suite
+    strategy:
+      fail-fast: true
+      matrix:
+        driver-args:
+        - -Xopt=--passes=multiple-func-merging,default<Oz> -Xopt=--func-merging-explore=4
+        # TODO: Enable after LLVM 14 support
+        llvm-version: [13]
+        os: [ubuntu-20.04]
+    needs: [build-and-test, build-benchmark-suite]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        repository: kateinoigakukun/llvm-size-benchmark-suite
+        ref: ${{ env.LLVM_SIZE_BENCHMARK_SUITE_VERSION }}
+    - uses: ./.github/actions/install-llvm-toolchain
+      with:
+        version: ${{ matrix.llvm-version }}
+        os: ${{ matrix.os }}
+    - uses: actions/download-artifact@v3
+      with:
+        name: benchmark-suite-tarball
+    - uses: actions/download-artifact@v3
+      with:
+        name: LLVMNextFM-${{ matrix.llvm-version }}-${{ matrix.os }}
+    - run: tar xf benchmark-suite-tarball/bitcode_tar.tar
+    - run: |
+        ./utils/bmark_driver/main.py \
+          --llctool=$LLVM_ROOT/bin/llc \
+          --opttool=$LLVM_ROOT/bin/opt \
+          --ldtool=$LLVM_ROOT/bin/clang \
+          --pass-plugin="LLVMNextFM/usr/lib/LLVMNextFM.so" \
+          --suite-path ./benchmark-suite-tarball/benchmarks/mibench \
+          --paralell --reporter markdown \
+          ${{ matrix.driver-args }} >> $GITHUB_STEP_SUMMARY
