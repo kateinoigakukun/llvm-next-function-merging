@@ -1932,10 +1932,6 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
   if (F.isDeclaration() || F.hasAvailableExternallyLinkage()) {
     return false;
   }
-  if (OnlyFunctions.size() > 0) {
-    return std::find(OnlyFunctions.begin(), OnlyFunctions.end(), F.getName()) !=
-           OnlyFunctions.end();
-  }
   return true;
 }
 
@@ -1950,6 +1946,26 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
   std::unique_ptr<Matcher<Function *>> MatchFinder =
       createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
+
+  if (!OnlyFunctions.empty()) {
+    std::vector<Function *> Functions;
+    for (auto &FuncName : OnlyFunctions) {
+      auto *F = M.getFunction(FuncName);
+      if (!F) {
+        errs() << "Function " << FuncName << " not found\n";
+        continue;
+      }
+      Functions.push_back(F);
+    }
+    auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+    MSAStats Stats;
+    auto maybePlan = FM.planMerge(Stats, Options);
+    if (auto plan = maybePlan) {
+      auto &Merged = plan->applyMerge(FAM, ORE);
+    }
+    return PreservedAnalyses::none();
+  }
 
   size_t count = 0;
   for (auto &F : M) {
