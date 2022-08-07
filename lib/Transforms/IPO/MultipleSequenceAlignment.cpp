@@ -798,6 +798,34 @@ public:
 
 }; // namespace llvm
 
+static bool hasLocalValueInMetadata(Metadata *MD) {
+  if (auto *LMD = dyn_cast<LocalAsMetadata>(MD)) {
+    auto *V = LMD->getValue();
+    if (auto *MDV = dyn_cast<MetadataAsValue>(V)) {
+      return hasLocalValueInMetadata(MDV->getMetadata());
+    }
+    return true;
+  } else {
+    return false;
+  }
+}
+
+/// Return true if the value can be updated after merging operands.
+/// Otherwise, the value is a constant or a global value.
+static bool isLocalValue(Value *V) {
+  if (isa<Constant>(V)) {
+    return false;
+  }
+  // TODO(katei): Should we merge metadata as well?
+  if (auto *MDV = dyn_cast<MetadataAsValue>(V)) {
+    // if metadata holds an inner value, clear it.
+    if (!hasLocalValueInMetadata(MDV->getMetadata())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
                                                   Instruction *I) {
   Instruction *NewI = nullptr;
@@ -813,9 +841,7 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
     Builder.Insert(NewI);
     for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
       auto Op = I->getOperand(i);
-      // Use cloned operands for constant and metadata.
-      // TODO(katei): Should we merge metadata as well?
-      if (!isa<Constant>(Op) && !isa<MetadataAsValue>(Op)) {
+      if (isLocalValue(Op)) {
         NewI->setOperand(i, nullptr);
       }
     }
@@ -1368,11 +1394,10 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
         continue;
       // Metadata or constant operands should be cloned correctly by
       // cloneInstruction
-      if (isa<MetadataAsValue>(SrcI->getOperand(i)) ||
-          isa<Constant>(SrcI->getOperand(i)))
+      if (!isLocalValue(SrcI->getOperand(i)))
         continue;
 
-      Value *V = VMap[SrcI->getOperand(i)];
+      Value *V = MapValue(SrcI->getOperand(i), VMap);
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
