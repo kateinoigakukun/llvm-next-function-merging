@@ -62,7 +62,7 @@ jobs:
         path: "~/.cache/bazel"
         key: bazel-v1
     - run: sudo apt-get install -y libelf-dev
-    - run: bazel build //:bitcode_tar
+    - run: bazel build //:bitcode_tar --verbose_failures --subcommands
     - uses: actions/upload-artifact@v3
       with:
         name: benchmark-suite-tarball
