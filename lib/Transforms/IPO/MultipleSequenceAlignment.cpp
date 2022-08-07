@@ -831,18 +831,18 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
     }
   } else {
     NewI = I->clone();
-    for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
-      if (!isa<Constant>(I->getOperand(i)))
-        NewI->setOperand(i, nullptr);
-    }
     Builder.Insert(NewI);
+    for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
+      auto Op = I->getOperand(i);
+      // Use cloned operands for constant and metadata.
+      // TODO(katei): Should we merge metadata as well?
+      if (!isa<Constant>(Op) && !isa<MetadataAsValue>(Op)) {
+        NewI->setOperand(i, nullptr);
+      }
+    }
   }
 
-  SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
-  NewI->getAllMetadata(MDs);
-  for (std::pair<unsigned, MDNode *> MDPair : MDs) {
-    NewI->setMetadata(MDPair.first, nullptr);
-  }
+  NewI->copyMetadata(*I);
 
   NewI->setName(I->getName());
   return NewI;
@@ -1372,8 +1372,13 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
       // BB operands should be handled separately by assignLabelOperands
       if (isa<BasicBlock>(SrcI->getOperand(i)))
         continue;
+      // Metadata or constant operands should be cloned correctly by
+      // cloneInstruction
+      if (isa<MetadataAsValue>(SrcI->getOperand(i)) ||
+          isa<Constant>(SrcI->getOperand(i)))
+        continue;
 
-      Value *V = MapValue(SrcI->getOperand(i), VMap);
+      Value *V = VMap[SrcI->getOperand(i)];
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
