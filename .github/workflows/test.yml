@@ -64,10 +64,13 @@ jobs:
     # FIXME: Need to install tools required for building Linux build tools
     - run: sudo apt-get install -y libelf-dev llvm clang lld
     - run: bazel build //:bitcode_tar --verbose_failures --subcommands
+    # WORKAROUND: Copy out from symlinked directory to avoid upload-artifact issue
+    # https://github.com/actions/upload-artifact/issues/92
+    - run: cp bazel-bin/bitcode_tar.tar bitcode_tar.tar
     - uses: actions/upload-artifact@v3
       with:
         name: benchmark-suite-tarball
-        path: bazel-bin/bitcode_tar.tar
+        path: bitcode_tar.tar
 
   run-benchmark-suite:
     name: Run Benchmark Suite
