@@ -2023,6 +2023,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     MSAStats Stats;
     auto maybePlan = FM.planMerge(Stats, Options);
     if (auto plan = maybePlan) {
+      auto score = plan->computeScore(FAM);
+      score.emitPassedRemark(*plan, ORE);
       auto &Merged = plan->applyMerge(FAM, ORE);
     }
     return PreservedAnalyses::none();
