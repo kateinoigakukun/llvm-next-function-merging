@@ -153,7 +153,9 @@ public:
                  const ArrayRef<Function *> &Functions,
                  IntegerType *DiscriminatorTy, OptimizationRemarkEmitter &ORE)
       : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),
-        DiscriminatorTy(DiscriminatorTy), Builder(C), ORE(ORE){};
+        DiscriminatorTy(DiscriminatorTy), Builder(C), ORE(ORE) {
+    assert(Functions.size() >= 2 && "At least two functions are required");
+  };
 
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;
