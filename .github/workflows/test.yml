@@ -78,7 +78,7 @@ jobs:
       fail-fast: true
       matrix:
         driver-args:
-        - -Xopt=--passes=multiple-func-merging,default<Oz> -Xopt=--func-merging-explore=4
+        - "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=4'"
         # TODO: Enable after LLVM 14 support
         llvm-version: [13]
         os: [ubuntu-20.04]
