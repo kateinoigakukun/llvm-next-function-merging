@@ -97,16 +97,18 @@ jobs:
     - uses: actions/download-artifact@v3
       with:
         name: benchmark-suite-tarball
+        path: ./artifacts
     - uses: actions/download-artifact@v3
       with:
         name: LLVMNextFM-${{ matrix.llvm-version }}-${{ matrix.os }}
-    - run: tar xf benchmark-suite-tarball/bitcode_tar.tar
+        path: ./artifacts
+    - run: tar xf artifacts/bitcode_tar.tar -C ./artifacts
     - run: |
         ./utils/bmark_driver/main.py \
           --llctool=$LLVM_ROOT/bin/llc \
           --opttool=$LLVM_ROOT/bin/opt \
           --ldtool=$LLVM_ROOT/bin/clang \
-          --pass-plugin="LLVMNextFM/usr/lib/LLVMNextFM.so" \
-          --suite-path ./benchmark-suite-tarball/benchmarks/mibench \
+          --pass-plugin="artifacts/usr/local/lib/LLVMNextFM.so" \
+          --suite-path ./artifacts/benchmarks/mibench \
           --paralell --reporter markdown \
           ${{ matrix.driver-args }} >> $GITHUB_STEP_SUMMARY
