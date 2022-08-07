@@ -3,6 +3,30 @@ on: [push]
 env:
   LLVM_SIZE_BENCHMARK_SUITE_VERSION: f4eb88101783494060b7dbae0ec0a8845d666ec1
 jobs:
+  build-plugin:
+    strategy:
+      fail-fast: true
+      matrix:
+        # TODO: Enable after LLVM 14 support
+        llvm-version: [13]
+        os: [ubuntu-20.04]
+    name: Build plugin library with LLVM ${{ matrix.llvm-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v3
+    - run: sudo apt-get install -y ninja-build
+    - uses: ./.github/actions/install-llvm-toolchain
+      with:
+        version: ${{ matrix.llvm-version }}
+        os: ${{ matrix.os }}
+    - run: cmake -B build -G Ninja -DLLVM_DIR:PATH="$LLVM_ROOT/lib/cmake/llvm"
+    - run: cmake --build ./build
+    - run: DESTDIR=./install cmake --install ./build
+    - uses: actions/upload-artifact@v3
+      with:
+        name: LLVMNextFM-${{ matrix.llvm-version }}-${{ matrix.os }}
+        path: ./install
+
   build-and-test:
     strategy:
       fail-fast: true
@@ -20,14 +44,8 @@ jobs:
       with:
         version: ${{ matrix.llvm-version }}
         os: ${{ matrix.os }}
-
     - run: cmake -B build -G Ninja -DBUILD_TESTING:BOOL=ON -DLLVM_DIR:PATH="$LLVM_ROOT/lib/cmake/llvm"
     - run: cmake --build ./build
-    - run: DESTDIR=./install cmake --install ./build
-    - uses: actions/upload-artifact@v3
-      with:
-        name: LLVMNextFM-${{ matrix.llvm-version }}-${{ matrix.os }}
-        path: ./install/usr
     - run: cmake --build ./build --target check
 
   build-benchmark-suite:
@@ -60,7 +78,7 @@ jobs:
         # TODO: Enable after LLVM 14 support
         llvm-version: [13]
         os: [ubuntu-20.04]
-    needs: [build-and-test, build-benchmark-suite]
+    needs: [build-plugin, build-benchmark-suite]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
