@@ -14,6 +14,8 @@ void SwitchChainer::chainBlocks(BasicBlock *SrcBB, BasicBlock *TargetBB,
 
 void SwitchChainer::finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
   assert(!Chain.empty() && "Chain should have at least one dest!");
+  assert(SrcBB->getTerminator() == nullptr &&
+         "SrcBB should have no terminator yet!");
 
   bool singleTarget =
       std::all_of(Chain.begin(), Chain.end(),

@@ -726,7 +726,6 @@ public:
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
-  void chainEntryBlock();
 
   bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
   bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
@@ -1010,18 +1009,10 @@ void MSAGenFunctionBody::chainBasicBlocks() {
     for (auto &BB : *F) {
       ProcessBasicBlock(&BB, MergedBBToBB[i], i);
     }
+    auto *MergedEntryV = MapValue(&F->getEntryBlock(), VMap);
+    chainer.chainBlocks(EntryBB, dyn_cast<BasicBlock>(MergedEntryV), i);
   }
   chainer.finalize();
-}
-
-void MSAGenFunctionBody::chainEntryBlock() {
-  auto *MergedEntryV = MapValue(&Parent.Functions[0]->getEntryBlock(), VMap);
-  assert(MergedEntryV && "Entry block not found! This method should be called "
-                         "after chainBasicBlocks()");
-  auto *MergedEntryBB = dyn_cast<BasicBlock>(MergedEntryV);
-  assert(MergedEntryBB && "Merged entry block should be a basic block!");
-  IRBuilder<> Builder(EntryBB);
-  Builder.CreateBr(MergedEntryBB);
 }
 
 Instruction *
@@ -1748,7 +1739,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
 bool MSAGenFunctionBody::emit() {
   layoutSharedBasicBlocks();
   chainBasicBlocks();
-  chainEntryBlock();
   if (!assignOperands()) {
     return false;
   }
