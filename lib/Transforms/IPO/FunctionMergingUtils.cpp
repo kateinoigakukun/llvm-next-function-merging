@@ -43,13 +43,19 @@ void SwitchChainer::finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain) {
     if (Chain[0].first == 0 && Chain[1].first != 0) {
       TrueBB = Chain[1].second;
       FalseBB = Chain[0].second;
-    } else if (Chain[0].first != 0 && Chain[1].first != 1) {
+    } else if (Chain[0].first != 0 && Chain[1].first == 0) {
       TrueBB = Chain[0].second;
       FalseBB = Chain[1].second;
     } else {
       return false;
     }
-    Builder.CreateCondBr(Discriminator, TrueBB, FalseBB);
+    Value *Cond = Discriminator;
+    if (!Discriminator->getType()->isIntegerTy(1)) {
+      // Is discriminator not zero?
+      Cond = Builder.CreateICmpNE(
+          Discriminator, ConstantInt::get(Discriminator->getType(), 0));
+    }
+    Builder.CreateCondBr(Cond, TrueBB, FalseBB);
     return true;
   };
 

@@ -396,23 +396,6 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
   MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
   Aligner.align(Alignment);
 
-  for (auto &Entry : Alignment) {
-    if (!Entry.match())
-      continue;
-    for (auto *I : Entry.getValues()) {
-      if (I != nullptr)
-        continue;
-      if (ORE) {
-        ORE->emit([&] {
-          auto remark = createMissedRemark(
-              "Alignment", "Unsupported alignment style", Functions);
-          return remark;
-        });
-      }
-      return false;
-    }
-  }
-
   return true;
 }
 
@@ -430,6 +413,14 @@ bool MSAAlignmentEntry::collectInstructions(
     }
   }
   return allInstructions;
+}
+
+Value *MSAAlignmentEntry::firstValidValue() const {
+  for (auto *V : Values) {
+    if (V)
+      return V;
+  }
+  llvm_unreachable("no valid value!?");
 }
 
 void MSAAlignmentEntry::verify() const {
@@ -898,7 +889,7 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
       continue;
     }
 
-    auto *HeadV = Entry.getValues().front();
+    auto *HeadV = Entry.firstValidValue();
     Twine BBName = [&]() {
       if (auto *BB = dyn_cast<BasicBlock>(HeadV)) {
         return "m.bb." + BB->getName();
@@ -928,6 +919,9 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
       auto Vs = Entry.getValues();
       for (size_t i = 0, e = Vs.size(); i < e; ++i) {
+        // value could be nullptr if some of the instructions are matched
+        if (!Vs[i])
+          continue;
         auto *BB = dyn_cast<BasicBlock>(Vs[i]);
         VMap[BB] = MergedBB;
 

@@ -24,6 +24,7 @@ public:
   /// Collect all instructions from the values.
   /// Returns true if all values are instructions. Otherwise returns false.
   bool collectInstructions(std::vector<Instruction *> &Instructions) const;
+  Value *firstValidValue() const;
   void verify() const;
   void print(raw_ostream &OS) const;
   void dump() const { print(dbgs()); }
