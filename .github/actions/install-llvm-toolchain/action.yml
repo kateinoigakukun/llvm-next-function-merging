@@ -1,0 +1,21 @@
+inputs:
+  version:
+    type: string
+    required: true
+  os:
+    type: string
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install LLVM ${{ inputs.version }}
+      if: ${{ inputs.os == 'ubuntu-20.04' }}
+      shell: bash
+      run: |
+        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        sudo apt-add-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-${{ inputs.version }} main"
+        sudo apt-get update
+        sudo apt-get install -y llvm-${{ inputs.version }} llvm-${{ inputs.version }}-dev llvm-${{ inputs.version }}-tools clang-${{ inputs.version }}
+        echo "/usr/lib/llvm-${{ inputs.version }}/bin" >> $GITHUB_PATH
+        echo "LLVM_ROOT=/usr/lib/llvm-${{ inputs.version }}" >> $GITHUB_ENV
