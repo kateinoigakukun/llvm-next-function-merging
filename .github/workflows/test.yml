@@ -61,7 +61,8 @@ jobs:
       with:
         path: "~/.cache/bazel"
         key: bazel-v1
-    - run: sudo apt-get install -y libelf-dev
+    # FIXME: Need to install tools required for building Linux build tools
+    - run: sudo apt-get install -y libelf-dev llvm clang lld
     - run: bazel build //:bitcode_tar --verbose_failures --subcommands
     - uses: actions/upload-artifact@v3
       with:
