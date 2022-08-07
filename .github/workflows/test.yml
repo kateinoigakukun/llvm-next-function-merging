@@ -19,7 +19,7 @@ jobs:
       with:
         version: ${{ matrix.llvm-version }}
         os: ${{ matrix.os }}
-    - run: cmake -B build -G Ninja -DLLVM_DIR:PATH="$LLVM_ROOT/lib/cmake/llvm"
+    - run: cmake -B build -G Ninja -DLLVM_DIR:PATH="$LLVM_ROOT/lib/cmake/llvm" -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo
     - run: cmake --build ./build
     - run: DESTDIR=./install cmake --install ./build
     - uses: actions/upload-artifact@v3
@@ -73,16 +73,21 @@ jobs:
         path: bitcode_tar.tar
 
   run-benchmark-suite:
-    name: Run Benchmark Suite
     strategy:
       fail-fast: true
       matrix:
-        driver-args:
-        - "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=4'"
+        driver-options:
+        - name: Multiple Function Merging (limiting 4 functions)
+          args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=3'"
+        - name: Multiple Function Merging (limiting 3 functions)
+          args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=2'"
+        - name: Function Merging (2 functions)
+          args: "'-Xopt=--passes=func-merging,default<Oz>'"
         # TODO: Enable after LLVM 14 support
         llvm-version: [13]
         os: [ubuntu-20.04]
     needs: [build-plugin, build-benchmark-suite]
+    name: Run Benchmark Suite (${{ matrix.driver-options.name }})
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
@@ -104,6 +109,7 @@ jobs:
         path: ./artifacts
     - run: tar xf artifacts/bitcode_tar.tar -C ./artifacts
     - run: |
+        echo "## ${{ matrix.driver-options.name }}" >> $GITHUB_STEP_SUMMARY
         ./utils/bmark_driver/main.py \
           --llctool=$LLVM_ROOT/bin/llc \
           --opttool=$LLVM_ROOT/bin/opt \
@@ -111,4 +117,4 @@ jobs:
           --pass-plugin="artifacts/usr/local/lib/LLVMNextFM.so" \
           --suite-path ./artifacts/benchmarks/mibench \
           --paralell --reporter markdown \
-          ${{ matrix.driver-args }} >> $GITHUB_STEP_SUMMARY
+          ${{ matrix.driver-options.args }} >> $GITHUB_STEP_SUMMARY
