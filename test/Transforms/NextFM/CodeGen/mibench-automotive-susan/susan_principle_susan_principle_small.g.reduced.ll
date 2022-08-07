@@ -19,7 +19,8 @@ define i32 @susan_principle_small() !dbg !21 {
 }
 
 define i32 @susan_edges() !dbg !25 {
-  call void @llvm.dbg.declare(metadata i8** undef, metadata !28, metadata !DIExpression()), !dbg !29
+  %1 = alloca i8*, align 8
+  call void @llvm.dbg.declare(metadata i8** %1, metadata !28, metadata !DIExpression()), !dbg !29
   ret i32 undef
 }
 
