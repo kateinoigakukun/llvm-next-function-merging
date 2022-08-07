@@ -305,6 +305,7 @@ void MSAligner::buildAlignment(
 
     auto alignmentEntry = BuildAlignmentEntry(Entry, Cursor);
     alignmentEntry.verify();
+    MSA_VERBOSE(dbgs() << "Alignment: "; alignmentEntry.print(dbgs()));
     Alignment.emplace_back(alignmentEntry);
 
     for (size_t dim = 0; dim < MaxDim; dim++) {
