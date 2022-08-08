@@ -83,6 +83,7 @@ jobs:
           args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=2'"
         - name: Function Merging (2 functions)
           args: "'-Xopt=--passes=func-merging,default<Oz>'"
+        enable-test: [true, false]
         # TODO: Enable after LLVM 14 support
         llvm-version: [13]
         os: [ubuntu-20.04]
@@ -108,13 +109,19 @@ jobs:
         name: LLVMNextFM-${{ matrix.llvm-version }}-${{ matrix.os }}
         path: ./artifacts
     - run: tar xf artifacts/bitcode_tar.tar -C ./artifacts
-    - run: |
-        echo "## ${{ matrix.driver-options.name }}" >> $GITHUB_STEP_SUMMARY
+    - name: Run benchmark suite
+      run: |
         ./utils/bmark_driver/main.py \
           --llctool=$LLVM_ROOT/bin/llc \
           --opttool=$LLVM_ROOT/bin/opt \
           --ldtool=$LLVM_ROOT/bin/clang \
           --pass-plugin="artifacts/usr/local/lib/LLVMNextFM.so" \
-          --suite-path ./artifacts/benchmarks/mibench \
+          --suite-path="./artifacts/benchmarks/mibench" \
           --paralell --reporter markdown \
-          ${{ matrix.driver-options.args }} >> $GITHUB_STEP_SUMMARY
+          ${{ matrix.driver-options.args }} \
+          ${{ matrix.enable-test && '--test' || '' }} | tee ./artifacts/benchmark-result.md
+    - name: Report benchmark result
+      if: ${{ !matrix.enable-test }}
+      run: |
+        echo "## ${{ matrix.driver-options.name }}" >> $GITHUB_STEP_SUMMARY
+        cat ./artifacts/benchmark-result.md >> $GITHUB_STEP_SUMMARY
