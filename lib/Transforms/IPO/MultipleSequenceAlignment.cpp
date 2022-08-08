@@ -2074,7 +2074,6 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   while (MatchFinder->size() > 0) {
     Function *F1 = MatchFinder->next_candidate();
     auto &Rank = MatchFinder->get_matches(F1);
-    MatchFinder->remove_candidate(F1);
 
     SmallVector<Function *, 16> Functions{F1};
     for (auto &Match : Rank) {
@@ -2151,8 +2150,6 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
       auto &Merged = plan.applyMerge(FAM, ORE);
       for (auto *F : plan.getFunctions()) {
-        if (F == F1)
-          continue;
         MatchFinder->remove_candidate(F);
       }
     }
