@@ -274,6 +274,17 @@ unsigned long long getTotalSystemMemory() {
 }
 #endif
 
+static OptimizationRemarkMissed createMissedRemark(StringRef RemarkName,
+                                                   StringRef Reason,
+                                                   Function *F1, Function *F2) {
+  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, F1);
+  if (!Reason.empty())
+    remark << ore::NV("Reason", Reason);
+  remark << ore::NV("Function", F1);
+  remark << ore::NV("Function", F2);
+  return remark;
+}
+
 class FunctionMerging {
 public:
   bool runImpl(Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
@@ -285,7 +296,7 @@ FunctionMergeResult MergeFunctions(Function *F1, Function *F2,
   if (F1->getParent() != F2->getParent())
     return FunctionMergeResult(F1, F2, nullptr);
   FunctionMerger Merger(F1->getParent());
-  return Merger.merge(F1, F2, "", Options);
+  return Merger.merge(F1, F2, "", nullptr, Options);
 }
 
 static bool CmpNumbers(uint64_t L, uint64_t R) { return L == R; }
@@ -2168,7 +2179,8 @@ public:
                << "F2: " << it2 - candidates.cbegin() << " "
                << "FQ: " << static_cast<int>(distance_fq) << " "
                << "MH: " << distance_mh_str << "\n";
-        FunctionMergeResult Result = FM.merge(it1->candidate, it2->candidate, Name, Options);
+        FunctionMergeResult Result =
+            FM.merge(it1->candidate, it2->candidate, Name, nullptr, Options);
       }
     }
   }
@@ -2263,13 +2275,20 @@ bool FunctionMerger::isPAProfitable(BasicBlock *BB1, BasicBlock *BB2){
 }
 
 FunctionMergeResult
-FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const FunctionMergingOptions &Options) {
+FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
+                      OptimizationRemarkEmitter *ORE,
+                      const FunctionMergingOptions &Options) {
   bool ProfitableFn = true;
   LLVMContext &Context = *ContextPtr;
   FunctionMergeResult ErrorResponse(F1, F2, nullptr);
 
-  if (!validMergePair(F1, F2))
+  if (!validMergePair(F1, F2)) {
+    if (ORE) {
+      ORE->emit(
+          [&]() { return createMissedRemark("InvalidMergePair", "", F1, F2); });
+    }
     return ErrorResponse;
+  }
 
 #ifdef TIME_STEPS_DEBUG
   TimeAlign.startTimer();
@@ -2296,6 +2315,10 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
   if (!ProfitableFn && !ReportStats) {
     if (Verbose)
       errs() << "Skipped: Not profitable enough!!\n";
+    if (ORE) {
+      ORE->emit(
+          [&]() { return createMissedRemark("NotProfitable", "", F1, F2); });
+    }
     return ErrorResponse;
   }
 
@@ -2341,6 +2364,10 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
 #ifdef TIME_STEPS_DEBUG
     TimeParam.stopTimer();
 #endif
+    if (ORE) {
+      ORE->emit(
+          [&]() { return createMissedRemark("InvalidTypePair", "", F1, F2); });
+    }
     return ErrorResponse;
   }
   FunctionType *FTy =
@@ -2448,6 +2475,11 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name, const Functi
       MergedFunc = nullptr;
       if (Debug)
         errs() << "ERROR: Failed to generate the merged function!\n";
+
+      if (ORE) {
+        ORE->emit(
+            [&]() { return createMissedRemark("SALSSACodeGen", "", F1, F2); });
+      }
     }
   };
 
@@ -3079,17 +3111,6 @@ bool ignoreFunction(Function &F) {
   return false;
 }
 
-static OptimizationRemarkMissed createMissedRemark(StringRef RemarkName,
-                                                   StringRef Reason,
-                                                   Function *F1, Function *F2) {
-  auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, F1);
-  if (!Reason.empty())
-    remark << ore::NV("Reason", Reason);
-  remark << ore::NV("Function", F1);
-  remark << ore::NV("Function", F2);
-  return remark;
-}
-
 bool FunctionMerging::runImpl(
     Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
     function_ref<OptimizationRemarkEmitter &(Function &)> GORE) {
@@ -3311,7 +3332,7 @@ bool FunctionMerging::runImpl(
       auto &ORE = GORE(*F1);
       std::string Name =
           "__fm_merge_" + F1->getName().str() + "_" + F2->getName().str();
-      FunctionMergeResult Result = FM.merge(F1, F2, Name, Options);
+      FunctionMergeResult Result = FM.merge(F1, F2, Name, &ORE, Options);
 #ifdef TIME_STEPS_DEBUG
       TimeCodeGenTotal.stopTimer();
       time_codegen_end = std::chrono::steady_clock::now();
