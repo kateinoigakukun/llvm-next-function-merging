@@ -1,6 +1,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_SALSSACODEGEN_H
 #define LLVM_TRANSFORMS_IPO_SALSSACODEGEN_H
 
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 
 namespace llvm {
@@ -71,6 +72,7 @@ public:
                        const FunctionMergingOptions &Options = {});
 
   FunctionMergeResult merge(Function *F1, Function *F2, std::string Name = "",
+                            OptimizationRemarkEmitter *ORE = nullptr,
                             const FunctionMergingOptions &Options = {});
 
   template <typename BlockListType> class CodeGenerator {
