@@ -1,7 +1,7 @@
 name: Tests
 on: [push]
 env:
-  LLVM_SIZE_BENCHMARK_SUITE_VERSION: c0a4ee7eded3e9d95a3c440d735456b1f92cb1ed
+  LLVM_SIZE_BENCHMARK_SUITE_VERSION: 2c3d946d78591810a975a036b820739127faf1a3
 jobs:
   build-plugin:
     strategy:
