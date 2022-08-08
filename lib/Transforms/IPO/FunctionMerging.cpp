@@ -142,6 +142,10 @@
 
 using namespace llvm;
 
+static cl::list<std::string>
+    OnlyFunctions("func-merging-only", cl::Hidden,
+                  cl::desc("Merge only the specified functions"));
+
 static cl::opt<unsigned> ExplorationThreshold(
     "func-merging-explore", cl::init(1), cl::Hidden,
     cl::desc("Exploration threshold of evaluated functions"));
@@ -1856,6 +1860,32 @@ private:
   }
 };
 
+class MatcherManual : public Matcher<Function *> {
+  std::vector<Function *> Functions;
+  std::vector<MatchInfo<Function *>> matches;
+  bool consumed = false;
+
+public:
+  MatcherManual(std::vector<Function *> Functions)
+      : Matcher<Function *>(), Functions(Functions), matches() {
+    assert(Functions.size() > 0);
+    for (size_t i = 1; i < Functions.size(); i++) {
+      auto *F = Functions[i];
+      matches.push_back(MatchInfo<Function *>(F));
+    }
+  }
+  virtual ~MatcherManual() = default;
+  void add_candidate(Function *candidate, size_t size) override {}
+  void remove_candidate(Function *candidate) override {}
+  Function *next_candidate() override { return this->Functions[0]; }
+  std::vector<MatchInfo<Function *>> &
+  get_matches(Function *candidate) override {
+    return matches;
+  }
+  size_t size() override { return consumed ? 0 : 1; }
+  void print_stats() override {}
+};
+
 template <class T> class MatcherLSH : public Matcher<T> {
 private:
   struct MatcherEntry {
@@ -3158,14 +3188,26 @@ bool FunctionMerging::runImpl(
     errs() << "LSHBands: " << LSHBands << "\n";
   }
 
-  if (EnableF3M) {
+  if (!OnlyFunctions.empty()) {
+    std::vector<Function *> functions;
+    std::vector<Function *> Functions;
+    for (auto &FuncName : OnlyFunctions) {
+      auto *F = M.getFunction(FuncName);
+      if (!F) {
+        errs() << "Function " << FuncName << " not found\n";
+        continue;
+      }
+      Functions.push_back(F);
+    }
+    matcher = std::make_unique<MatcherManual>(Functions);
+  } else if (EnableF3M) {
     matcher = std::make_unique<MatcherLSH<Function *>>(FM, Options, LSHRows, LSHBands);
     if (Verbose) errs() << "LSH MH\n";
   } else {
     matcher = std::make_unique<MatcherFQ<Function *>>(FM, Options);
     if (Verbose) errs() << "LIN SCAN FP\n";
   }
-  
+
   SearchStrategy strategy(LSHRows, LSHBands);
   size_t count=0;
   for (auto &F : M) {
