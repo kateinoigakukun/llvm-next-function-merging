@@ -88,7 +88,7 @@ jobs:
         llvm-version: [13]
         os: [ubuntu-20.04]
     needs: [build-plugin, build-benchmark-suite]
-    name: Run Benchmark Suite (${{ matrix.driver-options.name }})
+    name: ${{ matrix.enable-test && 'Test' || 'Run' }} Benchmark Suite (${{ matrix.driver-options.name }})
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
