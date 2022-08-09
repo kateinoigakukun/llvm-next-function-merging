@@ -1112,6 +1112,9 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   Instruction *MaxNumOperandsInst = nullptr;
   assert(!Instructions.empty() && "Empty instruction list!");
   for (auto *I : Instructions) {
+    if (!I) {
+      continue;
+    }
     if (MaxNumOperandsInst == nullptr ||
         I->getNumOperands() > MaxNumOperandsInst->getNumOperands()) {
       MaxNumOperandsInst = I;
@@ -1298,6 +1301,27 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
                                   "switch.select");
   }
 
+  // Handle select %discriminator (1, 1, 1) => 1
+  // This is mandatory pass to avoid having non-constant literals in the
+  // constant required operands like GEP indices.
+  auto tryMergeSingleValue = [&]() -> Value * {
+    Value *TheValue = nullptr;
+    for (auto *V : Values) {
+      // Partially matched values may have undef values.
+      if (isa<UndefValue>(V))
+        continue;
+
+      if (!TheValue)
+        TheValue = V;
+      else if (TheValue != V)
+        return nullptr;
+    }
+    return TheValue;
+  };
+
+  if (auto *C = tryMergeSingleValue())
+    return C;
+
   // TODO(katei): Handle 0, 1, .., n => Discriminator
 
   // TODO(katei): Priotize optimizable cases?
@@ -1424,9 +1448,10 @@ Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
 bool MSAGenFunctionBody::assignValueOperands() {
   for (auto &Entry : Parent.Alignment) {
     std::vector<Instruction *> Instructions;
-    bool allValuesAreInstruction = Entry.collectInstructions(Instructions);
-    if (!allValuesAreInstruction) {
-      // If instructions and BBs are mixed, assign only instructions.
+    Entry.collectInstructions(Instructions);
+
+    if (!Entry.match()) {
+      // If this entry is a gap, just map operands
       for (auto *V : Entry.getValues()) {
         if (V == nullptr)
           continue;
@@ -1440,6 +1465,11 @@ bool MSAGenFunctionBody::assignValueOperands() {
       continue;
     }
 
+    // If values are matched and they are BBs, they don't have operands
+    if (isa<BasicBlock>(Entry.firstValidValue())) {
+      continue;
+    }
+
     // Process the case where all values are instructions.
 
     auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
@@ -1450,9 +1480,12 @@ bool MSAGenFunctionBody::assignValueOperands() {
         MaxNumOperandsInst->isCommutative()) {
       // Optimizable case:
 
+      // Operand list for each position by operand index
       std::vector<std::vector<Value *>> Operands(
           MaxNumOperandsInst->getNumOperands());
       for (auto *I : Instructions) {
+        if (I == nullptr)
+          continue;
         auto *BO = dyn_cast<BinaryOperator>(I);
         for (size_t OpIdx = 0, e = I->getNumOperands(); OpIdx < e; ++OpIdx) {
           auto *NewO = MapValue(I->getOperand(OpIdx), VMap);
@@ -1486,7 +1519,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
         for (auto *I : Instructions) {
           Value *FV = nullptr;
           Value *V = nullptr;
-          if (OperandIdx < I->getNumOperands()) {
+          if (I && OperandIdx < I->getNumOperands()) {
             FV = I->getOperand(OperandIdx);
             // FIXME(katei): `VMap[FV]` is enough?
             V = MapValue(FV, VMap);

@@ -11,6 +11,15 @@
 
 namespace llvm {
 
+/// This represents a column of the aligned sequences.
+/// It has the following types:
+///
+/// 1. All match: All values in this column are matched. All values are
+/// non-null.
+/// 2. Partial match: Some values in this column are matched. Some values are
+/// null.
+/// 3. No match: All values in this column are mismatched. Contains only single
+/// value.
 class MSAAlignmentEntry {
   std::vector<Value *> Values;
   bool IsMatched;
@@ -19,6 +28,7 @@ public:
   MSAAlignmentEntry(std::vector<Value *> Values, bool IsMatched)
       : Values(Values), IsMatched(IsMatched) {}
 
+  /// Returns true if all match or partial match.
   bool match() const { return IsMatched; }
   ArrayRef<Value *> getValues() const { return Values; }
   /// Collect all instructions from the values.
