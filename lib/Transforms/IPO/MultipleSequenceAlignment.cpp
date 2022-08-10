@@ -938,8 +938,13 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 
     if (auto *HeadI = dyn_cast<Instruction>(HeadV)) {
       Instruction *NewI = cloneInstruction(Builder, HeadI);
-      for (auto &I : Entry.getValues()) {
+      auto Vs = Entry.getValues();
+      for (size_t i = 0, e = Vs.size(); i < e; ++i) {
+        if (!Vs[i])
+          continue;
+        auto *I = dyn_cast<Instruction>(Vs[i]);
         VMap[I] = NewI;
+        MergedBBToBB[i][MergedBB] = I->getParent();
       }
     } else {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
