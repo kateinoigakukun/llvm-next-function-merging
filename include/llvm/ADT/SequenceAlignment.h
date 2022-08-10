@@ -123,24 +123,19 @@ class ScoringSystem {
   ScoreSystemType Gap;
   ScoreSystemType Match;
   ScoreSystemType Mismatch;
-  ScoreSystemType PartialMatch;
   bool AllowMismatch;
 public:
   ScoringSystem(ScoreSystemType Gap, ScoreSystemType Match) {
     this->Gap = Gap;
     this->Match = Match;
     this->Mismatch = std::numeric_limits<ScoreSystemType>::min();
-    this->PartialMatch = std::numeric_limits<ScoreSystemType>::min();
     this->AllowMismatch = false;
   }
 
-  ScoringSystem(ScoreSystemType Gap, ScoreSystemType Match,
-                ScoreSystemType Mismatch, ScoreSystemType PartialMatch,
-                bool AllowMismatch = true) {
+  ScoringSystem(ScoreSystemType Gap, ScoreSystemType Match, ScoreSystemType Mismatch, bool AllowMismatch = true) {
     this->Gap = Gap;
     this->Match = Match;
     this->Mismatch = Mismatch;
-    this->PartialMatch = PartialMatch;
     this->AllowMismatch = AllowMismatch;
   }
 
@@ -159,8 +154,6 @@ public:
   ScoreSystemType getMatchProfit() {
     return Match;
   }
-
-  ScoreSystemType getPartialMatchProfit() { return PartialMatch; }
 };
 
 template<typename ContainerType, typename Ty=typename ContainerType::value_type, Ty Blank=Ty(0), typename MatchFnTy=std::function<bool(Ty,Ty)>>

@@ -143,9 +143,7 @@ private:
   }
 
 public:
-  static ScoringSystem getDefaultScoring() {
-    return ScoringSystem(-1, 2, -1, 1);
-  }
+  static ScoringSystem getDefaultScoring() { return ScoringSystem(-1, 2, -1); }
 
   NeedlemanWunschSA()
       : BaseType(getDefaultScoring(), nullptr), Matrix(nullptr),
