@@ -1,7 +1,7 @@
 name: Tests
 on: [push]
 env:
-  LLVM_SIZE_BENCHMARK_SUITE_VERSION: 2c3d946d78591810a975a036b820739127faf1a3
+  LLVM_SIZE_BENCHMARK_SUITE_VERSION: c917b8a7aa07f1730d04914513911e48e2db55db
 jobs:
   build-plugin:
     strategy:
@@ -78,10 +78,13 @@ jobs:
       matrix:
         driver-options:
         - name: Multiple Function Merging (limiting 4 functions)
+          id: mfm+4
           args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=3'"
         - name: Multiple Function Merging (limiting 3 functions)
+          id: mfm+3
           args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=2'"
         - name: Function Merging (2 functions)
+          id: fm
           args: "'-Xopt=--passes=func-merging,default<Oz>'"
         enable-test: [true, false]
         # TODO: Enable after LLVM 14 support
@@ -118,6 +121,7 @@ jobs:
           --pass-plugin="artifacts/usr/local/lib/LLVMNextFM.so" \
           --suite-path="./artifacts/benchmarks/mibench" \
           --paralell --reporter markdown \
+          --output-dir=./artifacts/benchmark-out \
           ${{ matrix.driver-options.args }} \
           ${{ matrix.enable-test && '--test' || '' }} | tee ./artifacts/benchmark-result.md
     - name: Report benchmark result
@@ -125,3 +129,7 @@ jobs:
       run: |
         echo "## ${{ matrix.driver-options.name }}" >> $GITHUB_STEP_SUMMARY
         cat ./artifacts/benchmark-result.md >> $GITHUB_STEP_SUMMARY
+    - uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-out-${{ matrix.driver-options.id }}
+        path: ./artifacts/benchmark-out
