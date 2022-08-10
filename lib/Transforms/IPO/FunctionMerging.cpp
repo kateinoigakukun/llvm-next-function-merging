@@ -1891,6 +1891,7 @@ public:
   Function *next_candidate() override { return this->Functions[0]; }
   std::vector<MatchInfo<Function *>> &
   get_matches(Function *candidate) override {
+    consumed = true;
     return matches;
   }
   size_t size() override { return consumed ? 0 : 1; }
@@ -3380,7 +3381,8 @@ bool FunctionMerging::runImpl(
           match.MergedSize = SizeF12;
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;
 
-          if (match.Profitable || AllowUnprofitableMerge) {
+          if (match.Profitable || AllowUnprofitableMerge ||
+              !OnlyFunctions.empty()) {
             ORE.emit([&] {
               auto remark = OptimizationRemark(DEBUG_TYPE, "Merge",
                                                Result.getMergedFunction());
