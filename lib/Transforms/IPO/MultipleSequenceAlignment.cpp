@@ -233,16 +233,19 @@ void MSAligner::computeBestTransition(
     } else {
       // Check if the transitioning direction is matching.
       std::vector<Optional<size_t>> matchingIndices;
+      bool isPartialMatch = false;
       for (size_t i = 0; i < Point.size(); i++) {
         if (TransOffset[i]) {
           matchingIndices.push_back(Point[i]);
         } else {
           matchingIndices.push_back(None);
+          isPartialMatch = true;
         }
       }
       IsMatched = Match(matchingIndices);
-      similarity =
-          IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
+      similarity = IsMatched ? (isPartialMatch ? Scoring.getPartialMatchProfit()
+                                               : Scoring.getMatchProfit())
+                             : Scoring.getMismatchPenalty();
     }
     assert(ScoreTable[Point] && "non-visited point");
     auto fromScore = *ScoreTable[Point];
@@ -667,7 +670,8 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
                                      FunctionAnalysisManager &FAM)
     : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
       Scoring(/*Gap*/ -1, /*Match*/ 2,
-              /*Mismatch*/ fmutils::OptionalScore::min()) {
+              /*Mismatch*/ fmutils::OptionalScore::min(),
+              /*PartialMatch*/ 1) {
   assert(!Functions.empty() && "No functions to merge");
   M = Functions[0]->getParent();
   size_t noOfBits = std::ceil(std::log2(Functions.size()));
