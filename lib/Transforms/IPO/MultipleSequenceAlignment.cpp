@@ -791,7 +791,8 @@ public:
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
 
-  bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
+  bool assignMergedInstLabelOperands(ArrayRef<Instruction *> SrcInstructions,
+                                     Instruction *MergedInst);
   bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
   bool assignLabelOperands();
 
@@ -1130,38 +1131,35 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
 }
 
 bool MSAGenFunctionBody::assignMergedInstLabelOperands(
-    ArrayRef<Instruction *> Instructions) {
-
-  Instruction *I = Instructions[0];
-  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+    ArrayRef<Instruction *> Instructions, Instruction *NewI) {
 
   auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
 
   for (unsigned OperandIdx = 0;
        OperandIdx < MaxNumOperandsInst->getNumOperands(); OperandIdx++) {
-    std::vector<Value *> FVs;
+    std::vector<Value *> SrcVs;
     std::vector<Value *> Vs;
+    bool IsBBOperand = true;
     for (auto *I : Instructions) {
-      Value *FV = nullptr;
+      Value *SrcV = nullptr;
       Value *V = nullptr;
-      if (OperandIdx < I->getNumOperands()) {
-        FV = I->getOperand(OperandIdx);
+      // Partially merged instructions may have null entries.
+      // TODO(katei): Can we optimize switch to select if only two cases?
+      if (I && OperandIdx < I->getNumOperands()) {
+        SrcV = I->getOperand(OperandIdx);
         // FIXME(katei): `VMap[FV]` is enough?
-        V = MapValue(FV, VMap);
+        V = MapValue(SrcV, VMap);
         assert(V && "Operand not found in VMap!");
-      } else {
-        V = UndefValue::get(
-            MaxNumOperandsInst->getOperand(OperandIdx)->getType());
+        IsBBOperand &= isa<BasicBlock>(V);
       }
-      assert(V != nullptr && "Value should NOT be null!");
-      FVs.push_back(FV);
+      SrcVs.push_back(SrcV);
       Vs.push_back(V);
     }
 
     Value *V = nullptr;
 
     // handling just label operands for now
-    if (!isa<BasicBlock>(Vs[0]))
+    if (!IsBBOperand)
       continue;
 
     bool areAllOperandsEqual =
@@ -1176,6 +1174,9 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         auto *I = Instructions[FuncId];
+        if (I == nullptr || Vs[FuncId] == nullptr) {
+          continue;
+        }
         // XXX: is this correct?
         MergedBBToBB[FuncId][SelectBB] = I->getParent();
 
@@ -1190,12 +1191,12 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
     assert(V != nullptr && "Label operand value should be merged!");
 
     bool isAnyOperandLandingPad =
-        std::any_of(FVs.begin(), FVs.end(), [&](Value *FV) {
-          return dyn_cast<BasicBlock>(FV)->isLandingPad();
+        std::any_of(SrcVs.begin(), SrcVs.end(), [&](Value *FV) {
+          return FV && dyn_cast<BasicBlock>(FV)->isLandingPad();
         });
 
     if (isAnyOperandLandingPad) {
-      for (auto *FV : FVs) {
+      for (auto *FV : SrcVs) {
         auto *BB = dyn_cast<BasicBlock>(FV);
         assert(BB->getLandingPadInst() != nullptr &&
                "Should be both as per the BasicBlock match!");
@@ -1203,7 +1204,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       BasicBlock *LPadBB = BasicBlock::Create(Parent.C, "lpad.bb", MergedFunc);
       IRBuilder<> BuilderBB(LPadBB);
 
-      auto *LP1 = dyn_cast<BasicBlock>(FVs[0])->getLandingPadInst();
+      auto *LP1 = dyn_cast<BasicBlock>(SrcVs[0])->getLandingPadInst();
 
       Instruction *NewLP = LP1->clone();
       BuilderBB.Insert(NewLP);
@@ -1211,8 +1212,12 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
-        auto *FBB = dyn_cast<BasicBlock>(FVs[FuncId]);
+        auto *I = Instructions[FuncId];
+        if (I == nullptr) {
+          continue;
+        }
+        MergedBBToBB[FuncId][LPadBB] = I->getParent();
+        auto *FBB = dyn_cast<BasicBlock>(SrcVs[FuncId]);
         VMap[FBB->getLandingPadInst()] = NewLP;
       }
 
@@ -1263,15 +1268,19 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
 
 bool MSAGenFunctionBody::assignLabelOperands() {
   for (auto &Entry : Parent.Alignment) {
+    Value *HeadV = Entry.firstValidValue();
+    // Skip BB entries
+    if (isa<BasicBlock>(HeadV)) {
+      continue;
+    }
     std::vector<Instruction *> Instructions;
-    bool allInsts = Entry.collectInstructions(Instructions);
+    Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
     // Otherwise, just map original operand value to new value for each
     // instruction.
-    // TODO(katei): Allow partially merged instructions when two of three
-    // instructions are merged.
-    if (Entry.match() && allInsts) {
-      if (!assignMergedInstLabelOperands(Instructions)) {
+    if (Entry.match()) {
+      auto *NewI = dyn_cast<Instruction>(VMap[HeadV]);
+      if (!assignMergedInstLabelOperands(Instructions, NewI)) {
         LLVM_DEBUG(
             errs() << "ERROR: Failed to assign matching label operands\n";);
         return false;
