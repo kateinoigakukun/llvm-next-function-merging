@@ -24,6 +24,14 @@ class MergeRemark
     @remark["Args"].filter_map{ _1["Function"]}
   end
 
+  def merged_size
+    @remark["Args"].filter_map{ _1["MergedSize"]&.to_i }.first
+  end
+
+  def find_arg(key)
+    @remark["Args"].filter_map{ _1[key] }
+  end
+
   def eql?(other)
     @remark["Name"] == other.remark["Name"] &&
       funcs == other.funcs
