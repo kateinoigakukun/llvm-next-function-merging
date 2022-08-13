@@ -2454,10 +2454,12 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
   // errs() << "Setting attributes\n";
   SetFunctionAttributes(F1, F2, MergedFunc);
 
+  Value *IsFunc1 = FuncId;
+
   // errs() << "Running code generator\n";
 
   auto Gen = [&](auto &CG) {
-    CG.setFunctionIdentifier(FuncId)
+    CG.setFunctionIdentifier(IsFunc1)
         .setEntryPoints(&F1->getEntryBlock(), &F2->getEntryBlock())
         .setReturnTypes(RetType1, RetType2)
         .setMergedFunction(MergedFunc)

@@ -83,9 +83,6 @@ jobs:
         - name: Multiple Function Merging (limiting 3 functions)
           id: mfm+3
           args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=2'"
-        - name: Multiple Function Merging (limiting 2 functions)
-          id: mfm+3
-          args: "'-Xopt=--passes=multiple-func-merging,default<Oz>' '-Xopt=--func-merging-explore=1'"
         - name: Function Merging (2 functions)
           id: fm
           args: "'-Xopt=--passes=func-merging,default<Oz>'"

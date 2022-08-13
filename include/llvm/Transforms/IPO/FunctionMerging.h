@@ -135,10 +135,10 @@ public:
   }
 
   Value *getFunctionIdValue(Function *F) {
-    if (F == F2)
-      return ConstantInt::getTrue(IntegerType::get(F2->getContext(), 1));
-    else if (F == F1)
-      return ConstantInt::getFalse(IntegerType::get(F1->getContext(), 1));
+    if (F == F1)
+      return ConstantInt::getTrue(IntegerType::get(F1->getContext(), 1));
+    else if (F == F2)
+      return ConstantInt::getFalse(IntegerType::get(F2->getContext(), 1));
     else
       return nullptr;
   }

@@ -56,7 +56,7 @@ static void postProcessFunction(Function &F) {
 template <typename BlockListType>
 static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
                     BasicBlock *EntryBB1, BasicBlock *EntryBB2,
-                    Function *MergedFunc, Value *FuncId, BasicBlock *PreBB,
+                    Function *MergedFunc, Value *IsFunc1, BasicBlock *PreBB,
                     AlignedSequence<Value *> &AlignedSeq,
                     ValueToValueMapTy &VMap,
                     std::unordered_map<BasicBlock *, BasicBlock *> &BlocksF1,
@@ -182,7 +182,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
     }
   }
 
-  fmutils::SwitchChainer chainer(FuncId, [&]() { return nullptr; });
+  fmutils::SwitchChainer chainer(IsFunc1, [&]() { return nullptr; });
   auto ChainBlocks = [&](BasicBlock *SrcBB, BasicBlock *TargetBB,
                          fmutils::FuncId FuncId) {
     chainer.chainBlocks(SrcBB, TargetBB, FuncId);
@@ -269,8 +269,8 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
           }
         }
       };
-  ProcessEachFunction(Blocks1, BlocksF1, 0);
-  ProcessEachFunction(Blocks2, BlocksF2, 1);
+  ProcessEachFunction(Blocks1, BlocksF1, 1);
+  ProcessEachFunction(Blocks2, BlocksF2, 0);
   chainer.finalize();
 
   auto *BB1 = dyn_cast<BasicBlock>(VMap[EntryBB1]);
@@ -284,7 +284,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
     Builder.CreateBr(BB1);
   } else {
     IRBuilder<> Builder(PreBB);
-    Builder.CreateCondBr(FuncId, BB2, BB1);
+    Builder.CreateCondBr(IsFunc1, BB1, BB2);
   }
 }
 
@@ -304,7 +304,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
   LLVMContext &Context = CodeGenerator<BlockListType>::getContext();
   Function *MergedFunc = CodeGenerator<BlockListType>::getMergedFunction();
-  Value *FuncId = CodeGenerator<BlockListType>::getFunctionIdentifier();
+  Value *IsFunc1 = CodeGenerator<BlockListType>::getFunctionIdentifier();
   Type *ReturnType = CodeGenerator<BlockListType>::getMergedReturnType();
   bool RequiresUnifiedReturn =
       CodeGenerator<BlockListType>::getRequiresUnifiedReturn();
@@ -343,7 +343,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   std::unordered_map<BasicBlock *, BasicBlock *> BlocksF2;
   std::unordered_map<Value *, BasicBlock *> MaterialNodes;
 
-  CodeGen(Blocks1, Blocks2, EntryBB1, EntryBB2, MergedFunc, FuncId, PreBB,
+  CodeGen(Blocks1, Blocks2, EntryBB1, EntryBB2, MergedFunc, IsFunc1, PreBB,
           AlignedSeq, VMap, BlocksF1, BlocksF2, MaterialNodes);
 
   if (RequiresUnifiedReturn) {
@@ -449,7 +449,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
           BlocksF1[SelectBB] = I1->getParent();
           BlocksF2[SelectBB] = I2->getParent();
 
-          BuilderBB.CreateCondBr(FuncId, BB2, BB1);
+          BuilderBB.CreateCondBr(IsFunc1, BB1, BB2);
           V = SelectBB;
         }
 
@@ -546,14 +546,13 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     if (V1 == V2)
       return V1;
 
-    if (V1 == ConstantInt::getTrue(Context) && V2 == ConstantInt::getFalse(Context)) {
-      IRBuilder<> Builder(InsertPt);
-      /// TODO: create a single not(IsFunc1) for each merged function that needs it
-      return Builder.CreateNot(FuncId);
-    }
+    if (V1 == ConstantInt::getTrue(Context) && V2 == ConstantInt::getFalse(Context))
+      return IsFunc1;
 
     if (V1 == ConstantInt::getFalse(Context) && V2 == ConstantInt::getTrue(Context)) {
-      return FuncId;
+      IRBuilder<> Builder(InsertPt);
+      /// TODO: create a single not(IsFunc1) for each merged function that needs it
+      return Builder.CreateNot(IsFunc1);
     }
 
     auto *IV1 = dyn_cast<Instruction>(V1);
@@ -569,12 +568,12 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     }
 
     IRBuilder<> Builder(InsertPt);
-    Instruction *Sel = (Instruction *)Builder.CreateSelect(FuncId, V2, V1);
+    Instruction *Sel = (Instruction *)Builder.CreateSelect(IsFunc1, V1, V2);
     ListSelects.push_back(dyn_cast<Instruction>(Sel));
     return Sel;
   };
 
-  auto AssignOperands = [&](Instruction *I) -> bool {
+  auto AssignOperands = [&](Instruction *I, bool IsFuncId1) -> bool {
     auto *NewI = dyn_cast<Instruction>(VMap[I]);
     IRBuilder<> Builder(NewI);
 
@@ -736,12 +735,12 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     } // end if isomorphic
     else {
       // PDGNode *N = MN->getUniqueNode();
-      if (I1 != nullptr && !AssignOperands(I1)) {
+      if (I1 != nullptr && !AssignOperands(I1, true)) {
         if (Debug)
           errs() << "ERROR: Value should NOT be null\n";
         return false;
       }
-      if (I2 != nullptr && !AssignOperands(I2)) {
+      if (I2 != nullptr && !AssignOperands(I2, false)) {
         if (Debug)
           errs() << "ERROR: Value should NOT be null\n";
         return false;

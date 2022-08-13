@@ -19,7 +19,7 @@ define internal i64 @Bfunc(i32* %P, i32* %Q) {
 ; F3M-NEXT:  entry:
 ; F3M-NEXT:    store i32 4, i32* %m.P.P, align 4
 ; F3M-NEXT:    store i32 6, i32* %m.Q.Q, align 4
-; F3M-NEXT:    %0 = select i1 %discriminator, i64 0, i64 42
+; F3M-NEXT:    %0 = select i1 %discriminator, i64 42, i64 0
 ; F3M-NEXT:    ret i64 %0
 ; F3M-NEXT:  }
 
