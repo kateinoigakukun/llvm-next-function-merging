@@ -2,7 +2,7 @@
 
 class SizeDiff
     def build_obj_pattern(base_path)
-        File.join(base_path, "**", "obj.o")
+        File.join(base_path, "**", "obj.strip.o")
     end
 
     def initialize(old_path, new_path)
