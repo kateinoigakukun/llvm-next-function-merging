@@ -6,7 +6,7 @@
 ; RUN: %llc --filetype=obj %t.fm.ll -o %t.fm.o
 ; RUN: %strip %t.mfm.o
 ; RUN: %strip %t.fm.o
-; RUN: [[ $(stat -c%%s %t.mfm.o) -le $(stat -c%%s %t.fm.o) ]]
+; RUN: test $(stat -c%%s %t.mfm.o) -le $(stat -c%%s %t.fm.o)
 ; XFAIL: *
 
 ; ModuleID = '../benchmarks/mibench/consumer/jpeg/cjpeg.bc'

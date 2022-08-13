@@ -715,6 +715,9 @@ class MSAGenFunctionBody {
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
   BasicBlock *EntryBB;
   mutable BasicBlock *BlackholeBBCache;
+  // See `fixupCoalescingPHI` for details.
+  std::map<Instruction *, std::map<Instruction *, unsigned>>
+      CoalescingCandidates;
 
 public:
   MSAGenFunctionBody(const MSAGenFunction &Parent,
@@ -1024,7 +1027,6 @@ void MSAGenFunctionBody::chainBasicBlocks() {
           NewBB =
               BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
           chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
-          BlocksFX[NewBB] = SrcBB;
         }
         LastMergedBB = nullptr;
 
@@ -1241,6 +1243,20 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     return Values[0];
 
   if (Values.size() == 2) {
+    // TODO(katei): Extend to more than two functions.
+    {
+      auto *IV1 = dyn_cast<Instruction>(Values[0]);
+      auto *IV2 = dyn_cast<Instruction>(Values[1]);
+      if (IV1 && IV2) {
+        // if both IV1 and IV2 are non-merged values
+        if (MergedBBToBB[0][IV1->getParent()] == nullptr &&
+            MergedBBToBB[1][IV2->getParent()] == nullptr) {
+          CoalescingCandidates[IV1][IV2]++;
+          CoalescingCandidates[IV2][IV1]++;
+        }
+      }
+    }
+
     IRBuilder<> BuilderBB(MergedI);
     assert(Parent.Functions.size() == 2 && "Expected two functions!");
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
@@ -1250,19 +1266,6 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   }
 
   // TODO(katei): Handle 0, 1, .., n => Discriminator
-
-  // TODO(katei): Priotize optimizable cases?
-  // auto *IV1 = dyn_cast<Instruction>(V1);
-  // auto *IV2 = dyn_cast<Instruction>(V2);
-
-  // if (IV1 && IV2) {
-  //   // if both IV1 and IV2 are non-merged values
-  //   if (BlocksF2.find(IV1->getParent()) == BlocksF2.end() &&
-  //       BlocksF1.find(IV2->getParent()) == BlocksF1.end()) {
-  //     CoalescingCandidates[IV1][IV2]++;
-  //     CoalescingCandidates[IV2][IV1]++;
-  //   }
-  // }
 
   // pred.0:
   //   ...
@@ -1477,9 +1480,6 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
   std::list<Instruction *> LinearOffendingInsts;
   std::set<Instruction *> OffendingInsts;
   BasicBlock *PreBB = EntryBB;
-  // TODO(katei): Collect candidates in `mergeOperandValues`
-  std::map<Instruction *, std::map<Instruction *, unsigned>>
-      CoalescingCandidates;
 
   DominatorTree DT(*MergedFunc);
 

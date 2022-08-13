@@ -253,7 +253,6 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
                 NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                            MergedFunc);
                 ChainBlocks(LastMergedBB, NewBB, FuncId);
-                BlocksFX[NewBB] = BB;
                 // errs() << "Splitting last merged " << LastMergedBB->getName()
                 // << " into " << NewBB->getName() << "\n";
               }
@@ -561,8 +560,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
     if (IV1 && IV2) {
       // if both IV1 and IV2 are non-merged values
-      if (BlocksF2.find(IV1->getParent()) == BlocksF2.end() &&
-          BlocksF1.find(IV2->getParent()) == BlocksF1.end()) {
+      if (BlocksF1.find(IV1->getParent()) == BlocksF1.end() &&
+          BlocksF2.find(IV2->getParent()) == BlocksF2.end()) {
         CoalescingCandidates[IV1][IV2]++;
         CoalescingCandidates[IV2][IV1]++;
       }
