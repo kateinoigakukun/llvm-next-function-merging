@@ -119,15 +119,7 @@ class MSAFunctionMerger {
 public:
   MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM,
                     OptimizationRemarkEmitter &ORE,
-                    FunctionAnalysisManager &FAM)
-      : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
-        Scoring(/*Gap*/ -1, /*Match*/ 2,
-                /*Mismatch*/ std::numeric_limits<ScoreSystemType>::min()) {
-    assert(!Functions.empty() && "No functions to merge");
-    M = Functions[0]->getParent();
-    size_t noOfBits = std::ceil(std::log2(Functions.size()));
-    DiscriminatorTy = IntegerType::getIntNTy(M->getContext(), noOfBits);
-  }
+                    FunctionAnalysisManager &FAM);
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 

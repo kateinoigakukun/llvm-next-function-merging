@@ -11,7 +11,8 @@ template <typename T> class TensorTable {
   std::vector<T> Data;
   std::vector<size_t> Shape;
 
-  size_t getIndex(const std::vector<size_t> &Point, std::vector<size_t> Offset,
+  template <typename OffsetVec>
+  size_t getIndex(const std::vector<size_t> &Point, OffsetVec Offset,
                   bool NegativeOffset) const {
     size_t Index = 0;
     for (size_t dim = 0; dim < Shape.size(); dim++) {
@@ -48,18 +49,20 @@ public:
     return get(Point, std::vector<size_t>(Shape.size(), 0), false);
   }
 
-  T &get(const std::vector<size_t> &Point, std::vector<size_t> Offset,
+  template <typename OffsetVec>
+  T &get(const std::vector<size_t> &Point, OffsetVec Offset,
          bool NegativeOffset) {
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
 
-  void set(const std::vector<size_t> &Point, std::vector<size_t> Offset,
+  template <typename OffsetVec>
+  void set(const std::vector<size_t> &Point, OffsetVec Offset,
            bool NegativeOffset, T NewValue) {
     Data[getIndex(Point, Offset, NegativeOffset)] = NewValue;
   }
 
-  bool contains(const std::vector<size_t> &Point,
-                std::vector<size_t> Offset) const {
+  template <typename OffsetVec>
+  bool contains(const std::vector<size_t> &Point, OffsetVec Offset) const {
     assert(Point.size() == Shape.size() && "Point and shape have different "
                                            "dimensions");
     for (size_t i = 0; i < Shape.size(); i++) {

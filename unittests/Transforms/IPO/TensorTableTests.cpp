@@ -1,5 +1,6 @@
 #include "llvm/ADT/TensorTable.h"
 #include "gtest/gtest.h"
+#include <vector>
 
 using namespace llvm;
 
@@ -15,7 +16,7 @@ TEST(TensorTableTest, DefaultValue) {
 
 TEST(TensorTableTest, GetSet) {
   TensorTable<int32_t> t(std::vector<size_t>{2, 2}, 0);
-  t.set({1, 0}, {0, 0}, false, 42);
+  t.set({1, 0}, std::vector<size_t>{0, 0}, false, 42);
   auto v = t.get({1, 0}, {0, 0}, false);
   EXPECT_EQ(v, 42);
 
@@ -25,6 +26,6 @@ TEST(TensorTableTest, GetSet) {
 
 TEST(TensorTableTest, Contains) {
   TensorTable<int32_t> t(std::vector<size_t>{2, 2}, 0);
-  EXPECT_TRUE(t.contains({0, 0}, {0, 0}));
-  EXPECT_FALSE(t.contains({2, 0}, {0, 0}));
+  EXPECT_TRUE(t.contains({0, 0}, std::vector<size_t>{0, 0}));
+  EXPECT_FALSE(t.contains({2, 0}, std::vector<size_t>{0, 0}));
 }
