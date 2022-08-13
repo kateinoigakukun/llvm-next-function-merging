@@ -687,7 +687,6 @@ class MSAGenFunctionBody {
   ValueToValueMapTy &VMap;
   // FIXME(katei): Better name?
   DenseMap<Value *, BasicBlock *> MaterialNodes;
-  DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
   BasicBlock *EntryBB;
   mutable BasicBlock *BlackholeBBCache;
@@ -699,7 +698,7 @@ public:
                      Function *MergedF)
       : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
         Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
-        BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
+        MergedBBToBB(Parent.Functions.size()) {
 
     EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
     BlackholeBBCache = nullptr;
