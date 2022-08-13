@@ -726,7 +726,6 @@ public:
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
-  void chainEntryBlock();
 
   bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
   bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
@@ -850,8 +849,13 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
 
     if (auto *HeadI = dyn_cast<Instruction>(HeadV)) {
       Instruction *NewI = cloneInstruction(Builder, HeadI);
-      for (auto &I : Entry.getValues()) {
+      auto Vs = Entry.getValues();
+      for (size_t i = 0, e = Vs.size(); i < e; ++i) {
+        if (!Vs[i])
+          continue;
+        auto *I = dyn_cast<Instruction>(Vs[i]);
         VMap[I] = NewI;
+        MergedBBToBB[i][MergedBB] = I->getParent();
       }
     } else {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
@@ -1010,18 +1014,10 @@ void MSAGenFunctionBody::chainBasicBlocks() {
     for (auto &BB : *F) {
       ProcessBasicBlock(&BB, MergedBBToBB[i], i);
     }
+    auto *MergedEntryV = MapValue(&F->getEntryBlock(), VMap);
+    chainer.chainBlocks(EntryBB, dyn_cast<BasicBlock>(MergedEntryV), i);
   }
   chainer.finalize();
-}
-
-void MSAGenFunctionBody::chainEntryBlock() {
-  auto *MergedEntryV = MapValue(&Parent.Functions[0]->getEntryBlock(), VMap);
-  assert(MergedEntryV && "Entry block not found! This method should be called "
-                         "after chainBasicBlocks()");
-  auto *MergedEntryBB = dyn_cast<BasicBlock>(MergedEntryV);
-  assert(MergedEntryBB && "Merged entry block should be a basic block!");
-  IRBuilder<> Builder(EntryBB);
-  Builder.CreateBr(MergedEntryBB);
 }
 
 Instruction *
@@ -1701,8 +1697,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       if (auto *PHI = dyn_cast<PHINode>(&I)) {
         auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
-        std::set<int> FoundIndices;
-
         for (auto It = pred_begin(NewPHI->getParent()),
                   E = pred_end(NewPHI->getParent());
              It != E; It++) {
@@ -1715,7 +1709,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
-              FoundIndices.insert(Index);
             }
           }
 
@@ -1727,8 +1720,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
           // IntPtrTy);
           NewPHI->addIncoming(V, NewPredBB);
         }
-        if (FoundIndices.size() != PHI->getNumIncomingValues())
-          return false;
       }
     }
     return true;
@@ -1748,7 +1739,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
 bool MSAGenFunctionBody::emit() {
   layoutSharedBasicBlocks();
   chainBasicBlocks();
-  chainEntryBlock();
   if (!assignOperands()) {
     return false;
   }

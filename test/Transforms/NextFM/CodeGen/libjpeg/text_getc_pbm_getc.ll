@@ -1,12 +1,12 @@
-; Generated from multiple-func-merging:CodeGen
-; - text_getc
-; - pbm_getc
+; RUN: %opt --passes='multiple-func-merging' --multiple-func-merging-disable-post-opt -func-merging-explore=2 '--multiple-func-merging-only=text_getc' '--multiple-func-merging-only=pbm_getc' %s -o %t.opt.two.bc
+; RUN: %clang %t.opt.two.bc %S/Inputs/text_getc_pbm_getc.driver.c -lm -o %t.opt.two
+; RUN: %opt --passes='func-merging' --func-merging-disable-post-opt -func-merging-explore=1 '--func-merging-only=text_getc' '--func-merging-only=pbm_getc' %s -o %t.opt.fm.bc
+; RUN: %clang %t.opt.fm.bc %S/Inputs/text_getc_pbm_getc.driver.c -lm -o %t.opt.fm
+; RUN: %clang %s %S/Inputs/text_getc_pbm_getc.driver.c -lm -o %t.safe
+; RUN: %t.safe '%S/Inputs/text_getc_pbm_getc.input'
+; RUN: %t.opt.fm '%S/Inputs/text_getc_pbm_getc.input'
+; RUN: %t.opt.two '%S/Inputs/text_getc_pbm_getc.input'
 
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK-NOT: --- !Missed
-
-; ModuleID = '../bench-play/libjpeg.bc'
-source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
@@ -106,7 +106,7 @@ define hidden i32 @text_getc(%struct._IO_FILE* %0) #1 {
 attributes #0 = { "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
 attributes #1 = { noinline nounwind optnone ssp uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
 
-!llvm.ident = !{!0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0}
+!llvm.ident = !{!0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0}
 !llvm.module.flags = !{!1, !2, !3, !4, !5, !6}
 
 !0 = !{!"clang version 13.0.0 (https://github.com/llvm/llvm-project/ 24c8eaec9467b2aaf70b0db33a4e4dd415139a50)"}
