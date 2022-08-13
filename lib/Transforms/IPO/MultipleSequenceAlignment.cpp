@@ -1184,12 +1184,19 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
         OtherFuncId++;
       }
       IRBuilder<> Builder(SelectBB);
-      Builder.CreateCondBr(
-          Discriminator, dyn_cast<BasicBlock>(MappedValueByFuncId[OtherFuncId]),
-          dyn_cast<BasicBlock>(MappedValueByFuncId[0]));
-      for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+      Value *Cond = Discriminator;
+      if (!Discriminator->getType()->isIntegerTy(1)) {
+        // Is discriminator not zero?
+        Cond = Builder.CreateICmpNE(
+            Discriminator, ConstantInt::get(Discriminator->getType(), 0));
       }
+
+      Builder.CreateCondBr(
+          Cond, dyn_cast<BasicBlock>(MappedValueByFuncId[OtherFuncId]),
+          dyn_cast<BasicBlock>(MappedValueByFuncId[0]));
+      MergedBBToBB[0][SelectBB] = Instructions[0]->getParent();
+      MergedBBToBB[OtherFuncId][SelectBB] =
+          Instructions[OtherFuncId]->getParent();
       V = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
