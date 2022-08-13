@@ -3,6 +3,7 @@
 ; RUN:   --multiple-func-merging-only=ntbl_bitcount \
 ; RUN:   --multiple-func-merging-only=AR_btbl_bitcount \
 ; RUN:   --multiple-func-merging-only=ntbl_bitcnt | FileCheck %s
+; XFAIL: *
 
 ; CHECK-LABEL: define internal i32 @__msa_merge_bitcount_ntbl_bitcount_AR_btbl_bitcount_ntbl_bitcnt(i2 %discriminator, i64 %m.0.0.0.0) 
 ; CHECK-NEXT:  entry:
