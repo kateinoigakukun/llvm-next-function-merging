@@ -1080,8 +1080,8 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       // if there are only two instructions, we can just use cond_br
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> Builder(SelectBB);
-      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[0]),
-                           dyn_cast<BasicBlock>(Vs[1]));
+      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[1]),
+                           dyn_cast<BasicBlock>(Vs[0]));
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
       }
