@@ -422,6 +422,7 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
   M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
   // In order to preserve function order, we move Clone after old Function
   thunk->setCallingConv(SrcFunction->getCallingConv());
+  thunk->copyAttributesFrom(SrcFunction);
   auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
   IRBuilder<> Builder(BB);
 
@@ -441,6 +442,7 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
   }
 
   auto *Call = Builder.CreateCall(MergedFunction, Args);
+  Call->setTailCall();
   Call->setIsNoInline();
 
   if (SrcFunction->getReturnType()->isVoidTy()) {
