@@ -1074,6 +1074,18 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 
     if (areAllOperandsEqual) {
       V = Vs[0]; // assume that V1 == V2 == ... == Vn
+    } else if (Vs.size() == 2) {
+      assert(Instructions.size() == 2 && "Invalid number of instructions!");
+      // if there are only two instructions, we can just use cond_br
+      auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
+      IRBuilder<> Builder(SelectBB);
+      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[0]),
+                           dyn_cast<BasicBlock>(Vs[1]));
+      for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+        MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+      }
+      MergedBBToBB[0][SelectBB] = I->getParent();
+      V = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> BuilderBB(SelectBB);
