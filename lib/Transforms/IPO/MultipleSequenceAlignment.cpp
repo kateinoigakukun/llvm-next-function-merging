@@ -422,6 +422,7 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
   M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
   // In order to preserve function order, we move Clone after old Function
   thunk->setCallingConv(SrcFunction->getCallingConv());
+  thunk->copyAttributesFrom(SrcFunction);
   auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
   IRBuilder<> Builder(BB);
 
@@ -441,6 +442,7 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
   }
 
   auto *Call = Builder.CreateCall(MergedFunction, Args);
+  Call->setTailCall();
   Call->setIsNoInline();
 
   if (SrcFunction->getReturnType()->isVoidTy()) {
@@ -685,7 +687,6 @@ class MSAGenFunctionBody {
   ValueToValueMapTy &VMap;
   // FIXME(katei): Better name?
   DenseMap<Value *, BasicBlock *> MaterialNodes;
-  DenseMap<BasicBlock *, BasicBlock *> BBToMergedBB;
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
   BasicBlock *EntryBB;
   mutable BasicBlock *BlackholeBBCache;
@@ -697,7 +698,7 @@ public:
                      Function *MergedF)
       : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
         Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
-        BBToMergedBB(), MergedBBToBB(Parent.Functions.size()) {
+        MergedBBToBB(Parent.Functions.size()) {
 
     EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
     BlackholeBBCache = nullptr;
@@ -1074,6 +1075,18 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 
     if (areAllOperandsEqual) {
       V = Vs[0]; // assume that V1 == V2 == ... == Vn
+    } else if (Vs.size() == 2) {
+      assert(Instructions.size() == 2 && "Invalid number of instructions!");
+      // if there are only two instructions, we can just use cond_br
+      auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
+      IRBuilder<> Builder(SelectBB);
+      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[1]),
+                           dyn_cast<BasicBlock>(Vs[0]));
+      for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+        MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+      }
+      MergedBBToBB[0][SelectBB] = I->getParent();
+      V = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> BuilderBB(SelectBB);
