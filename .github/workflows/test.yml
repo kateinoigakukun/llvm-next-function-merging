@@ -1,5 +1,8 @@
 name: Tests
-on: [push]
+on:
+  push:
+    branches: [main]
+  pull_request:
 env:
   LLVM_SIZE_BENCHMARK_SUITE_VERSION: 953f39eed2c9870f4c9794264ec6ec8f307010b5
 jobs:
@@ -137,3 +140,28 @@ jobs:
       with:
         name: benchmark-out-${{ matrix.driver-options.id }}
         path: ./artifacts/benchmark-out
+  report-summary:
+    needs: [run-benchmark-suite]
+    name: Report Summary to PR
+    runs-on: ubuntu-20.04
+    permissions:
+      pull-requests: write
+    if: ${{ github.event_name == 'pull_request' }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Download the benchmark result
+      uses: actions/download-artifact@v3
+      with:
+        path: ./new
+    - name: Download the benchmark result from main
+      uses: dawidd6/action-download-artifact@v2
+      with:
+        branch: main
+        path: ./old
+    - name: Report summary
+      run: |
+        set -o pipefail
+        tools/llvm-nextfm-sizediff/llvm-nextfm-sizediff.rb ./old ./new | tee ./summary.md
+        gh pr comment ${{ github.event.pull_request.number }} --body-file ./summary.md
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
