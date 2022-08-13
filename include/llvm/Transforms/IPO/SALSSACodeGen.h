@@ -80,7 +80,7 @@ public:
     LLVMContext *ContextPtr;
     Type *IntPtrTy;
 
-    Value *IsFunc1;
+    Value *FuncId;
 
     // BlockListType &Blocks1;
     // BlockListType &Blocks2;
@@ -129,7 +129,7 @@ public:
     }
 
     CodeGenerator &setFunctionIdentifier(Value *IsFunc1) {
-      this->IsFunc1 = IsFunc1;
+      this->FuncId = IsFunc1;
       return *this;
     }
 
@@ -166,7 +166,7 @@ public:
     Type *getMergedReturnType() { return ReturnType; }
     bool getRequiresUnifiedReturn() { return RequiresUnifiedReturn; }
 
-    Value *getFunctionIdentifier() { return IsFunc1; }
+    Value *getFunctionIdentifier() { return FuncId; }
 
     LLVMContext &getContext() { return *ContextPtr; }
 
