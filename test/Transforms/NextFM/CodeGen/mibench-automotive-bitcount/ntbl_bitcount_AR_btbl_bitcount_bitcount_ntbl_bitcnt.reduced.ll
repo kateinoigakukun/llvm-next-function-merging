@@ -6,8 +6,8 @@
 
 ; CHECK-LABEL: define internal i32 @__msa_merge_bitcount_ntbl_bitcount_AR_btbl_bitcount_ntbl_bitcnt(i2 %discriminator, i64 %m.0.0.0.0) 
 ; CHECK-NEXT:  entry:
-; CHECK:         unreachable
-; CHECK:       }
+; CHECK-NEXT:    unreachable
+; CHECK-NEXT:  }
 
 
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
