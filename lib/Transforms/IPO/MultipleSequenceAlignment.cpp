@@ -224,8 +224,8 @@ void MSAligner::computeBestTransition(
       continue;
 
     int32_t similarity = 0;
-    for (unsigned bit : TransOffset.set_bits()) {
-      similarity = AddScore(similarity, TransScore[bit]);
+    for (size_t i = 0; i < TransOffset.size(); i++) {
+      similarity = AddScore(similarity, TransScore[TransOffset[i]]);
     }
     bool IsMatched = false;
     // If diagonal transition, add the match score.
