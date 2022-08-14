@@ -3,9 +3,9 @@
 ; RUN: %opt --passes='func-merging' '--func-merging-only=encode_mcu_AC_refine' '--func-merging-only=encode_mcu_AC_first' %s -o %t.opt.fm.bc
 ; RUN: %clang %t.opt.fm.bc %S/Inputs/encode_mcu_AC_refine_encode_mcu_AC_first.driver.bc -lm -o %t.opt.fm
 ; RUN: %clang %s %S/Inputs/encode_mcu_AC_refine_encode_mcu_AC_first.driver.bc -lm -o %t.safe
-; RUN: timeout 1.5s %t.safe '-dct' 'int' '-progressive' '-opt' '-outfile' '/dev/null' '%S/Inputs/input_small.ppm'
-; RUN: timeout 1.5s %t.opt.fm '-dct' 'int' '-progressive' '-opt' '-outfile' '/dev/null' '%S/Inputs/input_small.ppm'
-; RUN: not timeout 1.5s %t.opt.two '-dct' 'int' '-progressive' '-opt' '-outfile' '/dev/null' '%S/Inputs/input_small.ppm'
+; RUN: %t.safe '-dct' 'int' '-progressive' '-opt' '-outfile' '/dev/null' '%S/Inputs/input_small.ppm'
+; RUN: %t.opt.fm '-dct' 'int' '-progressive' '-opt' '-outfile' '/dev/null' '%S/Inputs/input_small.ppm'
+; RUN: %t.opt.two '-dct' 'int' '-progressive' '-opt' '-outfile' '/dev/null' '%S/Inputs/input_small.ppm'
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-size-benchmark-suite/bazel-bin/benchmarks/mibench/consumer/jpeg/cjpeg.bc'
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
