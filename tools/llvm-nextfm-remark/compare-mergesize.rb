@@ -77,7 +77,7 @@ if __FILE__ == $0
     puts "+#{winner} #{remark1.funcs} #{remark1.merged_size} #{remark2.merged_size}"
   end
   puts "Remark1 (#{remark1}) wins: #{remark1_wins}"
-  puts "Remark1 (#{remark2}) wins: #{remark2_wins}"
+  puts "Remark2 (#{remark2}) wins: #{remark2_wins}"
 
   puts "Remark1 (#{remark1}) total size: #{remark1_total_size}"
   puts "Remark2 (#{remark2}) total size: #{remark2_total_size}"
