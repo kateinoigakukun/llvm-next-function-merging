@@ -61,12 +61,17 @@ public:
     Data[getIndex(Point, Offset, NegativeOffset)] = NewValue;
   }
 
+  void set(const std::vector<size_t> &Point, T NewValue) {
+    set(Point, std::vector<size_t>(Shape.size(), 0), false, NewValue);
+  }
+
   template <typename OffsetVec>
-  bool contains(const std::vector<size_t> &Point, OffsetVec Offset) const {
+  bool contains(const std::vector<size_t> &Point, OffsetVec Offset,
+                bool NegativeOffset = false) const {
     assert(Point.size() == Shape.size() && "Point and shape have different "
                                            "dimensions");
     for (size_t i = 0; i < Shape.size(); i++) {
-      if (Point[i] + Offset[i] >= Shape[i]) {
+      if (Point[i] + (NegativeOffset ? -Offset[i] : Offset[i]) >= Shape[i]) {
         return false;
       }
     }
@@ -83,7 +88,9 @@ public:
     for (size_t y = 0; y < Shape[1]; y++) {
       for (size_t x = 0; x < Shape[0]; x++) {
         std::vector<size_t> P({x, y});
-        OS << x << "," << y << "=" << this->operator[](P) << " ";
+        OS << x << "," << y << "=";
+        this->operator[](P).print(OS);
+        OS << " ";
       }
       OS << "\n";
     }
