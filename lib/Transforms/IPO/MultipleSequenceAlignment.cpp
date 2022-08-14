@@ -249,16 +249,19 @@ void MSAligner::computeBestTransition(
     } else {
       // Check if the transitioning direction is matching.
       std::vector<Optional<size_t>> matchingIndices;
+      bool isPartialMatch = false;
       for (size_t i = 0; i < Point.size(); i++) {
         if (TransOffset[i]) {
           matchingIndices.push_back(Point[i] - TransOffset[i]);
         } else {
           matchingIndices.push_back(None);
+          isPartialMatch = true;
         }
       }
       IsMatched = Match(matchingIndices);
-      similarity =
-          IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
+      similarity = IsMatched ? (isPartialMatch ? Scoring.getGapPenalty()
+                                               : Scoring.getMatchProfit())
+                             : Scoring.getMismatchPenalty();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
     auto fromScore = *ScoreTable.get(Point, TransOffset, true);
