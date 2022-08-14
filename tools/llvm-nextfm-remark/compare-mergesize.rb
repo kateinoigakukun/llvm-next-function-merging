@@ -2,7 +2,15 @@
 
 require_relative "./llvm-nextfm-remark"
 
-def size_diff_remarks(remarks1, remarks2)
+def size_diff_remarks(remarks1, remarks2, options = {})
+  [remarks1, remarks2].each do |r|
+    r.remarks.filter! do
+      next false unless _1.is_a?(MergeRemark)
+      next _1.funcs.size == 2 if options[:only_pair]
+      next _1.is_a?(MergePassedRemark) if options[:only_passed]
+      true
+    end
+  end
   remarks1.remarks.filter_map do |remark1|
     remark2 = remarks2.remarks.find { |r| r.funcs == remark1.funcs }
     next unless remark2
@@ -51,14 +59,25 @@ def dump_lit_testcase(remark, src_bc, test_out_dir)
 end
 
 if __FILE__ == $0
+  require "optparse"
+  opt = OptionParser.new
+  options = {}
+  opt.banner = "Usage: #{$0} [options] <remark1> <remark2>"
+  opt.on("--only-passed", "Only output test cases that are passed") do
+    options[:only_passed] = true
+  end
+  opt.on("--only-pair", "Only output test cases of 2-merge") do
+    options[:only_pair] = true
+  end
+  opt.parse!(ARGV)
   if ARGV.size != 2
-    puts "Usage: #{$0} <remark1> <remark2>"
+    puts opt
     exit 1
   end
   remark1 = ARGV[0]
   remark2 = ARGV[1]
   puts "Comparing #{remark1} and #{remark2}..."
-  remark_pairs = size_diff_remarks(RemarkSet.load_file(remark1), RemarkSet.load_file(remark2))
+  remark_pairs = size_diff_remarks(RemarkSet.load_file(remark1), RemarkSet.load_file(remark2), options)
 
   remark1_wins = 0
   remark1_total_size = 0
@@ -77,7 +96,7 @@ if __FILE__ == $0
     puts "+#{winner} #{remark1.funcs} #{remark1.merged_size} #{remark2.merged_size}"
   end
   puts "Remark1 (#{remark1}) wins: #{remark1_wins}"
-  puts "Remark1 (#{remark2}) wins: #{remark2_wins}"
+  puts "Remark2 (#{remark2}) wins: #{remark2_wins}"
 
   puts "Remark1 (#{remark1}) total size: #{remark1_total_size}"
   puts "Remark2 (#{remark2}) total size: #{remark2_total_size}"
