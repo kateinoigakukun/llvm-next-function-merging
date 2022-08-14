@@ -129,18 +129,6 @@ class MSAligner {
     return false;
   }
 
-  static bool advancePointInShape(SmallBitVector &Point,
-                                  const std::vector<size_t> &Shape) {
-    for (size_t i = 0; i < Point.size(); i++) {
-      if (!Point[i]) {
-        Point[i] = true;
-        return true;
-      }
-      Point[i] = false;
-    }
-    return false;
-  }
-
   MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
             std::vector<size_t> Shape,
             std::vector<SmallVector<Value *, 16>> &InstrVecList)
@@ -208,7 +196,7 @@ void MSAligner::computeBestTransition(
   const std::vector<size_t> TransTableShape(ScoreTable.getShape().size(),
                                             TransScore.size());
   // The current visiting point in the virtual tensor table.
-  TransitionOffset TransOffset(ScoreTable.getShape().size(), 0);
+  TransitionOffset TransOffset(ScoreTable.getShape().size(), 1);
 
   auto AddScore = [](int32_t Score, int32_t addend) {
     if (addend > 0 && Score >= fmutils::OptionalScore::max() - addend)
@@ -218,9 +206,37 @@ void MSAligner::computeBestTransition(
     return Score + addend;
   };
 
+  // If Point.size() == 2
+  // [1, 1] -> [1, 0] -> [0, 1] -> [0, 0] -> STOP
+  //
+  // If Point.size() == 3
+  // [1, 1, 1] -> [0, 1, 1] -> [1, 0, 1] -> [0, 0, 1]
+  // -> [1, 1, 0] -> [0, 1, 0] -> [1, 0, 0] -> STOP
+  auto decrementOffset = [&](SmallBitVector &Point) {
+    for (int i = Point.size() - 1; i >= 0; i--) {
+      if (Point[i]) {
+        Point[i] = false;
+        return true;
+      }
+      Point[i] = true;
+    }
+    return false;
+  };
+
+  auto minusOffsetFromPoint = [&](const TransitionOffset &Offset,
+                                  const std::vector<size_t> &Point) {
+    std::vector<size_t> Result(Point.size());
+    for (size_t i = 0; i < Point.size(); i++) {
+      Result[i] = Point[i] - Offset[i];
+    }
+    return Result;
+  };
+
   // Visit all possible transitions except for the current point itself.
-  while (advancePointInShape(TransOffset, TransTableShape)) {
-    if (!ScoreTable.contains(Point, TransOffset))
+  do {
+    if (TransOffset.none())
+      break;
+    if (!ScoreTable.contains(Point, TransOffset, true))
       continue;
 
     int32_t similarity = 0;
@@ -235,7 +251,7 @@ void MSAligner::computeBestTransition(
       std::vector<Optional<size_t>> matchingIndices;
       for (size_t i = 0; i < Point.size(); i++) {
         if (TransOffset[i]) {
-          matchingIndices.push_back(Point[i]);
+          matchingIndices.push_back(Point[i] - TransOffset[i]);
         } else {
           matchingIndices.push_back(None);
         }
@@ -244,23 +260,21 @@ void MSAligner::computeBestTransition(
       similarity =
           IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
     }
-    assert(ScoreTable[Point] && "non-visited point");
-    auto fromScore = *ScoreTable[Point];
+    assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
+    auto fromScore = *ScoreTable.get(Point, TransOffset, true);
     int32_t newScore = AddScore(fromScore, similarity);
-    int32_t maxScore;
     auto updateBestScore = [&](int32_t newScore) {
-      ScoreTable.set(Point, TransOffset, false, newScore);
-      BestTransTable.set(Point, TransOffset, false,
-                         TransitionEntry(TransOffset, IsMatched));
+      ScoreTable.set(Point, newScore);
+      BestTransTable.set(Point, TransitionEntry(TransOffset, IsMatched));
     };
-    if (auto existingScore = ScoreTable.get(Point, TransOffset, false)) {
+    if (auto existingScore = ScoreTable[Point]) {
       if (newScore > *existingScore) {
         updateBestScore(newScore);
       }
     } else {
       updateBestScore(newScore);
     }
-  }
+  } while (decrementOffset(TransOffset));
 }
 
 void MSAligner::buildAlignment(
@@ -321,7 +335,7 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
 
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
-  do {
+  while (advancePointInShape(Cursor, ScoreTable.getShape())) {
     computeBestTransition(Cursor, [&](std::vector<Optional<size_t>> Indices) {
       assert(!Indices.empty() && "empty indices");
       Value *theInstr = nullptr;
@@ -341,7 +355,7 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
       assert(theInstr && "no instruction specified");
       return true;
     });
-  } while (advancePointInShape(Cursor, ScoreTable.getShape()));
+  };
   MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
   MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
               BestTransTable.print(llvm::dbgs()));
@@ -754,6 +768,9 @@ class MSAGenFunctionBody {
   std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
   BasicBlock *EntryBB;
   mutable BasicBlock *BlackholeBBCache;
+  // See `fixupCoalescingPHI` for details.
+  std::map<Instruction *, std::map<Instruction *, unsigned>>
+      CoalescingCandidates;
 
 public:
   MSAGenFunctionBody(const MSAGenFunction &Parent,
@@ -1092,7 +1109,6 @@ void MSAGenFunctionBody::chainBasicBlocks() {
           NewBB =
               BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
           chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
-          BlocksFX[NewBB] = SrcBB;
         }
         LastMergedBB = nullptr;
 
@@ -1334,6 +1350,20 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     return Values[0];
 
   if (Parent.Functions.size() == 2) {
+    // TODO(katei): Extend to more than two functions.
+    {
+      auto *IV1 = dyn_cast<Instruction>(Values[0]);
+      auto *IV2 = dyn_cast<Instruction>(Values[1]);
+      if (IV1 && IV2) {
+        // if both IV1 and IV2 are non-merged values
+        if (MergedBBToBB[0][IV1->getParent()] == nullptr &&
+            MergedBBToBB[1][IV2->getParent()] == nullptr) {
+          CoalescingCandidates[IV1][IV2]++;
+          CoalescingCandidates[IV2][IV1]++;
+        }
+      }
+    }
+
     IRBuilder<> BuilderBB(MergedI);
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
         Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
@@ -1363,19 +1393,6 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     return C;
 
   // TODO(katei): Handle 0, 1, .., n => Discriminator
-
-  // TODO(katei): Priotize optimizable cases?
-  // auto *IV1 = dyn_cast<Instruction>(V1);
-  // auto *IV2 = dyn_cast<Instruction>(V2);
-
-  // if (IV1 && IV2) {
-  //   // if both IV1 and IV2 are non-merged values
-  //   if (BlocksF2.find(IV1->getParent()) == BlocksF2.end() &&
-  //       BlocksF1.find(IV2->getParent()) == BlocksF1.end()) {
-  //     CoalescingCandidates[IV1][IV2]++;
-  //     CoalescingCandidates[IV2][IV1]++;
-  //   }
-  // }
 
   // pred.0:
   //   ...
@@ -1603,9 +1620,6 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
   std::list<Instruction *> LinearOffendingInsts;
   std::set<Instruction *> OffendingInsts;
   BasicBlock *PreBB = EntryBB;
-  // TODO(katei): Collect candidates in `mergeOperandValues`
-  std::map<Instruction *, std::map<Instruction *, unsigned>>
-      CoalescingCandidates;
 
   DominatorTree DT(*MergedFunc);
 
@@ -1861,6 +1875,8 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       if (auto *PHI = dyn_cast<PHINode>(&I)) {
         auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
+        std::set<int> FoundIndices;
+
         for (auto It = pred_begin(NewPHI->getParent()),
                   E = pred_end(NewPHI->getParent());
              It != E; It++) {
@@ -1873,6 +1889,7 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
+              FoundIndices.insert(Index);
             }
           }
 
@@ -1884,6 +1901,8 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
           // IntPtrTy);
           NewPHI->addIncoming(V, NewPredBB);
         }
+        if (FoundIndices.size() != PHI->getNumIncomingValues())
+          return false;
       }
     }
     return true;

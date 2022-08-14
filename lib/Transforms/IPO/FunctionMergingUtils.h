@@ -55,12 +55,12 @@ public:
 
   void print(raw_ostream &OS) const {
     if (hasValue()) {
-      if (*this == min())
+      if (**this == min())
         OS << "min";
-      else if (*this == max())
+      else if (**this == max())
         OS << "max";
       else
-        OS << *this;
+        OS << **this;
     } else {
       OS << "None";
     }

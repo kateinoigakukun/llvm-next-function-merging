@@ -42,6 +42,55 @@ protected:
     std::reverse(Alignment.begin(), Alignment.end());
     Test(Alignment, Functions);
   }
+
+  void checkCompatibility(Module &M,
+                          const std::vector<std::string> &FuncNames) {
+    withAlignment(M, FuncNames, [&](auto Alignment, auto Funcs) {
+      AlignedSequence<Value *> LegacySeq;
+      SmallVector<Value *, 8> F1Vec;
+      SmallVector<Value *, 8> F2Vec;
+
+      FunctionMerger PairMerger(&M);
+      PairMerger.linearize(Funcs[0], F1Vec);
+      PairMerger.linearize(Funcs[1], F2Vec);
+
+      NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2),
+                                                     FunctionMerger::match);
+      LegacySeq = SA.getAlignment(F1Vec, F2Vec);
+
+      if (Alignment.size() != LegacySeq.size()) {
+        llvm::errs() << "Alignment size: " << Alignment.size()
+                     << " LegacySeq size: " << LegacySeq.size() << "\n";
+        for (auto &Entry : Alignment) {
+          Entry.dump();
+        }
+        for (auto &Entry : LegacySeq) {
+          Entry.dump();
+        }
+      }
+      ASSERT_EQ(Alignment.size(), LegacySeq.size());
+      auto actualIt = Alignment.begin();
+      auto legacyIt = LegacySeq.begin();
+
+      for (; actualIt != Alignment.end() && legacyIt != LegacySeq.end();
+           ++actualIt, ++legacyIt) {
+        auto actual = *actualIt;
+        auto expected = *legacyIt;
+
+        std::string actualStr;
+        llvm::raw_string_ostream actualOS(actualStr);
+        std::string expectedStr;
+        llvm::raw_string_ostream expectedOS(expectedStr);
+        actual.print(actualOS);
+        expected.print(expectedOS);
+        SCOPED_TRACE("actual=" + actualStr + " expected=" + expectedStr);
+
+        ASSERT_EQ(actual.match(), expected.match());
+        ASSERT_EQ(actual.getValues()[0], expected.get(0));
+        ASSERT_EQ(actual.getValues()[1], expected.get(1));
+      }
+    });
+  }
 };
 
 TEST_F(MSAFunctionMergerAlignmentTest, Basic) {
@@ -68,15 +117,15 @@ define internal void @Bfunc(i32* %P, i32* %Q) {
     LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
     ASSERT_EQ(Alignment.size(), 5);
     ASSERT_TRUE(Alignment[0].match());
-    ASSERT_TRUE(Alignment[1].match());
+    ASSERT_FALSE(Alignment[1].match());
+    ASSERT_EQ(Alignment[1].getValues()[0], nullptr);
 
-    ASSERT_FALSE(Alignment[2].match());
-    ASSERT_TRUE(isa<CallInst>(Alignment[2].getValues()[0]));
-    ASSERT_EQ(Alignment[2].getValues()[1], nullptr);
+    ASSERT_TRUE(Alignment[2].match());
+    ASSERT_TRUE(isa<StoreInst>(Alignment[2].getValues()[0]));
 
     ASSERT_FALSE(Alignment[3].match());
-    ASSERT_EQ(Alignment[3].getValues()[0], nullptr);
-    ASSERT_TRUE(isa<StoreInst>(Alignment[3].getValues()[1]));
+    ASSERT_EQ(Alignment[3].getValues()[1], nullptr);
+    ASSERT_TRUE(isa<CallInst>(Alignment[3].getValues()[0]));
 
     ASSERT_TRUE(Alignment[4].match());
   });
@@ -124,53 +173,34 @@ define i32 @susan_edges_small() #1 {
                                Error, Ctx);
 
   ASSERT_TRUE(M);
-  withAlignment(
-      *M, {"susan_edges", "susan_edges_small"},
-      [&](auto Alignment, auto Funcs) {
-        AlignedSequence<Value *> LegacySeq;
-        SmallVector<Value *, 8> F1Vec;
-        SmallVector<Value *, 8> F2Vec;
+  checkCompatibility(*M, {"susan_edges", "susan_edges_small"});
+}
 
-        FunctionMerger PairMerger(M.get());
-        PairMerger.linearize(Funcs[0], F1Vec);
-        PairMerger.linearize(Funcs[1], F2Vec);
+TEST_F(MSAFunctionMergerAlignmentTest, Regression2) {
+  LLVMContext Ctx;
+  SMDiagnostic Error;
+  auto M = parseAssemblyString(R"(
+define hidden i32 @get_interlaced_row() {
+  switch i32 undef, label %2 [
+    i32 0, label %1
+  ]
 
-        NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2),
-                                                       FunctionMerger::match);
-        LegacySeq = SA.getAlignment(F1Vec, F2Vec);
+1:
+  ret i32 undef
 
-        if (Alignment.size() != LegacySeq.size()) {
-          llvm::errs() << "Alignment size: " << Alignment.size()
-                       << " LegacySeq size: " << LegacySeq.size() << "\n";
-          for (auto &Entry : Alignment) {
-            Entry.dump();
-          }
-          for (auto &Entry : LegacySeq) {
-            Entry.dump();
-          }
-        }
-        ASSERT_EQ(Alignment.size(), LegacySeq.size());
-        auto actualIt = Alignment.begin();
-        auto legacyIt = LegacySeq.begin();
+2:
+  ret i32 undef
+}
 
-        for (; actualIt != Alignment.end() && legacyIt != LegacySeq.end();
-             ++actualIt, ++legacyIt) {
-          auto actual = *actualIt;
-          auto expected = *legacyIt;
+define hidden i32 @get_8bit_row.267() {
+  %1 = load i32*, i32** undef, align 8
+  ret i32 undef
+}
+  )",
+                               Error, Ctx);
 
-          std::string actualStr;
-          llvm::raw_string_ostream actualOS(actualStr);
-          std::string expectedStr;
-          llvm::raw_string_ostream expectedOS(expectedStr);
-          actual.print(actualOS);
-          expected.print(expectedOS);
-          SCOPED_TRACE("actual=" + actualStr + " expected=" + expectedStr);
-
-          ASSERT_EQ(actual.match(), expected.match());
-          ASSERT_EQ(actual.getValues()[0], expected.get(0));
-          ASSERT_EQ(actual.getValues()[1], expected.get(1));
-        }
-      });
+  ASSERT_TRUE(M);
+  checkCompatibility(*M, {"get_interlaced_row", "get_8bit_row.267"});
 }
 
 /* XFAIL: 2 merge is better than 3 merge now unfortunately.
