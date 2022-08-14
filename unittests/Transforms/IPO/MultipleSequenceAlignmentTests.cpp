@@ -117,15 +117,15 @@ define internal void @Bfunc(i32* %P, i32* %Q) {
     LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
     ASSERT_EQ(Alignment.size(), 5);
     ASSERT_TRUE(Alignment[0].match());
-    ASSERT_TRUE(Alignment[1].match());
+    ASSERT_FALSE(Alignment[1].match());
+    ASSERT_EQ(Alignment[1].getValues()[0], nullptr);
 
-    ASSERT_FALSE(Alignment[2].match());
-    ASSERT_TRUE(isa<CallInst>(Alignment[2].getValues()[0]));
-    ASSERT_EQ(Alignment[2].getValues()[1], nullptr);
+    ASSERT_TRUE(Alignment[2].match());
+    ASSERT_TRUE(isa<StoreInst>(Alignment[2].getValues()[0]));
 
     ASSERT_FALSE(Alignment[3].match());
-    ASSERT_EQ(Alignment[3].getValues()[0], nullptr);
-    ASSERT_TRUE(isa<StoreInst>(Alignment[3].getValues()[1]));
+    ASSERT_EQ(Alignment[3].getValues()[1], nullptr);
+    ASSERT_TRUE(isa<CallInst>(Alignment[3].getValues()[0]));
 
     ASSERT_TRUE(Alignment[4].match());
   });
