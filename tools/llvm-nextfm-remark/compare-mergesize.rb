@@ -6,6 +6,7 @@ def size_diff_remarks(remarks1, remarks2, options = {})
   [remarks1, remarks2].each do |r|
     r.remarks.filter! do
       next false unless _1.is_a?(MergeRemark)
+      next _1.funcs.size == 2 if options[:only_pair]
       next _1.is_a?(MergePassedRemark) if options[:only_passed]
       true
     end
@@ -64,6 +65,9 @@ if __FILE__ == $0
   opt.banner = "Usage: #{$0} [options] <remark1> <remark2>"
   opt.on("--only-passed", "Only output test cases that are passed") do
     options[:only_passed] = true
+  end
+  opt.on("--only-pair", "Only output test cases of 2-merge") do
+    options[:only_pair] = true
   end
   opt.parse!(ARGV)
   if ARGV.size != 2
