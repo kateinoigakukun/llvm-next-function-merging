@@ -89,8 +89,8 @@ private:
     int rowCursor = MatrixRows - 1, columnCursor = MatrixCols - 1;
 
     while (rowCursor > 0 || columnCursor > 0) {
-      auto Left = Seq1[rowCursor - 1];
-      auto Right = Seq2[columnCursor - 1];
+      auto Left = rowCursor > 0 ? Seq1[rowCursor - 1] : nullptr;
+      auto Right = columnCursor > 0 ? Seq2[columnCursor - 1] : nullptr;
       if (rowCursor > 0 && columnCursor > 0) {
         // Diagonal
 
