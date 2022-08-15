@@ -1958,6 +1958,20 @@ StringRef MSAGenFunction::getFunctionName() {
   return *this->NameCache;
 }
 
+Optional<Constant *> MSAGenFunction::computePersonalityFn() const {
+  Constant *PersonalityFn = nullptr;
+  for (auto &F : Functions) {
+    if (!F->hasPersonalityFn())
+      continue;
+    if (PersonalityFn == nullptr) {
+      PersonalityFn = F->getPersonalityFn();
+    } else if (PersonalityFn != F->getPersonalityFn()) {
+      return None;
+    }
+  }
+  return PersonalityFn;
+}
+
 Function *
 MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
                      ValueMap<Argument *, unsigned> &ArgToMergedArgNo) {
@@ -1982,6 +1996,21 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
 
   auto *MergedF = Function::Create(Sig, llvm::GlobalValue::InternalLinkage,
                                    getFunctionName(), M);
+  if (auto PersonalityFn = computePersonalityFn()) {
+    MergedF->setPersonalityFn(*PersonalityFn);
+  } else {
+    ORE.emit([&] {
+      auto remark =
+          OptimizationRemarkMissed(DEBUG_TYPE, "PersonalityFn", Functions[0])
+          << "Personality function of functions are not compatible";
+      for (auto &F : Functions) {
+        remark << ore::NV("Function", F);
+        remark << ore::NV("PersonalityFn", F->getPersonalityFn());
+      }
+      return remark;
+    });
+    return nullptr;
+  }
   auto *discriminator = MergedF->getArg(0);
   discriminator->setName("discriminator");
 

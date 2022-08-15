@@ -159,6 +159,12 @@ public:
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;
   bool layoutReturnType(Type *&RetTy);
+
+  // Returns None if functions are not compatible.
+  // Returns nullptr if no personality function is found.
+  // Otherwise, returns a personality function pointer.
+  Optional<Constant *> computePersonalityFn() const;
+
   FunctionType *
   createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args,
                      Type *RetTy);
