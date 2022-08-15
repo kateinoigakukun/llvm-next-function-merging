@@ -1247,7 +1247,11 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
 }
 
 bool MSAGenFunctionBody::assignLabelOperands() {
-  for (auto &Entry : Parent.Alignment) {
+  // iterator over reverse order so that the first inst is visited first
+  // to see use of landingpad BB before the actual landingpad inst.
+  for (auto it = Parent.Alignment.rbegin(); it != Parent.Alignment.rend();
+       ++it) {
+    MSAAlignmentEntry Entry = *it;
     std::vector<Instruction *> Instructions;
     bool allInsts = Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
