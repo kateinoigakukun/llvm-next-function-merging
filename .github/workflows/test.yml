@@ -4,7 +4,7 @@ on:
     branches: [main]
   pull_request:
 env:
-  LLVM_SIZE_BENCHMARK_SUITE_VERSION: 953f39eed2c9870f4c9794264ec6ec8f307010b5
+  LLVM_SIZE_BENCHMARK_SUITE_VERSION: aac895c4748a3ff5cc5db513b70ad52c4ae5c093
 jobs:
   build-plugin:
     strategy:
