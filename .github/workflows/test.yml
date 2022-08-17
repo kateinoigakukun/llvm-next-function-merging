@@ -126,7 +126,7 @@ jobs:
           --opttool=$LLVM_ROOT/bin/opt \
           --ldtool=$LLVM_ROOT/bin/clang \
           --pass-plugin="artifacts/usr/local/lib/LLVMNextFM.so" \
-          --suite-path="./artifacts/benchmarks/mibench" \
+          --suite-path="./artifacts/benchmarks" \
           --paralell --reporter markdown \
           --output-dir=./artifacts/benchmark-out \
           ${{ matrix.driver-options.args }} \
