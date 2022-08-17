@@ -77,7 +77,7 @@ jobs:
 
   run-benchmark-suite:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         driver-options:
         - name: Multiple Function Merging (limiting 4 functions)
