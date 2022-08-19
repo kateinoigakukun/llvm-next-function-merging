@@ -114,7 +114,7 @@ class MSAligner {
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
   void computeBestTransition(
       const std::vector<size_t> &Point,
-      const std::function<bool(std::vector<size_t> Point)> Match);
+      const std::function<bool(std::vector<Optional<size_t>> Indices)> Match);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   static bool advancePointInShape(std::vector<size_t> &Point,
@@ -172,7 +172,7 @@ void MSAligner::initScoreTable() {
 
 void MSAligner::computeBestTransition(
     const std::vector<size_t> &Point,
-    const std::function<bool(std::vector<size_t> Point)> Match) {
+    const std::function<bool(std::vector<Optional<size_t>> Indices)> Match) {
 
   // Build a virtual tensor table for transition scores.
   // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
@@ -240,15 +240,28 @@ void MSAligner::computeBestTransition(
       continue;
 
     int32_t similarity = 0;
-    for (size_t i = 0; i < TransOffset.size(); i++) {
-      similarity = AddScore(similarity, TransScore[TransOffset[i]]);
-    }
     bool IsMatched = false;
-    // If diagonal transition, add the match score.
-    if (TransOffset.all()) {
-      IsMatched = Match(minusOffsetFromPoint(TransOffset, Point));
-      similarity =
-          IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
+
+    // If straight transition, add gap penalty.
+    // If diagonal transition, compute mathcing score.
+    if (TransOffset.count() == 1) {
+      similarity = Scoring.getGapPenalty();
+    } else {
+      // Check if the transitioning direction is matching.
+      std::vector<Optional<size_t>> matchingIndices;
+      bool isPartialMatch = false;
+      for (size_t i = 0; i < Point.size(); i++) {
+        if (TransOffset[i]) {
+          matchingIndices.push_back(Point[i] - TransOffset[i]);
+        } else {
+          matchingIndices.push_back(None);
+          isPartialMatch = true;
+        }
+      }
+      IsMatched = Match(matchingIndices);
+      similarity = IsMatched ? (isPartialMatch ? Scoring.getGapPenalty()
+                                               : Scoring.getMatchProfit())
+                             : Scoring.getMismatchPenalty();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
     auto fromScore = *ScoreTable.get(Point, TransOffset, true);
@@ -276,7 +289,7 @@ void MSAligner::buildAlignment(
                                  std::vector<size_t> Cursor) {
     std::vector<Value *> Instrs;
     const TransitionOffset &TransOffset = Entry.Offset;
-    for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
+    for (int FuncIdx = 0; FuncIdx < Functions.size(); FuncIdx++) {
       size_t diff = TransOffset[FuncIdx];
       if (diff == 1) {
         Value *I = InstrVecList[FuncIdx][Cursor[FuncIdx] - 1];
@@ -306,7 +319,12 @@ void MSAligner::buildAlignment(
     MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
-    Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
+
+    auto alignmentEntry = BuildAlignmentEntry(Entry, Cursor);
+    alignmentEntry.verify();
+    MSA_VERBOSE(dbgs() << "Alignment: "; alignmentEntry.print(dbgs()));
+    Alignment.emplace_back(alignmentEntry);
+
     for (size_t dim = 0; dim < MaxDim; dim++) {
       assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
                                            "table!");
@@ -321,14 +339,23 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
   while (advancePointInShape(Cursor, ScoreTable.getShape())) {
-    computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
-      auto *TheInstr = InstrVecList[0][Point[0]];
-      for (size_t i = 1; i < InstrVecList.size(); i++) {
-        auto *OtherInstr = InstrVecList[i][Point[i]];
-        if (!FunctionMerger::match(OtherInstr, TheInstr)) {
-          return false;
+    computeBestTransition(Cursor, [&](std::vector<Optional<size_t>> Indices) {
+      assert(!Indices.empty() && "empty indices");
+      Value *theInstr = nullptr;
+      for (size_t i = 0; i < Indices.size(); i++) {
+        if (!Indices[i])
+          continue;
+        size_t idx = *Indices[i];
+        if (!theInstr) {
+          theInstr = InstrVecList[i][idx];
+        } else {
+          auto *OtherInstr = InstrVecList[i][idx];
+          if (!FunctionMerger::match(theInstr, OtherInstr)) {
+            return false;
+          }
         }
       }
+      assert(theInstr && "no instruction specified");
       return true;
     });
   };
@@ -386,6 +413,7 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
 
   MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
   Aligner.align(Alignment);
+
   return true;
 }
 
@@ -405,15 +433,29 @@ bool MSAAlignmentEntry::collectInstructions(
   return allInstructions;
 }
 
+Value *MSAAlignmentEntry::firstValidValue() const {
+  for (auto *V : Values) {
+    if (V)
+      return V;
+  }
+  llvm_unreachable("no valid value!?");
+}
+
 void MSAAlignmentEntry::verify() const {
   if (!match() || Values.empty()) {
     return;
   }
-  bool isBB = isa<BasicBlock>(Values[0]);
-  for (size_t i = 1; i < Values.size(); i++) {
-    if (isBB != isa<BasicBlock>(Values[i])) {
-      llvm_unreachable(
-          "all values must be either basic blocks or instructions");
+  Optional<bool> isBB = None;
+  for (size_t i = 0; i < Values.size(); i++) {
+    if (!Values[i]) {
+      continue;
+    }
+    if (isBB) {
+      if (*isBB != isa<BasicBlock>(Values[i])) {
+        llvm_unreachable("all values must be either basic blocks or null");
+      }
+    } else {
+      isBB = isa<BasicBlock>(Values[i]);
     }
   }
 }
@@ -770,7 +812,8 @@ public:
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
 
-  bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions);
+  bool assignMergedInstLabelOperands(ArrayRef<Instruction *> SrcInstructions,
+                                     Instruction *MergedInst);
   bool assignSingleInstLabelOperands(Instruction *I, size_t FuncId);
   bool assignLabelOperands();
 
@@ -890,12 +933,11 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
   auto &Alignment = Parent.Alignment;
   for (auto it = Alignment.rbegin(), end = Alignment.rend(); it != end; ++it) {
     auto &Entry = *it;
-    Entry.verify();
     if (!Entry.match()) {
       continue;
     }
 
-    auto *HeadV = Entry.getValues().front();
+    auto *HeadV = Entry.firstValidValue();
     Twine BBName = [&]() {
       if (auto *BB = dyn_cast<BasicBlock>(HeadV)) {
         return "m.bb." + BB->getName();
@@ -930,6 +972,9 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
       auto Vs = Entry.getValues();
       for (size_t i = 0, e = Vs.size(); i < e; ++i) {
+        // value could be nullptr if some of the instructions are matched
+        if (!Vs[i])
+          continue;
         auto *BB = dyn_cast<BasicBlock>(Vs[i]);
         VMap[BB] = MergedBB;
 
@@ -1093,6 +1138,9 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   Instruction *MaxNumOperandsInst = nullptr;
   assert(!Instructions.empty() && "Empty instruction list!");
   for (auto *I : Instructions) {
+    if (!I) {
+      continue;
+    }
     if (MaxNumOperandsInst == nullptr ||
         I->getNumOperands() > MaxNumOperandsInst->getNumOperands()) {
       MaxNumOperandsInst = I;
@@ -1103,56 +1151,71 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
 }
 
 bool MSAGenFunctionBody::assignMergedInstLabelOperands(
-    ArrayRef<Instruction *> Instructions) {
-
-  Instruction *I = Instructions[0];
-  auto *NewI = dyn_cast<Instruction>(VMap[I]);
+    ArrayRef<Instruction *> Instructions, Instruction *NewI) {
 
   auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
 
   for (unsigned OperandIdx = 0;
        OperandIdx < MaxNumOperandsInst->getNumOperands(); OperandIdx++) {
-    std::vector<Value *> FVs;
-    std::vector<Value *> Vs;
-    for (auto *I : Instructions) {
-      Value *FV = nullptr;
-      Value *V = nullptr;
-      if (OperandIdx < I->getNumOperands()) {
-        FV = I->getOperand(OperandIdx);
-        // FIXME(katei): `VMap[FV]` is enough?
-        V = MapValue(FV, VMap);
-        assert(V && "Operand not found in VMap!");
-      } else {
-        V = UndefValue::get(
-            MaxNumOperandsInst->getOperand(OperandIdx)->getType());
+    DenseMap<fmutils::FuncId, Value *> SrcValueByFuncId;
+    DenseMap<fmutils::FuncId, Value *> MappedValueByFuncId;
+    bool isBBOperand = true;
+    bool areAllOperandsEqual = true;
+    bool isAnyOperandLandingPad = false;
+    Value *FirstValidV = nullptr;
+
+    for (fmutils::FuncId FuncId = 0; FuncId < Instructions.size(); FuncId++) {
+      auto *I = Instructions[FuncId];
+      // Partially merged instructions may have null entries.
+      if (!I || !(OperandIdx < I->getNumOperands())) {
+        continue;
       }
-      assert(V != nullptr && "Value should NOT be null!");
-      FVs.push_back(FV);
-      Vs.push_back(V);
+      Value *SrcV = I->getOperand(OperandIdx);
+      Value *V = MapValue(SrcV, VMap);
+      assert(V && "Operand not found in VMap!");
+
+      if (FirstValidV == nullptr) {
+        FirstValidV = V;
+      }
+
+      isBBOperand &= isa<BasicBlock>(V);
+      areAllOperandsEqual &= (FirstValidV == V);
+      isAnyOperandLandingPad |=
+          isa<BasicBlock>(SrcV) && dyn_cast<BasicBlock>(SrcV)->isLandingPad();
+
+      SrcValueByFuncId[FuncId] = SrcV;
+      MappedValueByFuncId[FuncId] = V;
     }
+
+    // handling just label operands for now
+    if (!isBBOperand)
+      continue;
 
     Value *V = nullptr;
 
-    // handling just label operands for now
-    if (!isa<BasicBlock>(Vs[0]))
-      continue;
-
-    bool areAllOperandsEqual =
-        std::all_of(Vs.begin(), Vs.end(), [&](Value *V) { return V == Vs[0]; });
-
     if (areAllOperandsEqual) {
-      V = Vs[0]; // assume that V1 == V2 == ... == Vn
-    } else if (Vs.size() == 2) {
-      assert(Instructions.size() == 2 && "Invalid number of instructions!");
+      V = FirstValidV; // assume that V1 == V2 == ... == Vn
+    } else if (MappedValueByFuncId.size() == 2 && MappedValueByFuncId[0]) {
       // if there are only two instructions, we can just use cond_br
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
-      IRBuilder<> Builder(SelectBB);
-      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[1]),
-                           dyn_cast<BasicBlock>(Vs[0]));
-      for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+      fmutils::FuncId OtherFuncId = 1;
+      while (MappedValueByFuncId[OtherFuncId] == nullptr) {
+        OtherFuncId++;
       }
-      MergedBBToBB[0][SelectBB] = I->getParent();
+      IRBuilder<> Builder(SelectBB);
+      Value *Cond = Discriminator;
+      if (!Discriminator->getType()->isIntegerTy(1)) {
+        // Is discriminator not zero?
+        Cond = Builder.CreateICmpNE(
+            Discriminator, ConstantInt::get(Discriminator->getType(), 0));
+      }
+
+      Builder.CreateCondBr(
+          Cond, dyn_cast<BasicBlock>(MappedValueByFuncId[OtherFuncId]),
+          dyn_cast<BasicBlock>(MappedValueByFuncId[0]));
+      MergedBBToBB[0][SelectBB] = Instructions[0]->getParent();
+      MergedBBToBB[OtherFuncId][SelectBB] =
+          Instructions[OtherFuncId]->getParent();
       V = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
@@ -1161,11 +1224,14 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         auto *I = Instructions[FuncId];
+        if (I == nullptr || MappedValueByFuncId[FuncId] == nullptr) {
+          continue;
+        }
         // XXX: is this correct?
         MergedBBToBB[FuncId][SelectBB] = I->getParent();
 
         auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-        auto *BB = dyn_cast<BasicBlock>(Vs[FuncId]);
+        auto *BB = dyn_cast<BasicBlock>(MappedValueByFuncId[FuncId]);
         Switch->addCase(Case, BB);
       }
 
@@ -1174,21 +1240,17 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 
     assert(V != nullptr && "Label operand value should be merged!");
 
-    bool isAnyOperandLandingPad =
-        std::any_of(FVs.begin(), FVs.end(), [&](Value *FV) {
-          return dyn_cast<BasicBlock>(FV)->isLandingPad();
-        });
-
     if (isAnyOperandLandingPad) {
-      for (auto *FV : FVs) {
-        auto *BB = dyn_cast<BasicBlock>(FV);
+      for (auto FuncIdAndSrcV : SrcValueByFuncId) {
+        auto *BB = dyn_cast<BasicBlock>(FuncIdAndSrcV.second);
         assert(BB->getLandingPadInst() != nullptr &&
                "Should be both as per the BasicBlock match!");
       }
       BasicBlock *LPadBB = BasicBlock::Create(Parent.C, "lpad.bb", MergedFunc);
       IRBuilder<> BuilderBB(LPadBB);
 
-      auto *LP1 = dyn_cast<BasicBlock>(FVs[0])->getLandingPadInst();
+      auto *LP1 =
+          dyn_cast<BasicBlock>(SrcValueByFuncId[0])->getLandingPadInst();
 
       Instruction *NewLP = LP1->clone();
       BuilderBB.Insert(NewLP);
@@ -1196,8 +1258,12 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
-        auto *FBB = dyn_cast<BasicBlock>(FVs[FuncId]);
+        auto *I = Instructions[FuncId];
+        if (I == nullptr) {
+          continue;
+        }
+        MergedBBToBB[FuncId][LPadBB] = I->getParent();
+        auto *FBB = dyn_cast<BasicBlock>(SrcValueByFuncId[FuncId]);
         VMap[FBB->getLandingPadInst()] = NewLP;
       }
 
@@ -1248,15 +1314,19 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
 
 bool MSAGenFunctionBody::assignLabelOperands() {
   for (auto &Entry : Parent.Alignment) {
+    Value *HeadV = Entry.firstValidValue();
+    // Skip BB entries
+    if (isa<BasicBlock>(HeadV)) {
+      continue;
+    }
     std::vector<Instruction *> Instructions;
-    bool allInsts = Entry.collectInstructions(Instructions);
+    Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
     // Otherwise, just map original operand value to new value for each
     // instruction.
-    // TODO(katei): Allow partially merged instructions when two of three
-    // instructions are merged.
-    if (Entry.match() && allInsts) {
-      if (!assignMergedInstLabelOperands(Instructions)) {
+    if (Entry.match()) {
+      auto *NewI = dyn_cast<Instruction>(VMap[HeadV]);
+      if (!assignMergedInstLabelOperands(Instructions, NewI)) {
         LLVM_DEBUG(
             errs() << "ERROR: Failed to assign matching label operands\n";);
         return false;
@@ -1282,7 +1352,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   if (areAllEqual)
     return Values[0];
 
-  if (Values.size() == 2) {
+  if (Parent.Functions.size() == 2) {
     // TODO(katei): Extend to more than two functions.
     {
       auto *IV1 = dyn_cast<Instruction>(Values[0]);
@@ -1298,12 +1368,32 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     }
 
     IRBuilder<> BuilderBB(MergedI);
-    assert(Parent.Functions.size() == 2 && "Expected two functions!");
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
         Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
     return BuilderBB.CreateSelect(DiscriminatorBit, Values[1], Values[0],
                                   "switch.select");
   }
+
+  // Handle select %discriminator (1, 1, 1) => 1
+  // This is mandatory pass to avoid having non-constant literals in the
+  // constant required operands like GEP indices.
+  auto tryMergeSingleValue = [&]() -> Value * {
+    Value *TheValue = nullptr;
+    for (auto *V : Values) {
+      // Partially matched values may have undef values.
+      if (isa<UndefValue>(V))
+        continue;
+
+      if (!TheValue)
+        TheValue = V;
+      else if (TheValue != V)
+        return nullptr;
+    }
+    return TheValue;
+  };
+
+  if (auto *C = tryMergeSingleValue())
+    return C;
 
   // TODO(katei): Handle 0, 1, .., n => Discriminator
 
@@ -1418,9 +1508,10 @@ Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
 bool MSAGenFunctionBody::assignValueOperands() {
   for (auto &Entry : Parent.Alignment) {
     std::vector<Instruction *> Instructions;
-    bool allValuesAreInstruction = Entry.collectInstructions(Instructions);
-    if (!allValuesAreInstruction) {
-      // If instructions and BBs are mixed, assign only instructions.
+    Entry.collectInstructions(Instructions);
+
+    if (!Entry.match()) {
+      // If this entry is a gap, just map operands
       for (auto *V : Entry.getValues()) {
         if (V == nullptr)
           continue;
@@ -1434,6 +1525,11 @@ bool MSAGenFunctionBody::assignValueOperands() {
       continue;
     }
 
+    // If values are matched and they are BBs, they don't have operands
+    if (isa<BasicBlock>(Entry.firstValidValue())) {
+      continue;
+    }
+
     // Process the case where all values are instructions.
 
     auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
@@ -1444,9 +1540,12 @@ bool MSAGenFunctionBody::assignValueOperands() {
         MaxNumOperandsInst->isCommutative()) {
       // Optimizable case:
 
+      // Operand list for each position by operand index
       std::vector<std::vector<Value *>> Operands(
           MaxNumOperandsInst->getNumOperands());
       for (auto *I : Instructions) {
+        if (I == nullptr)
+          continue;
         auto *BO = dyn_cast<BinaryOperator>(I);
         for (size_t OpIdx = 0, e = I->getNumOperands(); OpIdx < e; ++OpIdx) {
           auto *NewO = MapValue(I->getOperand(OpIdx), VMap);
@@ -1480,7 +1579,7 @@ bool MSAGenFunctionBody::assignValueOperands() {
         for (auto *I : Instructions) {
           Value *FV = nullptr;
           Value *V = nullptr;
-          if (OperandIdx < I->getNumOperands()) {
+          if (I && OperandIdx < I->getNumOperands()) {
             FV = I->getOperand(OperandIdx);
             // FIXME(katei): `VMap[FV]` is enough?
             V = MapValue(FV, VMap);

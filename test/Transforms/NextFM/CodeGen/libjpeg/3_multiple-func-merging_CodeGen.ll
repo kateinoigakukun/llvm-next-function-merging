@@ -5,8 +5,7 @@
 ; - SkipDataBlocks
 
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK-NOT: --- !Missed
-; XFAIL: *
+; CHECK-NOT: Name:            CodeGen
 
 ; ModuleID = '/tmp/tmp.XL3451GutF/libjpeg.ll'
 source_filename = "llvm-link"
