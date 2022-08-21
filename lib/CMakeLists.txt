@@ -14,4 +14,5 @@ set_property(TARGET LLVMNextFMObjects PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_llvm_pass_plugin(LLVMNextFM
   Transforms/IPO/NextFMLoader.cpp
-  LINK_LIBS LLVMNextFMObjects)
+  LINK_LIBS LLVMNextFMObjects
+  NO_INSTALL_RPATH)
