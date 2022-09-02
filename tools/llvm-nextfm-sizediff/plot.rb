@@ -1,13 +1,13 @@
 #!/usr/bin/env ruby
 
-class SizeDiff
+class Plotter
     def build_obj_pattern(base_path)
         File.join(base_path, "**", "obj.strip.o")
     end
 
-    def initialize(results)
+    def initialize(old_path, new_path)
         diff = {}
-        results.each do |base_path, variant|
+        [[old_path, :old], [new_path, :new]].each do |base_path, variant|
             Dir.glob(build_obj_pattern(base_path)).each do |obj_path|
                 key = obj_path.delete_prefix(base_path).delete_prefix("/")
                 diff[key] ||= {}
@@ -54,11 +54,11 @@ class SizeDiff
 end
 
 if __FILE__ == $0
-    if ARGV.size != 2
-        puts "Usage: #{$0} <old> <new>"
+    if ARGV.size < 2
+        puts "Usage: #{$0} <bench-out1> <bench-out2> ... <bench-outN>"
         exit 1
     end
     old_path = ARGV[0]
     new_path = ARGV[1]
-    puts SizeDiff.new([[old_path, :old], [new_path, :new]]).to_markdown
+    puts SizeDiff.new(old_path, new_path).to_markdown
 end
