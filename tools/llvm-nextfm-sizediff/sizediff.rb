@@ -1,5 +1,8 @@
 #!/usr/bin/env ruby
 
+$LOAD_PATH.unshift(File.dirname(__FILE__) + '/../lib')
+require "markdown"
+
 class SizeDiff
     def build_obj_pattern(base_path)
         File.join(base_path, "**", "obj.strip.o")
@@ -21,10 +24,8 @@ class SizeDiff
         columns = [
             ["Path", :left], ["Old", :right], ["New", :right], ["Diff (bytes)", :right], ["Diff (%)", :right]
         ]
-        rows = [
-            columns.map {|c| c[0] }
-        ]
-        rows += @diff.map do |path, sizes|
+        table = Markdown::Table.new(columns)
+        rows = @diff.map do |path, sizes|
             old_size = sizes[:old]
             new_size = sizes[:new]
             if old_size && new_size
@@ -38,18 +39,10 @@ class SizeDiff
                 ["`#{path}`", "", new_size.to_s, "", ""]
             end
         end
-
-        columns_width = rows.transpose.map do |col|
-            col.map(&:size).max
+        rows.each do |row|
+            table.add_row(row)
         end
-
-        lines = rows.map do |row|
-            "| " + row.zip(columns_width, columns).map do |cell, width, col|
-                col[1] == :left ? cell.ljust(width) : cell.rjust(width)
-            end.join(" | ") + " |"
-        end
-        separator = "| " + columns_width.map {|w| "-" * w }.join(" | ") + " |"
-        ([lines[0], separator] + lines[1..]).join("\n") + "\n"
+        table.to_markdown
     end
 end
 
