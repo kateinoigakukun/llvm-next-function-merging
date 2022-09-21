@@ -2184,6 +2184,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           continue;
         MatchFinder->remove_candidate(F);
       }
+      MatchFinder->add_candidate(&Merged, score.MergedSize);
     }
   }
 
