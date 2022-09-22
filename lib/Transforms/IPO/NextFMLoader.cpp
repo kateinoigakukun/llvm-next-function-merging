@@ -16,6 +16,12 @@ using namespace llvm;
 llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "NextFM", LLVM_VERSION_STRING,
           [](PassBuilder &PB) {
+            PB.registerOptimizerLastEPCallback(
+                [](ModulePassManager &MPM,
+                   PassBuilder::OptimizationLevel Level) {
+                  if (Level == PassBuilder::OptimizationLevel::Oz)
+                    MPM.addPass(MultipleFunctionMergingPass());
+                });
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &PM,
                    ArrayRef<PassBuilder::PipelineElement>) {

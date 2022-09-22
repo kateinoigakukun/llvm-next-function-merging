@@ -16,3 +16,8 @@ add_llvm_pass_plugin(LLVMNextFM
   Transforms/IPO/NextFMLoader.cpp
   LINK_LIBS LLVMNextFMObjects
   NO_INSTALL_RPATH)
+
+add_llvm_pass_plugin(LLVMNextFMForTwo
+  Transforms/IPO/NextFMLoaderForTwo.cpp
+  LINK_LIBS LLVMNextFMObjects
+  NO_INSTALL_RPATH)
