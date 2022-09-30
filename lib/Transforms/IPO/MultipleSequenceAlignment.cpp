@@ -944,7 +944,7 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
         }
         for (Instruction &I : *BB) {
           if (auto *PI = dyn_cast<PHINode>(&I)) {
-            VMap[PI] = Builder.CreatePHI(PI->getType(), 0);
+            VMap[PI] = Builder.CreatePHI(PI->getType(), 0, PI->getName());
           }
         }
 
@@ -1047,7 +1047,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       IRBuilder<> Builder(NewBB);
       for (Instruction &I : *SrcBB) {
         if (auto *PI = dyn_cast<PHINode>(&I)) {
-          VMap[PI] = Builder.CreatePHI(PI->getType(), 0);
+          VMap[PI] = Builder.CreatePHI(PI->getType(), 0, PI->getName());
         }
       }
     }
@@ -1372,7 +1372,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
                                          MergedFunc, MergedI->getParent());
   IRBuilder<> AggregateB(AggregateBB);
 
-  auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size());
+  auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size(), "phi.aggregate.values");
   AggregateB.CreateBr(MergedI->getParent());
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
@@ -1604,7 +1604,7 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
 
         Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
         // create PHI
-        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0, "store2addr");
         for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
              PredIt != PredE; PredIt++) {
           BasicBlock *PredBB = *PredIt;
@@ -1622,7 +1622,7 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
 
           Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
           // create PHI
-          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0, "store2addr");
           for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
                PredIt != PredE; PredIt++) {
             BasicBlock *PredBB = *PredIt;
