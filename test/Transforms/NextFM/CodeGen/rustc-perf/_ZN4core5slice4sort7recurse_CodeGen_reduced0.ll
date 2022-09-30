@@ -39,12 +39,12 @@ declare i64 @llvm.umin.i64(i64, i64) #4
 
 define hidden fastcc void @_ZN4core5slice4sort7recurse17h84fd8028bd55c38bE() unnamed_addr personality i32 (i32, i32, i64, %"unwind::libunwind::_Unwind_Exception"*, %"unwind::libunwind::_Unwind_Context"*)* undef {
   %1 = alloca [24 x i64], align 8
-  br label %3
+  br label %end_bb
 
-2:                                                ; No predecessors!
-  br label %3
+orphan:                                           ; No predecessors!
+  br label %end_bb
 
-3:                                                ; preds = %2, %0
+end_bb:                                           ; preds = %orphan, %0
   ret void
 }
 

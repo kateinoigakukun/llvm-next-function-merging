@@ -1010,6 +1010,14 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   // }
   // ```
 
+  struct ClonedInst {
+    Instruction *SrcI;
+    Instruction *NewI;
+    ClonedInst(Instruction *SrcI, Instruction *NewI) : SrcI(SrcI), NewI(NewI) {}
+  };
+
+  std::vector<ClonedInst> ClonedInsts;
+
   auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
                                DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
                                fmutils::FuncId FuncId) {
@@ -1072,6 +1080,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
 
         IRBuilder<> Builder(NewBB);
         Instruction *NewI = this->cloneInstruction(Builder, &I);
+        ClonedInsts.emplace_back(&I, NewI);
         VMap[&I] = NewI;
       }
     }
@@ -1084,6 +1093,20 @@ void MSAGenFunctionBody::chainBasicBlocks() {
     }
     auto *MergedEntryV = MapValue(&F->getEntryBlock(), VMap);
     chainer.chainBlocks(EntryBB, dyn_cast<BasicBlock>(MergedEntryV), i);
+
+    // Assign BB operands to the mapped BBs here because
+    // assignLabelOperands() only iterates over alignment entries
+    // and doesn't visit orphan blocks.
+    for (auto &CI : ClonedInsts) {
+      for (unsigned i = 0, e = CI.SrcI->getNumOperands(); i < e; ++i) {
+        Value *Op = CI.SrcI->getOperand(i);
+        if (auto *OpB = dyn_cast<BasicBlock>(Op)) {
+          auto *NewOpB = MapValue(OpB, VMap);
+          CI.NewI->setOperand(i, NewOpB);
+        }
+      }
+    }
+    ClonedInsts.clear();
   }
   chainer.finalize();
 }
