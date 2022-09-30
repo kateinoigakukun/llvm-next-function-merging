@@ -1290,7 +1290,6 @@ bool MSAGenFunctionBody::assignLabelOperands() {
       }
     } else {
       for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
-        auto *F = Parent.Functions[FuncId];
         if (auto *I = Instructions[FuncId]) {
           if (!assignSingleInstLabelOperands(I, FuncId)) {
             return false;
