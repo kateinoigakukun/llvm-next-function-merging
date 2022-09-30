@@ -894,6 +894,8 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
     if (!Entry.match()) {
       continue;
     }
+    MSA_VERBOSE(dbgs() << "Layout shared alignment entry";
+                Entry.print(dbgs()););
 
     auto *HeadV = Entry.getValues().front();
     Twine BBName = [&]() {
