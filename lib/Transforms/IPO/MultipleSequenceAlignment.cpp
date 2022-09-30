@@ -726,7 +726,9 @@ class MSAGenFunctionBody {
   ValueToValueMapTy &VMap;
   // FIXME(katei): Better name?
   DenseMap<Value *, BasicBlock *> MaterialNodes;
-  std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
+  std::vector<DenseMap<BasicBlock *, BasicBlock *>> FinalBBToBB;
+  // IsMerged flag by final BB.
+  DenseMap<BasicBlock *, bool> IsMergedBB;
   BasicBlock *EntryBB;
   mutable BasicBlock *BlackholeBBCache;
   // See `fixupCoalescingPHI` for details.
@@ -740,7 +742,7 @@ public:
                      Function *MergedF)
       : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
         Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
-        MergedBBToBB(Parent.Functions.size()) {
+        FinalBBToBB(Parent.Functions.size()) {
 
     EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
     BlackholeBBCache = nullptr;
@@ -926,7 +928,8 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
           continue;
         auto *I = dyn_cast<Instruction>(Vs[i]);
         VMap[I] = NewI;
-        MergedBBToBB[i][MergedBB] = I->getParent();
+        FinalBBToBB[i][MergedBB] = I->getParent();
+        IsMergedBB[MergedBB] = true;
       }
     } else {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
@@ -948,7 +951,8 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
           }
         }
 
-        MergedBBToBB[i][MergedBB] = BB;
+        FinalBBToBB[i][MergedBB] = BB;
+        IsMergedBB[MergedBB] = true;
       }
     }
   }
@@ -1077,6 +1081,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
           NewBB =
               BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
           chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
+          BlocksFX[NewBB] = SrcBB;
         }
         LastMergedBB = nullptr;
 
@@ -1091,7 +1096,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   for (size_t i = 0, e = Parent.Functions.size(); i < e; ++i) {
     auto *F = Parent.Functions[i];
     for (auto &BB : *F) {
-      ProcessBasicBlock(&BB, MergedBBToBB[i], i);
+      ProcessBasicBlock(&BB, FinalBBToBB[i], i);
     }
     auto *MergedEntryV = MapValue(&F->getEntryBlock(), VMap);
     chainer.chainBlocks(EntryBB, dyn_cast<BasicBlock>(MergedEntryV), i);
@@ -1175,9 +1180,10 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[1]),
                            dyn_cast<BasicBlock>(Vs[0]));
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+        FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
       }
-      MergedBBToBB[0][SelectBB] = I->getParent();
+      FinalBBToBB[0][SelectBB] = I->getParent();
+      IsMergedBB[SelectBB] = true;
       V = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
@@ -1187,13 +1193,14 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         auto *I = Instructions[FuncId];
         // XXX: is this correct?
-        MergedBBToBB[FuncId][SelectBB] = I->getParent();
+        FinalBBToBB[FuncId][SelectBB] = I->getParent();
 
         auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
         auto *BB = dyn_cast<BasicBlock>(Vs[FuncId]);
         Switch->addCase(Case, BB);
       }
 
+      IsMergedBB[SelectBB] = true;
       V = SelectBB;
     }
 
@@ -1221,7 +1228,9 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
+        FinalBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
+        // XXX: is this really merged?
+        IsMergedBB[LPadBB] = true;
         auto *FBB = dyn_cast<BasicBlock>(FVs[FuncId]);
         VMap[FBB->getLandingPadInst()] = NewLP;
       }
@@ -1236,7 +1245,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
                                                        size_t FuncId) {
   auto *NewI = dyn_cast<Instruction>(VMap[I]);
-  auto &BlocksReMap = MergedBBToBB[FuncId];
+  auto &BlocksReMap = FinalBBToBB[FuncId];
 
   for (unsigned i = 0; i < I->getNumOperands(); i++) {
     // handling just label operands for now
@@ -1260,6 +1269,7 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
       BuilderBB.Insert(NewLP);
       VMap[LP] = NewLP;
       BlocksReMap[LPadBB] = I->getParent(); // FXBB;
+      IsMergedBB[LPadBB] = true;            // XXX: is this really merged?
 
       BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
 
@@ -1317,8 +1327,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
       auto *IV2 = dyn_cast<Instruction>(Values[1]);
       if (IV1 && IV2) {
         // if both IV1 and IV2 are non-merged values
-        if (MergedBBToBB[0][IV1->getParent()] == nullptr &&
-            MergedBBToBB[1][IV2->getParent()] == nullptr) {
+        if (!IsMergedBB[IV1->getParent()] && !IsMergedBB[IV2->getParent()]) {
           CoalescingCandidates[IV1][IV2]++;
           CoalescingCandidates[IV2][IV1]++;
         }
@@ -1822,7 +1831,11 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
               FoundIndices.insert(Index);
+            } else {
+              dbgs() << "ERROR: Cannot find incoming value for BB\n";
             }
+          } else {
+            dbgs() << "ERROR: Cannot find the original BB for the new BB\n";
           }
 
           if (V == nullptr)
@@ -1843,7 +1856,7 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
   for (size_t FuncId = 0; FuncId < Parent.Functions.size(); FuncId++) {
     auto *F = Parent.Functions[FuncId];
     for (auto &BB : *F) {
-      if (!AssignPHIOperandsInBlock(&BB, MergedBBToBB[FuncId])) {
+      if (!AssignPHIOperandsInBlock(&BB, FinalBBToBB[FuncId])) {
         return false;
       }
     }
