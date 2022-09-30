@@ -5,7 +5,7 @@
 ; CHECK-NEXT: Function:        _ZN4core5slice4sort7recurse17h84fd8028bd55c38bE
 ; CHECK-NEXT: Args:
 ; CHECK-NEXT:   - Reason:          Something went wrong
-; ModuleID = '/tmp/llvm-reduce-4e84e3.ll'
+; ModuleID = '/tmp/llvm-reduce-c31636.ll'
 source_filename = "cranelift_codegen.1fa9f6fc-cgu.10"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
@@ -23,45 +23,42 @@ declare void @llvm.assume(i1 noundef) #0
 
 ; Function Attrs: nofree norecurse nosync nounwind readonly
 define hidden fastcc void @_ZN4core5slice4sort7recurse17h84fd8028bd55c38bE([0 x %"regalloc::linear_scan::analysis::RangeFrag"]* nocapture readonly %0, i64 %1) unnamed_addr #1 personality i32 (i32, i32, i64, %"unwind::libunwind::_Unwind_Exception"*, %"unwind::libunwind::_Unwind_Context"*)* undef {
-  %3 = lshr i64 %1, 1
-  %4 = and i64 %3, 9223372036854775806
-  %5 = icmp ugt i64 %1, 49
-  br i1 %5, label %12, label %6
+  %3 = icmp ugt i64 %1, 49
+  br i1 %3, label %10, label %4
 
-6:                                                ; preds = %12, %2
-  %7 = phi i64 [ %4, %2 ], [ %19, %12 ]
-  %8 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 %7, i32 2
-  %9 = load i32, i32* %8, align 8, !alias.scope !0, !noalias !3
-  %10 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 undef, i32 2
-  %11 = load i32, i32* %10, align 8, !alias.scope !0, !noalias !13
-  %.not = icmp ult i32 %11, %9
-  br i1 %.not, label %.preheader, label %20
+4:                                                ; preds = %10, %2
+  %5 = phi i64 [ 0, %2 ], [ %16, %10 ]
+  %6 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 %5, i32 2
+  %7 = load i32, i32* %6, align 8, !alias.scope !0, !noalias !3
+  %8 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 undef, i32 2
+  %9 = load i32, i32* %8, align 8, !alias.scope !0, !noalias !13
+  %.not = icmp ult i32 %9, %7
+  br i1 %.not, label %.preheader, label %17
 
-12:                                               ; preds = %2
-  %13 = add nsw i64 %4, -1
-  %14 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 %4, i32 2
-  %15 = load i32, i32* %14, align 8, !alias.scope !0, !noalias !18
-  %16 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 %13, i32 2
-  %17 = load i32, i32* %16, align 8, !alias.scope !0, !noalias !18
-  %18 = icmp ult i32 %15, %17
-  %19 = select i1 %18, i64 %4, i64 %13
-  br label %6
+10:                                               ; preds = %2
+  %11 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 0, i32 2
+  %12 = load i32, i32* %11, align 8, !alias.scope !0, !noalias !18
+  %13 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 -1, i32 2
+  %14 = load i32, i32* %13, align 8, !alias.scope !0, !noalias !18
+  %15 = icmp uge i32 %12, %14
+  %16 = sext i1 %15 to i64
+  br label %4
 
-.preheader:                                       ; preds = %6, %.preheader
+.preheader:                                       ; preds = %4, %.preheader
   br label %.preheader
 
-20:                                               ; preds = %6
+17:                                               ; preds = %4
   ret void
 }
 
 ; Function Attrs: mustprogress nofree nosync nounwind willreturn
-define hidden fastcc void @_ZN4core5slice4sort7recurse17h37cd075f67b5ff92E([0 x %"regalloc::linear_scan::analysis::RangeFrag"]* nocapture readonly %0, i64 %1) unnamed_addr #2 personality i32 (i32, i32, i64, %"unwind::libunwind::_Unwind_Exception"*, %"unwind::libunwind::_Unwind_Context"*)* undef {
-  %3 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 0, i32 2
-  %4 = load i32, i32* %3, align 8, !alias.scope !31, !noalias !34
-  %5 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 undef, i32 2
-  %6 = load i32, i32* %5, align 8, !alias.scope !31, !noalias !44
-  %7 = icmp uge i32 %6, %4
-  tail call void @llvm.assume(i1 %7)
+define hidden fastcc void @_ZN4core5slice4sort7recurse17h37cd075f67b5ff92E([0 x %"regalloc::linear_scan::analysis::RangeFrag"]* nocapture readonly %0) unnamed_addr #2 personality i32 (i32, i32, i64, %"unwind::libunwind::_Unwind_Exception"*, %"unwind::libunwind::_Unwind_Context"*)* undef {
+  %2 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 0, i32 2
+  %3 = load i32, i32* %2, align 8, !alias.scope !31, !noalias !34
+  %4 = getelementptr [0 x %"regalloc::linear_scan::analysis::RangeFrag"], [0 x %"regalloc::linear_scan::analysis::RangeFrag"]* %0, i64 0, i64 undef, i32 2
+  %5 = load i32, i32* %4, align 8, !alias.scope !31, !noalias !44
+  %6 = icmp uge i32 %5, %3
+  tail call void @llvm.assume(i1 %6)
   ret void
 }
 
