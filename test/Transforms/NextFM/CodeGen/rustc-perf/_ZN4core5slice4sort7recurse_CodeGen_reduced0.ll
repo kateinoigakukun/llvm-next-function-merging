@@ -1,10 +1,5 @@
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK:      --- !Missed
-; CHECK-NEXT: Pass:            multiple-func-merging
-; CHECK-NEXT: Name:            CodeGen
-; CHECK-NEXT: Function:        _ZN4core5slice4sort7recurse17h84fd8028bd55c38bE
-; CHECK-NEXT: Args:
-; CHECK-NEXT:   - Reason:          Something went wrong
+; CHECK-NOT:  - Reason:          Something went wrong
 ; ModuleID = 'test/Transforms/NextFM/CodeGen/rustc-perf/_ZN4core5slice4sort7recurse_CodeGen.ll'
 source_filename = "cranelift_codegen.1fa9f6fc-cgu.10"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
