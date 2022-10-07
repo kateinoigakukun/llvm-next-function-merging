@@ -1832,10 +1832,13 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
               FoundIndices.insert(Index);
             } else {
-              dbgs() << "ERROR: Cannot find incoming value for BB\n";
+              LLVM_DEBUG(dbgs()
+                         << "ERROR: Cannot find incoming value for BB\n");
             }
           } else {
-            dbgs() << "ERROR: Cannot find the original BB for the new BB\n";
+            LLVM_DEBUG(
+                dbgs()
+                << "ERROR: Cannot find the original BB for the new BB\n");
           }
 
           if (V == nullptr)
