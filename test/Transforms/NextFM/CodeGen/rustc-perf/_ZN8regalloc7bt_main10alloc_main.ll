@@ -1,4 +1,4 @@
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
+; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 --multiple-func-merging-shape-limit=41943040 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
 ; CHECK:      --- !Missed
 ; CHECK-NEXT: Pass:            multiple-func-merging
 ; CHECK-NEXT: Name:            CodeGen
