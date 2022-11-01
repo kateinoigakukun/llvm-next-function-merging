@@ -1861,8 +1861,16 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
           // IntPtrTy);
           NewPHI->addIncoming(V, NewPredBB);
         }
-        if (FoundIndices.size() != PHI->getNumIncomingValues())
+        if (FoundIndices.size() != PHI->getNumIncomingValues()) {
+          Parent.ORE.emit([&] {
+            return createMissedRemark(
+                "CodeGen",
+                "AssignPHIOperandsInBlock: FoundIndices.size() != "
+                "PHI->getNumIncomingValues()",
+                Parent.Functions);
+          });
           return false;
+        }
       }
     }
     return true;
