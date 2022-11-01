@@ -1,7 +1,7 @@
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 --multiple-func-merging-shape-limit=41943040 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
 ; CHECK:      --- !Missed
 ; CHECK-NEXT: Pass:            multiple-func-merging
-; CHECK-NEXT: Name:            CodeGen
+; CHECK-NEXT: Name:            UnprofitableMerge
 
 ; ModuleID = 'benchmarks/rustc-perf/cranelift-codegen-0.82.1.bc'
 source_filename = "cranelift_codegen.1fa9f6fc-cgu.10"

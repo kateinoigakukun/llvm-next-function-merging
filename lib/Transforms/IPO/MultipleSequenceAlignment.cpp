@@ -1828,8 +1828,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       if (auto *PHI = dyn_cast<PHINode>(&I)) {
         auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
-        std::set<int> FoundIndices;
-
         for (auto It = pred_begin(NewPHI->getParent()),
                   E = pred_end(NewPHI->getParent());
              It != E; It++) {
@@ -1842,7 +1840,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
-              FoundIndices.insert(Index);
             } else {
               LLVM_DEBUG(dbgs()
                          << "ERROR: Cannot find incoming value for BB\n");
@@ -1860,16 +1857,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
           // Value *CastedV = createCastIfNeeded(V, NewPHI->getType(), Builder,
           // IntPtrTy);
           NewPHI->addIncoming(V, NewPredBB);
-        }
-        if (FoundIndices.size() != PHI->getNumIncomingValues()) {
-          Parent.ORE.emit([&] {
-            return createMissedRemark(
-                "CodeGen",
-                "AssignPHIOperandsInBlock: FoundIndices.size() != "
-                "PHI->getNumIncomingValues()",
-                Parent.Functions);
-          });
-          return false;
         }
       }
     }
