@@ -1589,7 +1589,11 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     } else {
       for (unsigned i = 0; i < I.getNumOperands(); i++) {
         if (I.getOperand(i) == nullptr) {
-          LLVM_DEBUG(errs() << "ERROR: Null operand\n");
+          Parent.ORE.emit([&]() {
+            return createMissedRemark("CodeGen", "PHICoalescing: Null operand",
+                                      Parent.Functions)
+                   << ore::NV("Instruction", &I);
+          });
           return false;
         }
         if (auto *IV = dyn_cast<Instruction>(I.getOperand(i))) {
@@ -1795,13 +1799,21 @@ bool MSAGenFunctionBody::assignOperands() {
   // This phase is separated from value operands because landing pads need to
   // be handled specially.
   if (!assignLabelOperands()) {
-    LLVM_DEBUG(errs() << "ERROR: Failed to assign label operands\n";);
+    Parent.ORE.emit([&] {
+      return createMissedRemark(
+          "CodeGen", "AssignLabelOperands: Failed to assign label operands",
+          Parent.Functions);
+    });
     return false;
   }
 
   // 2. Assign value operands.
   if (!assignValueOperands()) {
-    LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n";);
+    Parent.ORE.emit([&] {
+      return createMissedRemark(
+          "CodeGen", "AssignValueOperands: Failed to assign value operands",
+          Parent.Functions);
+    });
     return false;
   }
   return true;
