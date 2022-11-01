@@ -6,10 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/PassManager.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 
 using namespace llvm;
 
@@ -19,6 +21,8 @@ llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &PM,
                    ArrayRef<PassBuilder::PipelineElement>) {
+                  PM.addPass(
+                      createModuleToFunctionPassAdaptor(SimplifyCFGPass()));
                   if (Name == "func-merging") {
                     PM.addPass(FunctionMergingPass());
                     return true;
