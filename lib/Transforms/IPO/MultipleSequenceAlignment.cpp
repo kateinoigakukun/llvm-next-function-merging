@@ -353,6 +353,16 @@ createMissedRemark(StringRef RemarkName, StringRef Reason,
   return remark;
 }
 
+static OptimizationRemarkAnalysis
+createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
+  auto remark =
+      OptimizationRemarkAnalysis(DEBUG_TYPE, RemarkName, Functions[0]);
+  for (auto *F : Functions) {
+    remark << ore::NV("Function", F);
+  }
+  return remark;
+}
+
 bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                       ArrayRef<Function *> Functions,
                       std::vector<MSAAlignmentEntry> &Alignment,
@@ -1671,7 +1681,8 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     if (InstSet.empty())
       return nullptr;
     IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
-    AllocaInst *Addr = Builder.CreateAlloca((*InstSet.begin())->getType());
+    AllocaInst *Addr =
+        Builder.CreateAlloca((*InstSet.begin())->getType(), nullptr, "memfy");
 
     for (Instruction *I : InstSet) {
       for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
@@ -1752,6 +1763,14 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
         }
         if (OtherI) {
           InstSet.insert(OtherI);
+          Parent.ORE.emit([&]() {
+            auto remark =
+                createAnalysisRemark("PHICoalescing", Parent.Functions);
+            for (auto *IV : InstSet) {
+              remark << ore::NV("Instruction", IV);
+            }
+            return remark;
+          });
         }
       };
 
