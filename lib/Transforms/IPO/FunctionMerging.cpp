@@ -1061,10 +1061,10 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
   return true;
 }
 
-bool FunctionMerger::match(Value *V1, Value *V2) {
+bool FunctionMerger::match(Value *V1, Value *V2, const FunctionMergingOptions &Options) {
   if (isa<Instruction>(V1) && isa<Instruction>(V2))
     return matchInstructions(dyn_cast<Instruction>(V1),
-                             dyn_cast<Instruction>(V2));
+                             dyn_cast<Instruction>(V2), Options);
 
   if (isa<BasicBlock>(V1) && isa<BasicBlock>(V2)) {
     auto *BB1 = dyn_cast<BasicBlock>(V1);
@@ -2303,7 +2303,9 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
     linearize(F1, F1Vec);
     linearize(F2, F2Vec);
 
-    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2), FunctionMerger::match);
+    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2), [&](auto *F1, auto *F2) {
+      return FunctionMerger::match(F1, F2);
+    });
     AlignedSeq = SA.getAlignment(F1Vec, F2Vec);
 
   }

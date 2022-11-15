@@ -320,12 +320,15 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
 
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
+  FunctionMergingOptions Options;
+  Options.matchOnlyIdenticalTypes(false);
+
   while (advancePointInShape(Cursor, ScoreTable.getShape())) {
     computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
       auto *TheInstr = InstrVecList[0][Point[0]];
       for (size_t i = 1; i < InstrVecList.size(); i++) {
         auto *OtherInstr = InstrVecList[i][Point[i]];
-        if (!FunctionMerger::match(OtherInstr, TheInstr)) {
+        if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
           return false;
         }
       }

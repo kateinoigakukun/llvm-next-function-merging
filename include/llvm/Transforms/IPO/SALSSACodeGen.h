@@ -65,7 +65,7 @@ public:
   static bool isSAProfitable(AlignedSequence<Value *> &AlignedBlocks);
   static bool isPAProfitable(BasicBlock *BB1, BasicBlock *BB2);
 
-  static bool match(Value *V1, Value *V2);
+  static bool match(Value *V1, Value *V2, const FunctionMergingOptions &Options = {});
 
   void updateCallGraph(FunctionMergeResult &Result,
                        StringSet<> &AlwaysPreserved,
