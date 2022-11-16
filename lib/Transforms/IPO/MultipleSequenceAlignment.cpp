@@ -1335,9 +1335,15 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
 
   if (Values.size() == 2) {
     // TODO(katei): Extend to more than two functions.
+    auto *V1 = Values[0];
+    auto *V2 = Values[1];
+    IRBuilder<> BuilderBB(MergedI);
+    if (V1->getType() != V2->getType()) {
+      V2 = (BitCastInst *)BuilderBB.CreateBitCast(V2, V1->getType());
+    }
     {
-      auto *IV1 = dyn_cast<Instruction>(Values[0]);
-      auto *IV2 = dyn_cast<Instruction>(Values[1]);
+      auto *IV1 = dyn_cast<Instruction>(V1);
+      auto *IV2 = dyn_cast<Instruction>(V2);
       if (IV1 && IV2) {
         // if both IV1 and IV2 are non-merged values
         if (!IsMergedBB[IV1->getParent()] && !IsMergedBB[IV2->getParent()]) {
@@ -1347,12 +1353,10 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
       }
     }
 
-    IRBuilder<> BuilderBB(MergedI);
     assert(Parent.Functions.size() == 2 && "Expected two functions!");
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
         Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
-    return BuilderBB.CreateSelect(DiscriminatorBit, Values[1], Values[0],
-                                  "switch.select");
+    return BuilderBB.CreateSelect(DiscriminatorBit, V2, V1, "switch.select");
   }
 
   // TODO(katei): Handle 0, 1, .., n => Discriminator
@@ -1408,6 +1412,9 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
+    if (V->getType() != PHI->getType()) {
+      V = BuilderBB.CreateBitCast(V, PHI->getType());
+    }
     PHI->addIncoming(V, BB);
   }
 
