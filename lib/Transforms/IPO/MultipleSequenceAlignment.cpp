@@ -1333,6 +1333,25 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   if (areAllEqual)
     return Values[0];
 
+  if (isa<UndefValue>(Values[0])) {
+    bool allSameTypes = true;
+    FunctionMergingOptions Options;
+    Options.matchOnlyIdenticalTypes(false);
+    for (size_t i = 1; i < Values.size(); ++i) {
+      if (!isa<UndefValue>(Values[i])) {
+        allSameTypes = false;
+        break;
+      }
+      allSameTypes &= FunctionMerger::areTypesEquivalent(
+          Values[i]->getType(), Values[0]->getType(),
+          &Parent.M->getDataLayout(), Options);
+      if (!allSameTypes)
+        break;
+    }
+    if (allSameTypes)
+      return UndefValue::get(Values[0]->getType());
+  }
+
   if (Values.size() == 2) {
     // TODO(katei): Extend to more than two functions.
     auto *V1 = Values[0];
