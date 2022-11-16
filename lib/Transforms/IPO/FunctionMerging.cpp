@@ -844,14 +844,16 @@ static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2) {
 }
 
 static bool matchGetElementPtrInsts(const GetElementPtrInst *GEP1,
-                                    const GetElementPtrInst *GEP2) {
+                                    const GetElementPtrInst *GEP2,
+                                    const DataLayout *DL,
+                                    const FunctionMergingOptions &Options) {
   Type *Ty1 = GEP1->getSourceElementType();
   SmallVector<Value *, 16> Idxs1(GEP1->idx_begin(), GEP1->idx_end());
 
   Type *Ty2 = GEP2->getSourceElementType();
   SmallVector<Value *, 16> Idxs2(GEP2->idx_begin(), GEP2->idx_end());
 
-  if (Ty1 != Ty2)
+  if (!FunctionMerger::areTypesEquivalent(Ty1, Ty2, DL, Options))
     return false;
   if (Idxs1.size() != Idxs2.size())
     return false;
@@ -988,7 +990,8 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
     return matchAllocaInsts(dyn_cast<AllocaInst>(I1), dyn_cast<AllocaInst>(I2));
   case Instruction::GetElementPtr:
     return matchGetElementPtrInsts(dyn_cast<GetElementPtrInst>(I1),
-                                   dyn_cast<GetElementPtrInst>(I2));
+                                   dyn_cast<GetElementPtrInst>(I2), DL,
+                                   Options);
   case Instruction::Switch:
     return matchSwitchInsts(dyn_cast<SwitchInst>(I1), dyn_cast<SwitchInst>(I2));
   case Instruction::Call:
