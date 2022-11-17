@@ -316,9 +316,6 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
   if (TyL == TyR)
     return false;
 
-  if (int Res = CmpNumbers(TyL->getTypeID(), TyR->getTypeID()))
-    return Res;
-
   switch (TyL->getTypeID()) {
   default:
     llvm_unreachable("Unknown type!");
