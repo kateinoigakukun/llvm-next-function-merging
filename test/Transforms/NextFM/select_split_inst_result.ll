@@ -24,8 +24,8 @@ define double @rad2deg() {
 ; CHECK-NEXT:    br i1 %discriminator, label %m.inst.bb1, label %deg2rad..split
 ; CHECK-EMPTY:
 ; CHECK-NEXT:  m.inst.bb1:                                       ; preds = %entry, %deg2rad..split
-; CHECK-NEXT:    %.0 = phi double [ undef, %entry ], [ %2, %deg2rad..split ]
-; CHECK-NEXT:    %switch.select = select i1 %discriminator, double 1.800000e+02, double %.0
+; CHECK-NEXT:    %memfy.0 = phi double [ undef, %entry ], [ %2, %deg2rad..split ]
+; CHECK-NEXT:    %switch.select = select i1 %discriminator, double 1.800000e+02, double %memfy.0
 ; CHECK-NEXT:    %1 = fmul double %switch.select, 2.000000e+00
 ; CHECK-NEXT:    ret double %1
 ; CHECK-EMPTY:
