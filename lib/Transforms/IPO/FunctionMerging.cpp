@@ -819,7 +819,9 @@ static bool matchStoreInsts(const StoreInst *SI1, const StoreInst *SI2) {
          SI1->getOrdering() == SI2->getOrdering();
 }
 
-static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2) {
+static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2,
+                             const DataLayout *DL,
+                             const FunctionMergingOptions &Options) {
   if (AI1->getArraySize() != AI2->getArraySize() ||
       AI1->getAlignment() != AI2->getAlignment())
     return false;
@@ -833,7 +835,8 @@ static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2) {
 
   */
 
-  return true;
+  return FunctionMerger::areTypesEquivalent(AI1->getType(), AI2->getType(), DL,
+                                            Options);
 }
 
 static bool matchGetElementPtrInsts(const GetElementPtrInst *GEP1,
@@ -951,6 +954,10 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
   const DataLayout *DL =
       &I1->getParent()->getParent()->getParent()->getDataLayout();
 
+  if (I1->getOpcode() == Instruction::Alloca)
+    return matchAllocaInsts(cast<AllocaInst>(I1), cast<AllocaInst>(I2), DL,
+                            Options);
+
   bool sameType = false;
   if (Options.IdenticalTypesOnly) {
     sameType = (I1->getType() == I2->getType());
@@ -980,7 +987,8 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
   case Instruction::Store:
     return matchStoreInsts(dyn_cast<StoreInst>(I1), dyn_cast<StoreInst>(I2));
   case Instruction::Alloca:
-    return matchAllocaInsts(dyn_cast<AllocaInst>(I1), dyn_cast<AllocaInst>(I2));
+    return matchAllocaInsts(dyn_cast<AllocaInst>(I1), dyn_cast<AllocaInst>(I2),
+                            DL, Options);
   case Instruction::GetElementPtr:
     return matchGetElementPtrInsts(dyn_cast<GetElementPtrInst>(I1),
                                    dyn_cast<GetElementPtrInst>(I2), DL,
