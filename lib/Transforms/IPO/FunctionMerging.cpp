@@ -313,6 +313,8 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
   if (PTyR && PTyR->getAddressSpace() == 0)
     TyR = DL->getIntPtrType(TyR);
 
+  if (TyL->getTypeID() != TyR->getTypeID())
+    return false;
   if (TyL == TyR)
     return false;
 
