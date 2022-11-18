@@ -1471,17 +1471,21 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
     */
   } else {
     for (unsigned i = 0; i < SrcI->getNumOperands(); i++) {
+      auto *Op = SrcI->getOperand(i);
       // BB operands should be handled separately by assignLabelOperands
-      if (isa<BasicBlock>(SrcI->getOperand(i)))
+      if (isa<BasicBlock>(Op))
         continue;
       // Metadata or constant operands should be cloned correctly by
       // cloneInstruction
-      if (!isLocalValue(SrcI->getOperand(i)))
+      if (!isLocalValue(Op))
         continue;
 
-      Value *V = MapValue(SrcI->getOperand(i), VMap);
+      Value *V = MapValue(Op, VMap);
       if (V == nullptr) {
         return false; // ErrorResponse;
+      }
+      if (V->getType() != Op->getType()) {
+        V = Builder.CreateBitCast(V, Op->getType());
       }
 
       NewI->setOperand(i, V);
