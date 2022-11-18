@@ -101,6 +101,11 @@ raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
   return OS;
 }
 
+raw_ostream &operator<<(raw_ostream &OS, const MSAAlignmentEntry &Entry) {
+  Entry.print(OS);
+  return OS;
+}
+
 class MSAligner {
   ScoringSystem &Scoring;
   ArrayRef<Function *> Functions;
@@ -306,7 +311,8 @@ void MSAligner::buildAlignment(
     MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
-    Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
+    auto alignEntry = BuildAlignmentEntry(Entry, Cursor);
+    Alignment.emplace_back(alignEntry);
     for (size_t dim = 0; dim < MaxDim; dim++) {
       assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
                                            "table!");
