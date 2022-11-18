@@ -304,15 +304,6 @@ static bool CmpNumbers(uint64_t L, uint64_t R) { return L == R; }
 // Any two pointers in the same address space are equivalent, intptr_t and
 // pointers are equivalent. Otherwise, standard type equivalence rules apply.
 static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
-  auto *PTyL = dyn_cast<PointerType>(TyL);
-  auto *PTyR = dyn_cast<PointerType>(TyR);
-
-  // const DataLayout &DL = FnL->getParent()->getDataLayout();
-  if (PTyL && PTyL->getAddressSpace() == 0)
-    TyL = DL->getIntPtrType(TyL);
-  if (PTyR && PTyR->getAddressSpace() == 0)
-    TyR = DL->getIntPtrType(TyR);
-
   if (TyL->getTypeID() != TyR->getTypeID())
     return false;
   if (TyL == TyR)
@@ -336,10 +327,13 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
   case Type::TokenTyID:
     return false;
 
-  case Type::PointerTyID:
+  case Type::PointerTyID: {
+    auto *PTyL = dyn_cast<PointerType>(TyL);
+    auto *PTyR = dyn_cast<PointerType>(TyR);
+
     assert(PTyL && PTyR && "Both types must be pointers here.");
     return CmpNumbers(PTyL->getAddressSpace(), PTyR->getAddressSpace());
-
+  }
   case Type::StructTyID: {
     auto *STyL = cast<StructType>(TyL);
     auto *STyR = cast<StructType>(TyR);
