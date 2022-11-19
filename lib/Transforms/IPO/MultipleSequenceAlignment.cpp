@@ -31,6 +31,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
+#include "llvm/Transforms/Scalar/InstSimplifyPass.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -713,6 +714,7 @@ MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
   if (!DisablePostOpt) {
     FunctionPassManager FPM;
     FPM.addPass(SimplifyCFGPass());
+    FPM.addPass(InstSimplifyPass());
 
     FPM.run(*Merged, FAM);
   }

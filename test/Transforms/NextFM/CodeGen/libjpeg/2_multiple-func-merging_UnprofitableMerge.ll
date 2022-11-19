@@ -6,7 +6,7 @@
 ; CHECK:      --- !Passed
 ; CHECK-NEXT: Pass:            multiple-func-merging
 ; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __msa_merge_preload_image_load_interlaced_image.1
+; CHECK-NEXT: Function:        __msa_merge_preload_image_load_interlaced_image
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"
