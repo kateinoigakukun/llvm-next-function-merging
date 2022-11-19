@@ -1,7 +1,7 @@
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 --multiple-func-merging-shape-limit=41943040 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK:      --- !Missed
+; CHECK:      --- !Passed
 ; CHECK-NEXT: Pass:            multiple-func-merging
-; CHECK-NEXT: Name:            UnprofitableMerge
+; CHECK-NEXT: Name:            Merge
 ; ModuleID = 'test/Transforms/NextFM/CodeGen/rustc-perf/_ZN8regalloc7bt_main10alloc_main.reduced1.ll'
 source_filename = "cranelift_codegen.1fa9f6fc-cgu.10"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
