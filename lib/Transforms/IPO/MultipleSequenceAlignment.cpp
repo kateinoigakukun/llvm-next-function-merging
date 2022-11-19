@@ -2260,6 +2260,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
     MergePlanner Planner(Options, PairMerger, ORE, FAM);
     Planner.tryPlanMerge(Functions, false);
+    Planner.tryPlanMerge(Functions, true);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     if (auto result = Planner.getBestPlan()) {
       auto &plan = result->Plan;
@@ -2306,6 +2307,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           if (selectCursor == Functions.size() - 1) {
             if (MergingSet.size() >= 2) {
               Planner.tryPlanMerge(MergingSet, false);
+              Planner.tryPlanMerge(MergingSet, true);
             }
           } else {
             FindProfitableSet(selectCursor + 1, true);
