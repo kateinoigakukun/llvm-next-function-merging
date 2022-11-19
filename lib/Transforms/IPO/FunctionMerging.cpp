@@ -341,20 +341,46 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
     return CmpNumbers(PTyL->getAddressSpace(), PTyR->getAddressSpace());
 
   case Type::StructTyID: {
-    auto *STyL = cast<StructType>(TyL);
-    auto *STyR = cast<StructType>(TyR);
-    if (STyL->getNumElements() != STyR->getNumElements())
-      return CmpNumbers(STyL->getNumElements(), STyR->getNumElements());
-
-    if (STyL->isPacked() != STyR->isPacked())
-      return CmpNumbers(STyL->isPacked(), STyR->isPacked());
-
-    for (unsigned i = 0, e = STyL->getNumElements(); i != e; ++i) {
-      if (int Res =
-              CmpTypes(STyL->getElementType(i), STyR->getElementType(i), DL))
-        return Res;
-    }
     return false;
+    // FIXME(katei): bitcast for aggregate types is invalid
+    // auto *STyL = cast<StructType>(TyL);
+    // auto *STyR = cast<StructType>(TyR);
+    // bool enableLog = Seen.insert(STyL).second || Seen.insert(STyR).second;
+    // if (enableLog) {
+    //   dbgs() << "Check struct types: " << *STyL << " and " << *STyR << "\n";
+    //   dbgs() << "PrimitiveSizeInBits: " << STyL->getPrimitiveSizeInBits() << " and " << STyR->getPrimitiveSizeInBits() << "\n";
+    // }
+    // if (STyL->getPrimitiveSizeInBits() != STyR->getPrimitiveSizeInBits()) {
+    //   if (enableLog) {
+    //     dbgs() << " ==> Struct types have different sizes: " << *STyL << " and " << *STyR << "\n";
+    //   }
+    //   return false;
+    // }
+    // if (STyL->getNumElements() != STyR->getNumElements()) {
+    //   if (enableLog) {
+    //     dbgs() << " ==> Struct types have different number of elements: " << *STyL << " and " << *STyR << "\n";
+    //   }
+    //   return false;
+    // }
+
+    // if (STyL->isPacked() != STyR->isPacked()) {
+    //   if (enableLog) {
+    //     dbgs() << " ==> Struct types have different packing: " << *STyL << " and " << *STyR << "\n";
+    //   }
+    //   return false;
+    // }
+
+    // for (unsigned i = 0,
+    //               e = std::max(STyL->getNumElements(), STyR->getNumElements());
+    //      i != e; ++i) {
+    //   bool Res = CmpTypes(STyL->getElementType(i), STyR->getElementType(i), DL);
+    //   if (!Res)
+    //     return false;
+    // }
+    // if (enableLog) {
+    //   dbgs() << " ==> Struct types are equivalent: " << *STyL << " and " << *STyR << "\n";
+    // }
+    // return true;
   }
 
   case Type::FunctionTyID: {
