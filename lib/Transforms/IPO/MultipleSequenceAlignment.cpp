@@ -1921,9 +1921,12 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
           if (V == nullptr)
             V = UndefValue::get(NewPHI->getType());
 
-          // IRBuilder<> Builder(NewPredBB->getTerminator());
+          IRBuilder<> Builder(NewPredBB->getTerminator());
           // Value *CastedV = createCastIfNeeded(V, NewPHI->getType(), Builder,
           // IntPtrTy);
+          if (V->getType() != NewPHI->getType()) {
+            V = Builder.CreateBitCast(V, NewPHI->getType());
+          }
           NewPHI->addIncoming(V, NewPredBB);
         }
       }
