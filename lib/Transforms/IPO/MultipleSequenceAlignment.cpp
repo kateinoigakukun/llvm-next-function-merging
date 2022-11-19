@@ -115,11 +115,16 @@ class MSAligner {
   TensorTable<fmutils::OptionalScore> ScoreTable;
   TensorTable<TransitionEntry> BestTransTable;
 
+  struct MatchResult {
+    bool Match;
+    bool IdenticalTypes;
+  };
+
   void initScoreTable();
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
   void computeBestTransition(
       const std::vector<size_t> &Point,
-      const std::function<bool(std::vector<size_t> Point)> Match);
+      const std::function<MatchResult(std::vector<size_t> Point)> Match);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   static bool advancePointInShape(std::vector<size_t> &Point,
@@ -177,7 +182,7 @@ void MSAligner::initScoreTable() {
 
 void MSAligner::computeBestTransition(
     const std::vector<size_t> &Point,
-    const std::function<bool(std::vector<size_t> Point)> Match) {
+    const std::function<MatchResult(std::vector<size_t> Point)> Match) {
 
   // Build a virtual tensor table for transition scores.
   // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
@@ -251,9 +256,12 @@ void MSAligner::computeBestTransition(
     bool IsMatched = false;
     // If diagonal transition, add the match score.
     if (TransOffset.all()) {
-      IsMatched = Match(minusOffsetFromPoint(TransOffset, Point));
-      similarity =
-          IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
+      auto result = Match(minusOffsetFromPoint(TransOffset, Point));
+      IsMatched = result.Match;
+      similarity = IsMatched
+                       ? (result.IdenticalTypes ? Scoring.getMatchProfit()
+                                                : Scoring.getMatchProfit() / 2)
+                       : Scoring.getMismatchPenalty();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
     auto fromScore = *ScoreTable.get(Point, TransOffset, true);
@@ -332,13 +340,15 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
   while (advancePointInShape(Cursor, ScoreTable.getShape())) {
     computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
       auto *TheInstr = InstrVecList[0][Point[0]];
+      bool IdenticalTypes = true;
       for (size_t i = 1; i < InstrVecList.size(); i++) {
         auto *OtherInstr = InstrVecList[i][Point[i]];
+        IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
         if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
-          return false;
+          return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
         }
       }
-      return true;
+      return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
     });
   };
   MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
