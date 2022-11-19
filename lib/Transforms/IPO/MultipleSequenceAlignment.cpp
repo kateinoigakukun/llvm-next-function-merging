@@ -2170,6 +2170,65 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
   return true;
 }
 
+class MergePlanner {
+public:
+  struct PlanResult {
+    MSAMergePlan Plan;
+    MSAMergePlan::Score Score;
+
+    PlanResult(MSAMergePlan Plan, MSAMergePlan::Score Score)
+        : Plan(std::move(Plan)), Score(Score) {}
+  };
+
+private:
+  Optional<PlanResult> bestPlan;
+  const MSAOptions &BaseOpt;
+  FunctionMerger &PairMerger;
+  OptimizationRemarkEmitter &ORE;
+  FunctionAnalysisManager &FAM;
+
+public:
+  MergePlanner(const MSAOptions &BaseOpt, FunctionMerger &PairMerger,
+               OptimizationRemarkEmitter &ORE, FunctionAnalysisManager &FAM)
+      : BaseOpt(BaseOpt), PairMerger(PairMerger), ORE(ORE), FAM(FAM) {}
+
+  void tryPlanMerge(SmallVectorImpl<Function *> &Functions,
+                    bool IdenticalTypesOnly = true) {
+    MSAStats Stats;
+    MSAOptions Opt = BaseOpt;
+    Opt.matchOnlyIdenticalTypes(IdenticalTypesOnly);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+    auto maybePlan = FM.planMerge(Stats, Opt);
+    if (!maybePlan) {
+      return;
+    }
+    auto disposePlan = [&](MSAMergePlan &plan, MSAMergePlan::Score &score) {
+      score.emitMissedRemark(plan.getFunctions(), ORE);
+      plan.discard();
+    };
+    auto plan = *maybePlan;
+    auto score = plan.computeScore(FAM);
+    if (!score.isProfitableMerge()) {
+      disposePlan(plan, score);
+      return;
+    }
+
+    if (bestPlan) {
+      if (score.isBetterThan(bestPlan->Score)) {
+        disposePlan(bestPlan->Plan, bestPlan->Score);
+        bestPlan.emplace(plan, score);
+      } else {
+        disposePlan(plan, score);
+        return;
+      }
+    } else {
+      bestPlan.emplace(plan, score);
+    }
+  };
+
+  Optional<PlanResult> getBestPlan() { return bestPlan; }
+};
+
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
 
@@ -2183,7 +2242,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
 
   if (!OnlyFunctions.empty()) {
-    std::vector<Function *> Functions;
+    SmallVector<Function *, 16> Functions;
     for (auto &FuncName : OnlyFunctions) {
       auto *F = M.getFunction(FuncName);
       if (!F) {
@@ -2193,13 +2252,14 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       Functions.push_back(F);
     }
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
+    MergePlanner Planner(Options, PairMerger, ORE, FAM);
+    Planner.tryPlanMerge(Functions);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    MSAStats Stats;
-    auto maybePlan = FM.planMerge(Stats, Options);
-    if (auto plan = maybePlan) {
-      auto score = plan->computeScore(FAM);
-      score.emitPassedRemark(*plan, ORE);
-      auto &Merged = plan->applyMerge(FAM, ORE);
+    if (auto result = Planner.getBestPlan()) {
+      auto &plan = result->Plan;
+      auto score = plan.computeScore(FAM);
+      score.emitPassedRemark(plan, ORE);
+      auto &Merged = plan.applyMerge(FAM, ORE);
     }
     return PreservedAnalyses::none();
   }
@@ -2228,40 +2288,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       continue;
 
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
-
-    Optional<std::pair<MSAMergePlan, MSAMergePlan::Score>> bestPlan;
-
-    auto tryPlanMerge = [&](SmallVectorImpl<Function *> &Functions) {
-      MSAStats Stats;
-      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-      auto maybePlan = FM.planMerge(Stats, Options);
-      if (!maybePlan) {
-        return;
-      }
-      auto disposePlan = [&](MSAMergePlan &plan, MSAMergePlan::Score &score) {
-        score.emitMissedRemark(plan.getFunctions(), ORE);
-        plan.discard();
-      };
-      auto plan = *maybePlan;
-      auto score = plan.computeScore(FAM);
-      if (!score.isProfitableMerge()) {
-        disposePlan(plan, score);
-        return;
-      }
-
-      if (bestPlan) {
-        auto bestScore = bestPlan->second;
-        if (score.isBetterThan(bestScore)) {
-          disposePlan(bestPlan->first, bestPlan->second);
-          bestPlan.emplace(plan, score);
-        } else {
-          disposePlan(plan, score);
-          return;
-        }
-      } else {
-        bestPlan.emplace(plan, score);
-      }
-    };
+    MergePlanner Planner(Options, PairMerger, ORE, FAM);
 
     SmallVector<Function *, 16> MergingSet{F1};
     // Find a set of functions to merge beneficialy by DFS.
@@ -2272,7 +2299,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           }
           if (selectCursor == Functions.size() - 1) {
             if (MergingSet.size() >= 2) {
-              tryPlanMerge(MergingSet);
+              Planner.tryPlanMerge(MergingSet);
             }
           } else {
             FindProfitableSet(selectCursor + 1, true);
@@ -2286,9 +2313,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     FindProfitableSet(1, true);
     FindProfitableSet(1, false);
 
-    if (bestPlan) {
-      auto plan = bestPlan->first;
-      auto score = bestPlan->second;
+    if (auto bestPlan = Planner.getBestPlan()) {
+      auto plan = bestPlan->Plan;
+      auto score = bestPlan->Score;
 
       // Emit remarks before replacing original functions with thunks.
       score.emitPassedRemark(plan, ORE);
