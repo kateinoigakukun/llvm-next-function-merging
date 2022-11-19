@@ -611,7 +611,7 @@ MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
 }
 
 bool MSAMergePlan::Score::isProfitableMerge() const {
-  if (AllowUnprofitableMerge) {
+  if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
     return true;
   }
   if (MergedSize + ThunkOverhead < OriginalTotalSize) {
