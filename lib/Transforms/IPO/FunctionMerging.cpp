@@ -315,8 +315,9 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
 
   if (TyL->getTypeID() != TyR->getTypeID())
     return false;
-  if (TyL == TyR)
-    return false;
+  if (TyL == TyR) {
+    return true;
+  }
 
   switch (TyL->getTypeID()) {
   default:
