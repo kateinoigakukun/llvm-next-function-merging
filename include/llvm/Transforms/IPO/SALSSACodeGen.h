@@ -59,8 +59,13 @@ public:
   bool validMergeTypes(Function *F1, Function *F2,
                        const FunctionMergingOptions &Options = {});
 
+  enum class CmpTypesUse {
+    BitCast,
+    GetElementPtr,
+  };
   static bool areTypesEquivalent(Type *Ty1, Type *Ty2, const DataLayout *DL,
-                                 const FunctionMergingOptions &Options = {});
+                                 const FunctionMergingOptions &Options = {},
+                                 CmpTypesUse Use = CmpTypesUse::BitCast);
 
   static bool isSAProfitable(AlignedSequence<Value *> &AlignedBlocks);
   static bool isPAProfitable(BasicBlock *BB1, BasicBlock *BB2);
