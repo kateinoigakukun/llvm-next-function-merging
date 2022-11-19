@@ -128,7 +128,8 @@ public:
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
-  bool align(std::vector<MSAAlignmentEntry> &Alignment);
+  bool align(std::vector<MSAAlignmentEntry> &Alignment,
+             const FunctionMergingOptions &Options = {});
 };
 
 class MSAGenFunctionBody;

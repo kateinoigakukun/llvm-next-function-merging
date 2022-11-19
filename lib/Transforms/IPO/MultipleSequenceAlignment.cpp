@@ -110,6 +110,7 @@ class MSAligner {
   ScoringSystem &Scoring;
   ArrayRef<Function *> Functions;
   std::vector<size_t> Shape;
+  const FunctionMergingOptions &Options;
 
   std::vector<SmallVector<Value *, 16>> &InstrVecList;
   TensorTable<fmutils::OptionalScore> ScoreTable;
@@ -141,8 +142,9 @@ class MSAligner {
 
   MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
             std::vector<size_t> Shape,
-            std::vector<SmallVector<Value *, 16>> &InstrVecList)
-      : Scoring(Scoring), Functions(Functions), Shape(Shape),
+            std::vector<SmallVector<Value *, 16>> &InstrVecList,
+            const FunctionMergingOptions &Options)
+      : Scoring(Scoring), Functions(Functions), Shape(Shape), Options(Options),
         InstrVecList(InstrVecList),
         ScoreTable(Shape, fmutils::OptionalScore::None()),
         BestTransTable(Shape, {}) {
@@ -155,7 +157,8 @@ public:
                     ArrayRef<Function *> Functions,
                     std::vector<MSAAlignmentEntry> &Alignment,
                     size_t ShapeSizeLimit = DefaultShapeSizeLimit,
-                    OptimizationRemarkEmitter *ORE = nullptr);
+                    OptimizationRemarkEmitter *ORE = nullptr,
+                    const FunctionMergingOptions &Options = {});
 };
 
 void MSAligner::initScoreTable() {
@@ -334,8 +337,6 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
 
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
-  FunctionMergingOptions Options;
-  Options.matchOnlyIdenticalTypes(false);
 
   while (advancePointInShape(Cursor, ScoreTable.getShape())) {
     computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
@@ -385,7 +386,8 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                       ArrayRef<Function *> Functions,
                       std::vector<MSAAlignmentEntry> &Alignment,
-                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE) {
+                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE,
+                      const FunctionMergingOptions &Options) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;
@@ -413,7 +415,7 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
     return false;
   }
 
-  MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
+  MSAligner Aligner(Scoring, Functions, Shape, InstrVecList, Options);
   Aligner.align(Alignment);
   return true;
 }
@@ -462,9 +464,10 @@ void MSAAlignmentEntry::print(raw_ostream &OS) const {
   }
 }
 
-bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
+                              const FunctionMergingOptions &Options) {
   return MSAligner::align(PairMerger, Scoring, Functions, Alignment,
-                          DefaultShapeSizeLimit, &ORE);
+                          DefaultShapeSizeLimit, &ORE, Options);
 }
 
 MSAThunkFunction
@@ -684,7 +687,7 @@ Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
 
   std::vector<MSAAlignmentEntry> Alignment;
-  if (!align(Alignment)) {
+  if (!align(Alignment, Options)) {
     return None;
   }
 
@@ -2256,7 +2259,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     }
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
     MergePlanner Planner(Options, PairMerger, ORE, FAM);
-    Planner.tryPlanMerge(Functions);
+    Planner.tryPlanMerge(Functions, false);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     if (auto result = Planner.getBestPlan()) {
       auto &plan = result->Plan;
@@ -2302,7 +2305,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           }
           if (selectCursor == Functions.size() - 1) {
             if (MergingSet.size() >= 2) {
-              Planner.tryPlanMerge(MergingSet);
+              Planner.tryPlanMerge(MergingSet, false);
             }
           } else {
             FindProfitableSet(selectCursor + 1, true);
