@@ -611,6 +611,7 @@ MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
       .MergedSize = MergedSize,
       .ThunkOverhead = ThunkOverhead,
       .OriginalTotalSize = OriginalTotalSize,
+      .Options = Options,
   };
 }
 
@@ -629,7 +630,8 @@ void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
   auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
                 << ore::NV("MergedSize", MergedSize)
                 << ore::NV("ThunkOverhead", ThunkOverhead)
-                << ore::NV("OriginalTotalSize", OriginalTotalSize);
+                << ore::NV("OriginalTotalSize", OriginalTotalSize)
+                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
   ORE.emit(remark);
 }
 
@@ -642,7 +644,8 @@ void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
     }
     remark << ore::NV("MergedSize", MergedSize)
            << ore::NV("ThunkOverhead", ThunkOverhead)
-           << ore::NV("OriginalTotalSize", OriginalTotalSize);
+           << ore::NV("OriginalTotalSize", OriginalTotalSize)
+           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
     return remark;
   });
 }
@@ -719,7 +722,7 @@ MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
     FPM.run(*Merged, FAM);
   }
 
-  MSAMergePlan plan(*Merged, Functions);
+  MSAMergePlan plan(*Merged, Functions, Options);
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];

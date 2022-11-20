@@ -73,10 +73,12 @@ class MSAMergePlan {
   std::vector<MSAThunkFunction> Thunks;
   std::vector<MSACallReplacement> CallReplacements;
   std::vector<Function *> Functions;
+  const FunctionMergingOptions &Options;
 
 public:
-  MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions)
-      : Merged(Merged), Functions(Functions) {}
+  MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions,
+               const FunctionMergingOptions &Options)
+      : Merged(Merged), Functions(Functions), Options(Options) {}
 
   ArrayRef<Function *> getFunctions() const { return Functions; }
   Function &getMerged() const { return Merged; }
@@ -89,6 +91,7 @@ public:
     size_t MergedSize;
     size_t ThunkOverhead;
     size_t OriginalTotalSize;
+    const FunctionMergingOptions &Options;
 
     bool isProfitableMerge() const;
     bool isBetterThan(const Score &Other) const;
