@@ -805,6 +805,7 @@ public:
   }
 
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
+  Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty);
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
@@ -890,6 +891,34 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
 
   NewI->setName(I->getName());
   return NewI;
+}
+
+Value *MSAGenFunctionBody::tryBitcast(IRBuilder<> &Builder, Value *V,
+                                      Type *DestTy) {
+  // 1. If the value type is already the same as the destination type, return it
+  // as is.
+  if (V->getType() == DestTy) {
+    return V;
+  }
+  // 2. If the value type is a pointer type, and the destination type is a
+  // pointer type, and the value type and the destination type have the same
+  // address space, ptrcast it.
+  if (V->getType()->isPointerTy() && DestTy->isPointerTy() &&
+      V->getType()->getPointerAddressSpace() ==
+          DestTy->getPointerAddressSpace()) {
+    return Builder.CreatePointerCast(V, DestTy);
+  }
+  // 3. If the value type is a pointer type, and the destination type is an
+  // integer type, ptrtoint the value and return it.
+  if (V->getType()->isPointerTy() && DestTy->isIntegerTy()) {
+    return Builder.CreatePtrToInt(V, DestTy);
+  }
+  // 4. If the value type is an integer type, and the destination type is a
+  // pointer type, inttoptr the value and return it.
+  if (V->getType()->isIntegerTy() && DestTy->isPointerTy()) {
+    return Builder.CreateIntToPtr(V, DestTy);
+  }
+  return Builder.CreateBitCast(V, DestTy);
 }
 
 // Corresponding to `CodeGen` in SALSSACodeGen.cpp
@@ -1381,9 +1410,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     auto *V1 = Values[0];
     auto *V2 = Values[1];
     IRBuilder<> BuilderBB(MergedI);
-    if (V1->getType() != V2->getType()) {
-      V2 = (BitCastInst *)BuilderBB.CreateBitCast(V2, V1->getType());
-    }
+    V2 = tryBitcast(BuilderBB, V2, V1->getType());
     {
       auto *IV1 = dyn_cast<Instruction>(V1);
       auto *IV2 = dyn_cast<Instruction>(V2);
@@ -1455,9 +1482,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
-    if (V->getType() != PHI->getType()) {
-      V = BuilderBB.CreateBitCast(V, PHI->getType());
-    }
+    V = tryBitcast(BuilderBB, V, PHI->getType());
     PHI->addIncoming(V, BB);
   }
 
@@ -1502,10 +1527,7 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
-      if (V->getType() != Op->getType()) {
-        V = Builder.CreateBitCast(V, Op->getType());
-      }
-
+      V = tryBitcast(Builder, V, Op->getType());
       NewI->setOperand(i, V);
     }
   }
@@ -1930,11 +1952,7 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             V = UndefValue::get(NewPHI->getType());
 
           IRBuilder<> Builder(NewPredBB->getTerminator());
-          // Value *CastedV = createCastIfNeeded(V, NewPHI->getType(), Builder,
-          // IntPtrTy);
-          if (V->getType() != NewPHI->getType()) {
-            V = Builder.CreateBitCast(V, NewPHI->getType());
-          }
+          V = tryBitcast(Builder, V, NewPHI->getType());
           NewPHI->addIncoming(V, NewPredBB);
         }
       }
