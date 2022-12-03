@@ -402,6 +402,10 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL,
   }
 
   case Type::ArrayTyID: {
+    if (Use == FunctionMerger::CmpTypesUse::BitCast) {
+      // FIXME(katei): bitcast for aggregate types is invalid
+      return false;
+    }
     auto *STyL = cast<ArrayType>(TyL);
     auto *STyR = cast<ArrayType>(TyR);
     if (STyL->getNumElements() != STyR->getNumElements())
@@ -410,6 +414,10 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL,
   }
   case Type::FixedVectorTyID:
   case Type::ScalableVectorTyID: {
+    if (Use == FunctionMerger::CmpTypesUse::BitCast) {
+      // FIXME(katei): bitcast for aggregate types is invalid
+      return false;
+    }
     auto *STyL = cast<VectorType>(TyL);
     auto *STyR = cast<VectorType>(TyR);
     if (STyL->getElementCount().isScalable() !=
