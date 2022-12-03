@@ -4,7 +4,7 @@ on:
     branches: [main]
   pull_request:
 env:
-  LLVM_SIZE_BENCHMARK_SUITE_VERSION: aac895c4748a3ff5cc5db513b70ad52c4ae5c093
+  LLVM_SIZE_BENCHMARK_SUITE_VERSION: 953f39eed2c9870f4c9794264ec6ec8f307010b5
 jobs:
   build-plugin:
     strategy:
@@ -77,7 +77,7 @@ jobs:
 
   run-benchmark-suite:
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         driver-options:
         - name: Multiple Function Merging (limiting 4 functions)
@@ -126,7 +126,7 @@ jobs:
           --opttool=$LLVM_ROOT/bin/opt \
           --ldtool=$LLVM_ROOT/bin/clang \
           --pass-plugin="artifacts/usr/local/lib/LLVMNextFM.so" \
-          --suite-path="./artifacts/benchmarks" \
+          --suite-path="./artifacts/benchmarks/mibench" \
           --paralell --reporter markdown \
           --output-dir=./artifacts/benchmark-out \
           ${{ matrix.driver-options.args }} \
