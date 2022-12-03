@@ -54,8 +54,9 @@ protected:
       PairMerger.linearize(Funcs[0], F1Vec);
       PairMerger.linearize(Funcs[1], F2Vec);
 
-      NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2),
-                                                     FunctionMerger::match);
+      NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(
+          ScoringSystem(-1, 2),
+          [&](auto *F1, auto *F2) { return FunctionMerger::match(F1, F2); });
       LegacySeq = SA.getAlignment(F1Vec, F2Vec);
 
       if (Alignment.size() != LegacySeq.size()) {

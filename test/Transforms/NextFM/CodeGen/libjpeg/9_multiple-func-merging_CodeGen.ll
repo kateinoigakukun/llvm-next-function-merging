@@ -3,7 +3,10 @@
 ; - read_pbm_integer.13
 
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK-NOT: --- !Missed
+; CHECK:      --- !Passed
+; CHECK-NEXT: Pass:            multiple-func-merging
+; CHECK-NEXT: Name:            Merge
+; CHECK-NEXT: Function:        __msa_merge_read_pbm_integer.13_read_pbm_integer
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"

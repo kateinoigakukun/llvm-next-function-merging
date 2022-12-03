@@ -299,11 +299,40 @@ FunctionMergeResult MergeFunctions(Function *F1, Function *F2,
   return Merger.merge(F1, F2, "", nullptr, Options);
 }
 
+static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL,
+                     FunctionMerger::CmpTypesUse Use);
+
+static bool CmpStructTypes(const StructType *STyL, const StructType *STyR,
+                           const DataLayout *DL,
+                           FunctionMerger::CmpTypesUse Use) {
+  if (STyL->getPrimitiveSizeInBits() != STyR->getPrimitiveSizeInBits()) {
+    return false;
+  }
+  if (STyL->getNumElements() != STyR->getNumElements()) {
+    return false;
+  }
+
+  if (STyL->isPacked() != STyR->isPacked()) {
+    return false;
+  }
+
+  for (unsigned i = 0,
+                e = std::max(STyL->getNumElements(), STyR->getNumElements());
+       i != e; ++i) {
+    bool Res =
+        CmpTypes(STyL->getElementType(i), STyR->getElementType(i), DL, Use);
+    if (!Res)
+      return false;
+  }
+  return true;
+}
+
 static bool CmpNumbers(uint64_t L, uint64_t R) { return L == R; }
 
 // Any two pointers in the same address space are equivalent, intptr_t and
 // pointers are equivalent. Otherwise, standard type equivalence rules apply.
-static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
+static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL,
+                     FunctionMerger::CmpTypesUse Use) {
   auto *PTyL = dyn_cast<PointerType>(TyL);
   auto *PTyR = dyn_cast<PointerType>(TyR);
 
@@ -313,11 +342,11 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
   if (PTyR && PTyR->getAddressSpace() == 0)
     TyR = DL->getIntPtrType(TyR);
 
-  if (TyL == TyR)
+  if (TyL->getTypeID() != TyR->getTypeID())
     return false;
-
-  if (int Res = CmpNumbers(TyL->getTypeID(), TyR->getTypeID()))
-    return Res;
+  if (TyL == TyR) {
+    return true;
+  }
 
   switch (TyL->getTypeID()) {
   default:
@@ -342,20 +371,13 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
     return CmpNumbers(PTyL->getAddressSpace(), PTyR->getAddressSpace());
 
   case Type::StructTyID: {
-    auto *STyL = cast<StructType>(TyL);
-    auto *STyR = cast<StructType>(TyR);
-    if (STyL->getNumElements() != STyR->getNumElements())
-      return CmpNumbers(STyL->getNumElements(), STyR->getNumElements());
-
-    if (STyL->isPacked() != STyR->isPacked())
-      return CmpNumbers(STyL->isPacked(), STyR->isPacked());
-
-    for (unsigned i = 0, e = STyL->getNumElements(); i != e; ++i) {
-      if (int Res =
-              CmpTypes(STyL->getElementType(i), STyR->getElementType(i), DL))
-        return Res;
+    if (Use == FunctionMerger::CmpTypesUse::BitCast) {
+      // FIXME(katei): bitcast for aggregate types is invalid
+      return false;
+    } else {
+      return CmpStructTypes(cast<StructType>(TyL), cast<StructType>(TyR), DL,
+                            Use);
     }
-    return false;
   }
 
   case Type::FunctionTyID: {
@@ -367,25 +389,35 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
     if (FTyL->isVarArg() != FTyR->isVarArg())
       return CmpNumbers(FTyL->isVarArg(), FTyR->isVarArg());
 
-    if (int Res = CmpTypes(FTyL->getReturnType(), FTyR->getReturnType(), DL))
+    if (int Res =
+            CmpTypes(FTyL->getReturnType(), FTyR->getReturnType(), DL, Use))
       return Res;
 
     for (unsigned i = 0, e = FTyL->getNumParams(); i != e; ++i) {
-      if (int Res = CmpTypes(FTyL->getParamType(i), FTyR->getParamType(i), DL))
+      if (int Res =
+              CmpTypes(FTyL->getParamType(i), FTyR->getParamType(i), DL, Use))
         return Res;
     }
     return false;
   }
 
   case Type::ArrayTyID: {
+    if (Use == FunctionMerger::CmpTypesUse::BitCast) {
+      // FIXME(katei): bitcast for aggregate types is invalid
+      return false;
+    }
     auto *STyL = cast<ArrayType>(TyL);
     auto *STyR = cast<ArrayType>(TyR);
     if (STyL->getNumElements() != STyR->getNumElements())
       return CmpNumbers(STyL->getNumElements(), STyR->getNumElements());
-    return CmpTypes(STyL->getElementType(), STyR->getElementType(), DL);
+    return CmpTypes(STyL->getElementType(), STyR->getElementType(), DL, Use);
   }
   case Type::FixedVectorTyID:
   case Type::ScalableVectorTyID: {
+    if (Use == FunctionMerger::CmpTypesUse::BitCast) {
+      // FIXME(katei): bitcast for aggregate types is invalid
+      return false;
+    }
     auto *STyL = cast<VectorType>(TyL);
     auto *STyR = cast<VectorType>(TyR);
     if (STyL->getElementCount().isScalable() !=
@@ -395,7 +427,7 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
     if (STyL->getElementCount() != STyR->getElementCount())
       return CmpNumbers(STyL->getElementCount().getKnownMinValue(),
                         STyR->getElementCount().getKnownMinValue());
-    return CmpTypes(STyL->getElementType(), STyR->getElementType(), DL);
+    return CmpTypes(STyL->getElementType(), STyR->getElementType(), DL, Use);
   }
   }
 }
@@ -404,13 +436,14 @@ static bool CmpTypes(Type *TyL, Type *TyR, const DataLayout *DL) {
 // pointers are equivalent. Otherwise, standard type equivalence rules apply.
 bool FunctionMerger::areTypesEquivalent(Type *Ty1, Type *Ty2,
                                         const DataLayout *DL,
-                                        const FunctionMergingOptions &Options) {
+                                        const FunctionMergingOptions &Options,
+                                        CmpTypesUse Use) {
   if (Ty1 == Ty2)
     return true;
   if (Options.IdenticalTypesOnly)
     return false;
 
-  return CmpTypes(Ty1, Ty2, DL);
+  return CmpTypes(Ty1, Ty2, DL, Use);
 }
 
 static bool matchIntrinsicCalls(Intrinsic::ID ID, const CallBase *CI1,
@@ -826,7 +859,9 @@ static bool matchStoreInsts(const StoreInst *SI1, const StoreInst *SI2) {
          SI1->getOrdering() == SI2->getOrdering();
 }
 
-static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2) {
+static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2,
+                             const DataLayout *DL,
+                             const FunctionMergingOptions &Options) {
   if (AI1->getArraySize() != AI2->getArraySize() ||
       AI1->getAlignment() != AI2->getAlignment())
     return false;
@@ -840,18 +875,22 @@ static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2) {
 
   */
 
-  return true;
+  return FunctionMerger::areTypesEquivalent(AI1->getType(), AI2->getType(), DL,
+                                            Options);
 }
 
 static bool matchGetElementPtrInsts(const GetElementPtrInst *GEP1,
-                                    const GetElementPtrInst *GEP2) {
+                                    const GetElementPtrInst *GEP2,
+                                    const DataLayout *DL,
+                                    const FunctionMergingOptions &Options) {
   Type *Ty1 = GEP1->getSourceElementType();
   SmallVector<Value *, 16> Idxs1(GEP1->idx_begin(), GEP1->idx_end());
 
   Type *Ty2 = GEP2->getSourceElementType();
   SmallVector<Value *, 16> Idxs2(GEP2->idx_begin(), GEP2->idx_end());
 
-  if (Ty1 != Ty2)
+  if (!FunctionMerger::areTypesEquivalent(
+          Ty1, Ty2, DL, Options, FunctionMerger::CmpTypesUse::GetElementPtr))
     return false;
   if (Idxs1.size() != Idxs2.size())
     return false;
@@ -956,6 +995,10 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
   const DataLayout *DL =
       &I1->getParent()->getParent()->getParent()->getDataLayout();
 
+  if (I1->getOpcode() == Instruction::Alloca)
+    return matchAllocaInsts(cast<AllocaInst>(I1), cast<AllocaInst>(I2), DL,
+                            Options);
+
   bool sameType = false;
   if (Options.IdenticalTypesOnly) {
     sameType = (I1->getType() == I2->getType());
@@ -985,10 +1028,12 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
   case Instruction::Store:
     return matchStoreInsts(dyn_cast<StoreInst>(I1), dyn_cast<StoreInst>(I2));
   case Instruction::Alloca:
-    return matchAllocaInsts(dyn_cast<AllocaInst>(I1), dyn_cast<AllocaInst>(I2));
+    return matchAllocaInsts(dyn_cast<AllocaInst>(I1), dyn_cast<AllocaInst>(I2),
+                            DL, Options);
   case Instruction::GetElementPtr:
     return matchGetElementPtrInsts(dyn_cast<GetElementPtrInst>(I1),
-                                   dyn_cast<GetElementPtrInst>(I2));
+                                   dyn_cast<GetElementPtrInst>(I2), DL,
+                                   Options);
   case Instruction::Switch:
     return matchSwitchInsts(dyn_cast<SwitchInst>(I1), dyn_cast<SwitchInst>(I2));
   case Instruction::Call:
@@ -1061,10 +1106,10 @@ bool FunctionMerger::matchInstructions(Instruction *I1, Instruction *I2,
   return true;
 }
 
-bool FunctionMerger::match(Value *V1, Value *V2) {
+bool FunctionMerger::match(Value *V1, Value *V2, const FunctionMergingOptions &Options) {
   if (isa<Instruction>(V1) && isa<Instruction>(V2))
     return matchInstructions(dyn_cast<Instruction>(V1),
-                             dyn_cast<Instruction>(V2));
+                             dyn_cast<Instruction>(V2), Options);
 
   if (isa<BasicBlock>(V1) && isa<BasicBlock>(V2)) {
     auto *BB1 = dyn_cast<BasicBlock>(V1);
@@ -2303,7 +2348,9 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
     linearize(F1, F1Vec);
     linearize(F2, F2Vec);
 
-    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2), FunctionMerger::match);
+    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2), [&](auto *F1, auto *F2) {
+      return FunctionMerger::match(F1, F2);
+    });
     AlignedSeq = SA.getAlignment(F1Vec, F2Vec);
 
   }

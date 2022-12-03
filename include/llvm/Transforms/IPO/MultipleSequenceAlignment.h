@@ -73,10 +73,12 @@ class MSAMergePlan {
   std::vector<MSAThunkFunction> Thunks;
   std::vector<MSACallReplacement> CallReplacements;
   std::vector<Function *> Functions;
+  const FunctionMergingOptions &Options;
 
 public:
-  MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions)
-      : Merged(Merged), Functions(Functions) {}
+  MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions,
+               const FunctionMergingOptions &Options)
+      : Merged(Merged), Functions(Functions), Options(Options) {}
 
   ArrayRef<Function *> getFunctions() const { return Functions; }
   Function &getMerged() const { return Merged; }
@@ -89,6 +91,7 @@ public:
     size_t MergedSize;
     size_t ThunkOverhead;
     size_t OriginalTotalSize;
+    const FunctionMergingOptions &Options;
 
     bool isProfitableMerge() const;
     bool isBetterThan(const Score &Other) const;
@@ -128,7 +131,8 @@ public:
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
-  bool align(std::vector<MSAAlignmentEntry> &Alignment);
+  bool align(std::vector<MSAAlignmentEntry> &Alignment,
+             const FunctionMergingOptions &Options = {});
 };
 
 class MSAGenFunctionBody;
@@ -159,6 +163,12 @@ public:
   void layoutParameters(std::vector<std::pair<Type *, AttributeSet>> &Args,
                         ValueMap<Argument *, unsigned> &ArgToMergedIndex) const;
   bool layoutReturnType(Type *&RetTy);
+
+  // Returns None if functions are not compatible.
+  // Returns nullptr if no personality function is found.
+  // Otherwise, returns a personality function pointer.
+  Optional<Constant *> computePersonalityFn() const;
+
   FunctionType *
   createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args,
                      Type *RetTy);

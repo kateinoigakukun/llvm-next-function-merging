@@ -31,6 +31,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
+#include "llvm/Transforms/Scalar/InstSimplifyPass.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -101,20 +102,31 @@ raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
   return OS;
 }
 
+raw_ostream &operator<<(raw_ostream &OS, const MSAAlignmentEntry &Entry) {
+  Entry.print(OS);
+  return OS;
+}
+
 class MSAligner {
   ScoringSystem &Scoring;
   ArrayRef<Function *> Functions;
   std::vector<size_t> Shape;
+  const FunctionMergingOptions &Options;
 
   std::vector<SmallVector<Value *, 16>> &InstrVecList;
   TensorTable<fmutils::OptionalScore> ScoreTable;
   TensorTable<TransitionEntry> BestTransTable;
 
+  struct MatchResult {
+    bool Match;
+    bool IdenticalTypes;
+  };
+
   void initScoreTable();
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
   void computeBestTransition(
       const std::vector<size_t> &Point,
-      const std::function<bool(std::vector<size_t> Point)> Match);
+      const std::function<MatchResult(std::vector<size_t> Point)> Match);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   static bool advancePointInShape(std::vector<size_t> &Point,
@@ -131,8 +143,9 @@ class MSAligner {
 
   MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
             std::vector<size_t> Shape,
-            std::vector<SmallVector<Value *, 16>> &InstrVecList)
-      : Scoring(Scoring), Functions(Functions), Shape(Shape),
+            std::vector<SmallVector<Value *, 16>> &InstrVecList,
+            const FunctionMergingOptions &Options)
+      : Scoring(Scoring), Functions(Functions), Shape(Shape), Options(Options),
         InstrVecList(InstrVecList),
         ScoreTable(Shape, fmutils::OptionalScore::None()),
         BestTransTable(Shape, {}) {
@@ -145,7 +158,8 @@ public:
                     ArrayRef<Function *> Functions,
                     std::vector<MSAAlignmentEntry> &Alignment,
                     size_t ShapeSizeLimit = DefaultShapeSizeLimit,
-                    OptimizationRemarkEmitter *ORE = nullptr);
+                    OptimizationRemarkEmitter *ORE = nullptr,
+                    const FunctionMergingOptions &Options = {});
 };
 
 void MSAligner::initScoreTable() {
@@ -172,7 +186,7 @@ void MSAligner::initScoreTable() {
 
 void MSAligner::computeBestTransition(
     const std::vector<size_t> &Point,
-    const std::function<bool(std::vector<size_t> Point)> Match) {
+    const std::function<MatchResult(std::vector<size_t> Point)> Match) {
 
   // Build a virtual tensor table for transition scores.
   // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
@@ -246,9 +260,12 @@ void MSAligner::computeBestTransition(
     bool IsMatched = false;
     // If diagonal transition, add the match score.
     if (TransOffset.all()) {
-      IsMatched = Match(minusOffsetFromPoint(TransOffset, Point));
-      similarity =
-          IsMatched ? Scoring.getMatchProfit() : Scoring.getMismatchPenalty();
+      auto result = Match(minusOffsetFromPoint(TransOffset, Point));
+      IsMatched = result.Match;
+      similarity = IsMatched
+                       ? (result.IdenticalTypes ? Scoring.getMatchProfit()
+                                                : Scoring.getMatchProfit() / 2)
+                       : Scoring.getMismatchPenalty();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
     auto fromScore = *ScoreTable.get(Point, TransOffset, true);
@@ -306,7 +323,8 @@ void MSAligner::buildAlignment(
     MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     assert(!Offset.empty() && "not transitioned yet!?");
-    Alignment.emplace_back(BuildAlignmentEntry(Entry, Cursor));
+    auto alignEntry = BuildAlignmentEntry(Entry, Cursor);
+    Alignment.emplace_back(alignEntry);
     for (size_t dim = 0; dim < MaxDim; dim++) {
       assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
                                            "table!");
@@ -320,16 +338,19 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
 
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
+
   while (advancePointInShape(Cursor, ScoreTable.getShape())) {
     computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
       auto *TheInstr = InstrVecList[0][Point[0]];
+      bool IdenticalTypes = true;
       for (size_t i = 1; i < InstrVecList.size(); i++) {
         auto *OtherInstr = InstrVecList[i][Point[i]];
-        if (!FunctionMerger::match(OtherInstr, TheInstr)) {
-          return false;
+        IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
+        if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
+          return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
         }
       }
-      return true;
+      return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
     });
   };
   MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
@@ -353,10 +374,21 @@ createMissedRemark(StringRef RemarkName, StringRef Reason,
   return remark;
 }
 
+static OptimizationRemarkAnalysis
+createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
+  auto remark =
+      OptimizationRemarkAnalysis(DEBUG_TYPE, RemarkName, Functions[0]);
+  for (auto *F : Functions) {
+    remark << ore::NV("Function", F);
+  }
+  return remark;
+}
+
 bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
                       ArrayRef<Function *> Functions,
                       std::vector<MSAAlignmentEntry> &Alignment,
-                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE) {
+                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE,
+                      const FunctionMergingOptions &Options) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;
@@ -384,7 +416,7 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
     return false;
   }
 
-  MSAligner Aligner(Scoring, Functions, Shape, InstrVecList);
+  MSAligner Aligner(Scoring, Functions, Shape, InstrVecList, Options);
   Aligner.align(Alignment);
   return true;
 }
@@ -433,9 +465,10 @@ void MSAAlignmentEntry::print(raw_ostream &OS) const {
   }
 }
 
-bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment) {
+bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
+                              const FunctionMergingOptions &Options) {
   return MSAligner::align(PairMerger, Scoring, Functions, Alignment,
-                          DefaultShapeSizeLimit, &ORE);
+                          DefaultShapeSizeLimit, &ORE, Options);
 }
 
 MSAThunkFunction
@@ -578,11 +611,12 @@ MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
       .MergedSize = MergedSize,
       .ThunkOverhead = ThunkOverhead,
       .OriginalTotalSize = OriginalTotalSize,
+      .Options = Options,
   };
 }
 
 bool MSAMergePlan::Score::isProfitableMerge() const {
-  if (AllowUnprofitableMerge) {
+  if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
     return true;
   }
   if (MergedSize + ThunkOverhead < OriginalTotalSize) {
@@ -596,7 +630,8 @@ void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
   auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
                 << ore::NV("MergedSize", MergedSize)
                 << ore::NV("ThunkOverhead", ThunkOverhead)
-                << ore::NV("OriginalTotalSize", OriginalTotalSize);
+                << ore::NV("OriginalTotalSize", OriginalTotalSize)
+                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
   ORE.emit(remark);
 }
 
@@ -609,7 +644,8 @@ void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
     }
     remark << ore::NV("MergedSize", MergedSize)
            << ore::NV("ThunkOverhead", ThunkOverhead)
-           << ore::NV("OriginalTotalSize", OriginalTotalSize);
+           << ore::NV("OriginalTotalSize", OriginalTotalSize)
+           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
     return remark;
   });
 }
@@ -655,7 +691,7 @@ Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
 
   std::vector<MSAAlignmentEntry> Alignment;
-  if (!align(Alignment)) {
+  if (!align(Alignment, Options)) {
     return None;
   }
 
@@ -681,11 +717,12 @@ MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
   if (!DisablePostOpt) {
     FunctionPassManager FPM;
     FPM.addPass(SimplifyCFGPass());
+    FPM.addPass(InstSimplifyPass());
 
     FPM.run(*Merged, FAM);
   }
 
-  MSAMergePlan plan(*Merged, Functions);
+  MSAMergePlan plan(*Merged, Functions, Options);
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
@@ -726,7 +763,9 @@ class MSAGenFunctionBody {
   ValueToValueMapTy &VMap;
   // FIXME(katei): Better name?
   DenseMap<Value *, BasicBlock *> MaterialNodes;
-  std::vector<DenseMap<BasicBlock *, BasicBlock *>> MergedBBToBB;
+  std::vector<DenseMap<BasicBlock *, BasicBlock *>> FinalBBToBB;
+  // IsMerged flag by final BB.
+  DenseMap<BasicBlock *, bool> IsMergedBB;
   BasicBlock *EntryBB;
   mutable BasicBlock *BlackholeBBCache;
   // See `fixupCoalescingPHI` for details.
@@ -740,7 +779,7 @@ public:
                      Function *MergedF)
       : Parent(Parent), Options(Options), Stats(Stats), MergedFunc(MergedF),
         Discriminator(Discriminator), VMap(VMap), MaterialNodes(),
-        MergedBBToBB(Parent.Functions.size()) {
+        FinalBBToBB(Parent.Functions.size()) {
 
     EntryBB = BasicBlock::Create(Parent.C, "entry", MergedFunc);
     BlackholeBBCache = nullptr;
@@ -766,6 +805,7 @@ public:
   }
 
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
+  Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty);
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
@@ -853,6 +893,34 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
   return NewI;
 }
 
+Value *MSAGenFunctionBody::tryBitcast(IRBuilder<> &Builder, Value *V,
+                                      Type *DestTy) {
+  // 1. If the value type is already the same as the destination type, return it
+  // as is.
+  if (V->getType() == DestTy) {
+    return V;
+  }
+  // 2. If the value type is a pointer type, and the destination type is a
+  // pointer type, and the value type and the destination type have the same
+  // address space, ptrcast it.
+  if (V->getType()->isPointerTy() && DestTy->isPointerTy() &&
+      V->getType()->getPointerAddressSpace() ==
+          DestTy->getPointerAddressSpace()) {
+    return Builder.CreatePointerCast(V, DestTy);
+  }
+  // 3. If the value type is a pointer type, and the destination type is an
+  // integer type, ptrtoint the value and return it.
+  if (V->getType()->isPointerTy() && DestTy->isIntegerTy()) {
+    return Builder.CreatePtrToInt(V, DestTy);
+  }
+  // 4. If the value type is an integer type, and the destination type is a
+  // pointer type, inttoptr the value and return it.
+  if (V->getType()->isIntegerTy() && DestTy->isPointerTy()) {
+    return Builder.CreateIntToPtr(V, DestTy);
+  }
+  return Builder.CreateBitCast(V, DestTy);
+}
+
 // Corresponding to `CodeGen` in SALSSACodeGen.cpp
 void MSAGenFunctionBody::layoutSharedBasicBlocks() {
   // This pass splits the basic blocks into multiple basic blocks per single
@@ -894,6 +962,8 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
     if (!Entry.match()) {
       continue;
     }
+    MSA_VERBOSE(dbgs() << "Layout shared alignment entry";
+                Entry.print(dbgs()););
 
     auto *HeadV = Entry.getValues().front();
     Twine BBName = [&]() {
@@ -924,7 +994,8 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
           continue;
         auto *I = dyn_cast<Instruction>(Vs[i]);
         VMap[I] = NewI;
-        MergedBBToBB[i][MergedBB] = I->getParent();
+        FinalBBToBB[i][MergedBB] = I->getParent();
+        IsMergedBB[MergedBB] = true;
       }
     } else {
       assert(isa<BasicBlock>(HeadV) && "Unknown value type!");
@@ -942,11 +1013,12 @@ void MSAGenFunctionBody::layoutSharedBasicBlocks() {
         }
         for (Instruction &I : *BB) {
           if (auto *PI = dyn_cast<PHINode>(&I)) {
-            VMap[PI] = Builder.CreatePHI(PI->getType(), 0);
+            VMap[PI] = Builder.CreatePHI(PI->getType(), 0, PI->getName());
           }
         }
 
-        MergedBBToBB[i][MergedBB] = BB;
+        FinalBBToBB[i][MergedBB] = BB;
+        IsMergedBB[MergedBB] = true;
       }
     }
   }
@@ -1010,6 +1082,14 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   // }
   // ```
 
+  struct ClonedInst {
+    Instruction *SrcI;
+    Instruction *NewI;
+    ClonedInst(Instruction *SrcI, Instruction *NewI) : SrcI(SrcI), NewI(NewI) {}
+  };
+
+  std::vector<ClonedInst> ClonedInsts;
+
   auto ProcessBasicBlock = [&](BasicBlock *SrcBB,
                                DenseMap<BasicBlock *, BasicBlock *> &BlocksFX,
                                fmutils::FuncId FuncId) {
@@ -1037,7 +1117,7 @@ void MSAGenFunctionBody::chainBasicBlocks() {
       IRBuilder<> Builder(NewBB);
       for (Instruction &I : *SrcBB) {
         if (auto *PI = dyn_cast<PHINode>(&I)) {
-          VMap[PI] = Builder.CreatePHI(PI->getType(), 0);
+          VMap[PI] = Builder.CreatePHI(PI->getType(), 0, PI->getName());
         }
       }
     }
@@ -1067,11 +1147,13 @@ void MSAGenFunctionBody::chainBasicBlocks() {
           NewBB =
               BasicBlock::Create(MergedFunc->getContext(), BBName, MergedFunc);
           chainer.chainBlocks(LastMergedBB, NewBB, FuncId);
+          BlocksFX[NewBB] = SrcBB;
         }
         LastMergedBB = nullptr;
 
         IRBuilder<> Builder(NewBB);
         Instruction *NewI = this->cloneInstruction(Builder, &I);
+        ClonedInsts.emplace_back(&I, NewI);
         VMap[&I] = NewI;
       }
     }
@@ -1080,10 +1162,24 @@ void MSAGenFunctionBody::chainBasicBlocks() {
   for (size_t i = 0, e = Parent.Functions.size(); i < e; ++i) {
     auto *F = Parent.Functions[i];
     for (auto &BB : *F) {
-      ProcessBasicBlock(&BB, MergedBBToBB[i], i);
+      ProcessBasicBlock(&BB, FinalBBToBB[i], i);
     }
     auto *MergedEntryV = MapValue(&F->getEntryBlock(), VMap);
     chainer.chainBlocks(EntryBB, dyn_cast<BasicBlock>(MergedEntryV), i);
+
+    // Assign BB operands to the mapped BBs here because
+    // assignLabelOperands() only iterates over alignment entries
+    // and doesn't visit orphan blocks.
+    for (auto &CI : ClonedInsts) {
+      for (unsigned i = 0, e = CI.SrcI->getNumOperands(); i < e; ++i) {
+        Value *Op = CI.SrcI->getOperand(i);
+        if (auto *OpB = dyn_cast<BasicBlock>(Op)) {
+          auto *NewOpB = MapValue(OpB, VMap);
+          CI.NewI->setOperand(i, NewOpB);
+        }
+      }
+    }
+    ClonedInsts.clear();
   }
   chainer.finalize();
 }
@@ -1150,9 +1246,10 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[1]),
                            dyn_cast<BasicBlock>(Vs[0]));
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+        FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
       }
-      MergedBBToBB[0][SelectBB] = I->getParent();
+      FinalBBToBB[0][SelectBB] = I->getParent();
+      IsMergedBB[SelectBB] = true;
       V = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
@@ -1162,13 +1259,14 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         auto *I = Instructions[FuncId];
         // XXX: is this correct?
-        MergedBBToBB[FuncId][SelectBB] = I->getParent();
+        FinalBBToBB[FuncId][SelectBB] = I->getParent();
 
         auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
         auto *BB = dyn_cast<BasicBlock>(Vs[FuncId]);
         Switch->addCase(Case, BB);
       }
 
+      IsMergedBB[SelectBB] = true;
       V = SelectBB;
     }
 
@@ -1196,7 +1294,9 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-        MergedBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
+        FinalBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
+        // XXX: is this really merged?
+        IsMergedBB[LPadBB] = true;
         auto *FBB = dyn_cast<BasicBlock>(FVs[FuncId]);
         VMap[FBB->getLandingPadInst()] = NewLP;
       }
@@ -1211,7 +1311,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
                                                        size_t FuncId) {
   auto *NewI = dyn_cast<Instruction>(VMap[I]);
-  auto &BlocksReMap = MergedBBToBB[FuncId];
+  auto &BlocksReMap = FinalBBToBB[FuncId];
 
   for (unsigned i = 0; i < I->getNumOperands(); i++) {
     // handling just label operands for now
@@ -1235,6 +1335,7 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
       BuilderBB.Insert(NewLP);
       VMap[LP] = NewLP;
       BlocksReMap[LPadBB] = I->getParent(); // FXBB;
+      IsMergedBB[LPadBB] = true;            // XXX: is this really merged?
 
       BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
 
@@ -1247,7 +1348,11 @@ bool MSAGenFunctionBody::assignSingleInstLabelOperands(Instruction *I,
 }
 
 bool MSAGenFunctionBody::assignLabelOperands() {
-  for (auto &Entry : Parent.Alignment) {
+  // iterator over reverse order so that the first inst is visited first
+  // to see use of landingpad BB before the actual landingpad inst.
+  for (auto it = Parent.Alignment.rbegin(); it != Parent.Alignment.rend();
+       ++it) {
+    MSAAlignmentEntry Entry = *it;
     std::vector<Instruction *> Instructions;
     bool allInsts = Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
@@ -1263,7 +1368,6 @@ bool MSAGenFunctionBody::assignLabelOperands() {
       }
     } else {
       for (size_t FuncId = 0; FuncId < Parent.Functions.size(); ++FuncId) {
-        auto *F = Parent.Functions[FuncId];
         if (auto *I = Instructions[FuncId]) {
           if (!assignSingleInstLabelOperands(I, FuncId)) {
             return false;
@@ -1282,27 +1386,47 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
   if (areAllEqual)
     return Values[0];
 
+  if (isa<UndefValue>(Values[0])) {
+    bool allSameTypes = true;
+    FunctionMergingOptions Options;
+    Options.matchOnlyIdenticalTypes(false);
+    for (size_t i = 1; i < Values.size(); ++i) {
+      if (!isa<UndefValue>(Values[i])) {
+        allSameTypes = false;
+        break;
+      }
+      allSameTypes &= FunctionMerger::areTypesEquivalent(
+          Values[i]->getType(), Values[0]->getType(),
+          &Parent.M->getDataLayout(), Options);
+      if (!allSameTypes)
+        break;
+    }
+    if (allSameTypes)
+      return UndefValue::get(Values[0]->getType());
+  }
+
   if (Values.size() == 2) {
     // TODO(katei): Extend to more than two functions.
+    auto *V1 = Values[0];
+    auto *V2 = Values[1];
+    IRBuilder<> BuilderBB(MergedI);
+    V2 = tryBitcast(BuilderBB, V2, V1->getType());
     {
-      auto *IV1 = dyn_cast<Instruction>(Values[0]);
-      auto *IV2 = dyn_cast<Instruction>(Values[1]);
+      auto *IV1 = dyn_cast<Instruction>(V1);
+      auto *IV2 = dyn_cast<Instruction>(V2);
       if (IV1 && IV2) {
         // if both IV1 and IV2 are non-merged values
-        if (MergedBBToBB[0][IV1->getParent()] == nullptr &&
-            MergedBBToBB[1][IV2->getParent()] == nullptr) {
+        if (!IsMergedBB[IV1->getParent()] && !IsMergedBB[IV2->getParent()]) {
           CoalescingCandidates[IV1][IV2]++;
           CoalescingCandidates[IV2][IV1]++;
         }
       }
     }
 
-    IRBuilder<> BuilderBB(MergedI);
     assert(Parent.Functions.size() == 2 && "Expected two functions!");
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
         Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
-    return BuilderBB.CreateSelect(DiscriminatorBit, Values[1], Values[0],
-                                  "switch.select");
+    return BuilderBB.CreateSelect(DiscriminatorBit, V2, V1, "switch.select");
   }
 
   // TODO(katei): Handle 0, 1, .., n => Discriminator
@@ -1344,7 +1468,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
                                          MergedFunc, MergedI->getParent());
   IRBuilder<> AggregateB(AggregateBB);
 
-  auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size());
+  auto *PHI = AggregateB.CreatePHI(Values[0]->getType(), Values.size(), "phi.aggregate.values");
   AggregateB.CreateBr(MergedI->getParent());
 
   for (size_t FuncId = 0, e = Values.size(); FuncId < e; ++FuncId) {
@@ -1358,6 +1482,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
+    V = tryBitcast(BuilderBB, V, PHI->getType());
     PHI->addIncoming(V, BB);
   }
 
@@ -1389,19 +1514,20 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
     */
   } else {
     for (unsigned i = 0; i < SrcI->getNumOperands(); i++) {
+      auto *Op = SrcI->getOperand(i);
       // BB operands should be handled separately by assignLabelOperands
-      if (isa<BasicBlock>(SrcI->getOperand(i)))
+      if (isa<BasicBlock>(Op))
         continue;
       // Metadata or constant operands should be cloned correctly by
       // cloneInstruction
-      if (!isLocalValue(SrcI->getOperand(i)))
+      if (!isLocalValue(Op))
         continue;
 
-      Value *V = MapValue(SrcI->getOperand(i), VMap);
+      Value *V = MapValue(Op, VMap);
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
-
+      V = tryBitcast(Builder, V, Op->getType());
       NewI->setOperand(i, V);
     }
   }
@@ -1552,7 +1678,11 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     } else {
       for (unsigned i = 0; i < I.getNumOperands(); i++) {
         if (I.getOperand(i) == nullptr) {
-          LLVM_DEBUG(errs() << "ERROR: Null operand\n");
+          Parent.ORE.emit([&]() {
+            return createMissedRemark("CodeGen", "PHICoalescing: Null operand",
+                                      Parent.Functions)
+                   << ore::NV("Instruction", &I);
+          });
           return false;
         }
         if (auto *IV = dyn_cast<Instruction>(I.getOperand(i))) {
@@ -1576,7 +1706,7 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
 
         Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
         // create PHI
-        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0, "store2addr");
         for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
              PredIt != PredE; PredIt++) {
           BasicBlock *PredBB = *PredIt;
@@ -1594,7 +1724,7 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
 
           Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
           // create PHI
-          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0, "store2addr");
           for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
                PredIt != PredE; PredIt++) {
             BasicBlock *PredBB = *PredIt;
@@ -1630,7 +1760,8 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     if (InstSet.empty())
       return nullptr;
     IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
-    AllocaInst *Addr = Builder.CreateAlloca((*InstSet.begin())->getType());
+    AllocaInst *Addr =
+        Builder.CreateAlloca((*InstSet.begin())->getType(), nullptr, "memfy");
 
     for (Instruction *I : InstSet) {
       for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
@@ -1711,6 +1842,14 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
         }
         if (OtherI) {
           InstSet.insert(OtherI);
+          Parent.ORE.emit([&]() {
+            auto remark =
+                createAnalysisRemark("PHICoalescing", Parent.Functions);
+            for (auto *IV : InstSet) {
+              remark << ore::NV("Instruction", IV);
+            }
+            return remark;
+          });
         }
       };
 
@@ -1758,13 +1897,21 @@ bool MSAGenFunctionBody::assignOperands() {
   // This phase is separated from value operands because landing pads need to
   // be handled specially.
   if (!assignLabelOperands()) {
-    LLVM_DEBUG(errs() << "ERROR: Failed to assign label operands\n";);
+    Parent.ORE.emit([&] {
+      return createMissedRemark(
+          "CodeGen", "AssignLabelOperands: Failed to assign label operands",
+          Parent.Functions);
+    });
     return false;
   }
 
   // 2. Assign value operands.
   if (!assignValueOperands()) {
-    LLVM_DEBUG(errs() << "ERROR: Failed to assign value operands\n";);
+    Parent.ORE.emit([&] {
+      return createMissedRemark(
+          "CodeGen", "AssignValueOperands: Failed to assign value operands",
+          Parent.Functions);
+    });
     return false;
   }
   return true;
@@ -1779,8 +1926,6 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       if (auto *PHI = dyn_cast<PHINode>(&I)) {
         auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
-        std::set<int> FoundIndices;
-
         for (auto It = pred_begin(NewPHI->getParent()),
                   E = pred_end(NewPHI->getParent());
              It != E; It++) {
@@ -1793,20 +1938,23 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
             int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
-              FoundIndices.insert(Index);
+            } else {
+              LLVM_DEBUG(dbgs()
+                         << "ERROR: Cannot find incoming value for BB\n");
             }
+          } else {
+            LLVM_DEBUG(
+                dbgs()
+                << "ERROR: Cannot find the original BB for the new BB\n");
           }
 
           if (V == nullptr)
             V = UndefValue::get(NewPHI->getType());
 
-          // IRBuilder<> Builder(NewPredBB->getTerminator());
-          // Value *CastedV = createCastIfNeeded(V, NewPHI->getType(), Builder,
-          // IntPtrTy);
+          IRBuilder<> Builder(NewPredBB->getTerminator());
+          V = tryBitcast(Builder, V, NewPHI->getType());
           NewPHI->addIncoming(V, NewPredBB);
         }
-        if (FoundIndices.size() != PHI->getNumIncomingValues())
-          return false;
       }
     }
     return true;
@@ -1815,7 +1963,7 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
   for (size_t FuncId = 0; FuncId < Parent.Functions.size(); FuncId++) {
     auto *F = Parent.Functions[FuncId];
     for (auto &BB : *F) {
-      if (!AssignPHIOperandsInBlock(&BB, MergedBBToBB[FuncId])) {
+      if (!AssignPHIOperandsInBlock(&BB, FinalBBToBB[FuncId])) {
         return false;
       }
     }
@@ -1954,6 +2102,20 @@ StringRef MSAGenFunction::getFunctionName() {
   return *this->NameCache;
 }
 
+Optional<Constant *> MSAGenFunction::computePersonalityFn() const {
+  Constant *PersonalityFn = nullptr;
+  for (auto &F : Functions) {
+    if (!F->hasPersonalityFn())
+      continue;
+    if (PersonalityFn == nullptr) {
+      PersonalityFn = F->getPersonalityFn();
+    } else if (PersonalityFn != F->getPersonalityFn()) {
+      return None;
+    }
+  }
+  return PersonalityFn;
+}
+
 Function *
 MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
                      ValueMap<Argument *, unsigned> &ArgToMergedArgNo) {
@@ -1978,6 +2140,21 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
 
   auto *MergedF = Function::Create(Sig, llvm::GlobalValue::InternalLinkage,
                                    getFunctionName(), M);
+  if (auto PersonalityFn = computePersonalityFn()) {
+    MergedF->setPersonalityFn(*PersonalityFn);
+  } else {
+    ORE.emit([&] {
+      auto remark =
+          OptimizationRemarkMissed(DEBUG_TYPE, "PersonalityFn", Functions[0])
+          << "Personality function of functions are not compatible";
+      for (auto &F : Functions) {
+        remark << ore::NV("Function", F);
+        remark << ore::NV("PersonalityFn", F->getPersonalityFn());
+      }
+      return remark;
+    });
+    return nullptr;
+  }
   auto *discriminator = MergedF->getArg(0);
   discriminator->setName("discriminator");
 
@@ -2022,6 +2199,65 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
   return true;
 }
 
+class MergePlanner {
+public:
+  struct PlanResult {
+    MSAMergePlan Plan;
+    MSAMergePlan::Score Score;
+
+    PlanResult(MSAMergePlan Plan, MSAMergePlan::Score Score)
+        : Plan(std::move(Plan)), Score(Score) {}
+  };
+
+private:
+  Optional<PlanResult> bestPlan;
+  const MSAOptions &BaseOpt;
+  FunctionMerger &PairMerger;
+  OptimizationRemarkEmitter &ORE;
+  FunctionAnalysisManager &FAM;
+
+public:
+  MergePlanner(const MSAOptions &BaseOpt, FunctionMerger &PairMerger,
+               OptimizationRemarkEmitter &ORE, FunctionAnalysisManager &FAM)
+      : BaseOpt(BaseOpt), PairMerger(PairMerger), ORE(ORE), FAM(FAM) {}
+
+  void tryPlanMerge(SmallVectorImpl<Function *> &Functions,
+                    bool IdenticalTypesOnly = true) {
+    MSAStats Stats;
+    MSAOptions Opt = BaseOpt;
+    Opt.matchOnlyIdenticalTypes(IdenticalTypesOnly);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+    auto maybePlan = FM.planMerge(Stats, Opt);
+    if (!maybePlan) {
+      return;
+    }
+    auto disposePlan = [&](MSAMergePlan &plan, MSAMergePlan::Score &score) {
+      score.emitMissedRemark(plan.getFunctions(), ORE);
+      plan.discard();
+    };
+    auto plan = *maybePlan;
+    auto score = plan.computeScore(FAM);
+    if (!score.isProfitableMerge()) {
+      disposePlan(plan, score);
+      return;
+    }
+
+    if (bestPlan) {
+      if (score.isBetterThan(bestPlan->Score)) {
+        disposePlan(bestPlan->Plan, bestPlan->Score);
+        bestPlan.emplace(plan, score);
+      } else {
+        disposePlan(plan, score);
+        return;
+      }
+    } else {
+      bestPlan.emplace(plan, score);
+    }
+  };
+
+  Optional<PlanResult> getBestPlan() { return bestPlan; }
+};
+
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
 
@@ -2035,7 +2271,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
 
   if (!OnlyFunctions.empty()) {
-    std::vector<Function *> Functions;
+    SmallVector<Function *, 16> Functions;
     for (auto &FuncName : OnlyFunctions) {
       auto *F = M.getFunction(FuncName);
       if (!F) {
@@ -2045,13 +2281,15 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       Functions.push_back(F);
     }
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
+    MergePlanner Planner(Options, PairMerger, ORE, FAM);
+    Planner.tryPlanMerge(Functions, false);
+    Planner.tryPlanMerge(Functions, true);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    MSAStats Stats;
-    auto maybePlan = FM.planMerge(Stats, Options);
-    if (auto plan = maybePlan) {
-      auto score = plan->computeScore(FAM);
-      score.emitPassedRemark(*plan, ORE);
-      auto &Merged = plan->applyMerge(FAM, ORE);
+    if (auto result = Planner.getBestPlan()) {
+      auto &plan = result->Plan;
+      auto score = plan.computeScore(FAM);
+      score.emitPassedRemark(plan, ORE);
+      auto &Merged = plan.applyMerge(FAM, ORE);
     }
     return PreservedAnalyses::none();
   }
@@ -2080,40 +2318,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       continue;
 
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
-
-    Optional<std::pair<MSAMergePlan, MSAMergePlan::Score>> bestPlan;
-
-    auto tryPlanMerge = [&](SmallVectorImpl<Function *> &Functions) {
-      MSAStats Stats;
-      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-      auto maybePlan = FM.planMerge(Stats, Options);
-      if (!maybePlan) {
-        return;
-      }
-      auto disposePlan = [&](MSAMergePlan &plan, MSAMergePlan::Score &score) {
-        score.emitMissedRemark(plan.getFunctions(), ORE);
-        plan.discard();
-      };
-      auto plan = *maybePlan;
-      auto score = plan.computeScore(FAM);
-      if (!score.isProfitableMerge()) {
-        disposePlan(plan, score);
-        return;
-      }
-
-      if (bestPlan) {
-        auto bestScore = bestPlan->second;
-        if (score.isBetterThan(bestScore)) {
-          disposePlan(bestPlan->first, bestPlan->second);
-          bestPlan.emplace(plan, score);
-        } else {
-          disposePlan(plan, score);
-          return;
-        }
-      } else {
-        bestPlan.emplace(plan, score);
-      }
-    };
+    MergePlanner Planner(Options, PairMerger, ORE, FAM);
 
     SmallVector<Function *, 16> MergingSet{F1};
     // Find a set of functions to merge beneficialy by DFS.
@@ -2124,7 +2329,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           }
           if (selectCursor == Functions.size() - 1) {
             if (MergingSet.size() >= 2) {
-              tryPlanMerge(MergingSet);
+              Planner.tryPlanMerge(MergingSet, false);
+              Planner.tryPlanMerge(MergingSet, true);
             }
           } else {
             FindProfitableSet(selectCursor + 1, true);
@@ -2138,9 +2344,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     FindProfitableSet(1, true);
     FindProfitableSet(1, false);
 
-    if (bestPlan) {
-      auto plan = bestPlan->first;
-      auto score = bestPlan->second;
+    if (auto bestPlan = Planner.getBestPlan()) {
+      auto plan = bestPlan->Plan;
+      auto score = bestPlan->Score;
 
       // Emit remarks before replacing original functions with thunks.
       score.emitPassedRemark(plan, ORE);
@@ -2151,6 +2357,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           continue;
         MatchFinder->remove_candidate(F);
       }
+      MatchFinder->add_candidate(&Merged, score.MergedSize);
     }
   }
 
