@@ -220,12 +220,13 @@ void MSAligner::computeBestTransition(
     return Score + addend;
   };
 
+  // Decrement bit vector as a unsigned integer
   // If Point.size() == 2
   // [1, 1] -> [1, 0] -> [0, 1] -> [0, 0] -> STOP
   //
   // If Point.size() == 3
-  // [1, 1, 1] -> [0, 1, 1] -> [1, 0, 1] -> [0, 0, 1]
-  // -> [1, 1, 0] -> [0, 1, 0] -> [1, 0, 0] -> STOP
+  // [1, 1, 1] -> [1, 1, 0] -> [1, 0, 1] -> [1, 0, 0]
+  // -> [0, 1, 1] -> [0, 1, 0] -> [0, 0, 1] -> STOP
   auto decrementOffset = [&](SmallBitVector &Point) {
     for (int i = Point.size() - 1; i >= 0; i--) {
       if (Point[i]) {
