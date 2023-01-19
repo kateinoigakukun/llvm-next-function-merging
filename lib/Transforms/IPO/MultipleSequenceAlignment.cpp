@@ -1924,38 +1924,38 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       [&](BasicBlock *BB,
           DenseMap<BasicBlock *, BasicBlock *> &BlocksReMap) -> bool {
     for (Instruction &I : *BB) {
-      if (auto *PHI = dyn_cast<PHINode>(&I)) {
-        auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
+      auto *PHI = dyn_cast<PHINode>(&I);
+      if (!PHI) {
+        continue; // Not a PHI node.
+      }
+      auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
-        for (auto It = pred_begin(NewPHI->getParent()),
-                  E = pred_end(NewPHI->getParent());
-             It != E; It++) {
+      for (auto It = pred_begin(NewPHI->getParent()),
+                E = pred_end(NewPHI->getParent());
+           It != E; It++) {
 
-          BasicBlock *NewPredBB = *It;
+        BasicBlock *NewPredBB = *It;
 
-          Value *V = nullptr;
+        Value *V = nullptr;
 
-          if (BlocksReMap.find(NewPredBB) != BlocksReMap.end()) {
-            int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
-            if (Index >= 0) {
-              V = MapValue(PHI->getIncomingValue(Index), VMap);
-            } else {
-              LLVM_DEBUG(dbgs()
-                         << "ERROR: Cannot find incoming value for BB\n");
-            }
+        if (BlocksReMap.find(NewPredBB) != BlocksReMap.end()) {
+          int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
+          if (Index >= 0) {
+            V = MapValue(PHI->getIncomingValue(Index), VMap);
           } else {
-            LLVM_DEBUG(
-                dbgs()
-                << "ERROR: Cannot find the original BB for the new BB\n");
+            LLVM_DEBUG(dbgs() << "ERROR: Cannot find incoming value for BB\n");
           }
-
-          if (V == nullptr)
-            V = UndefValue::get(NewPHI->getType());
-
-          IRBuilder<> Builder(NewPredBB->getTerminator());
-          V = tryBitcast(Builder, V, NewPHI->getType());
-          NewPHI->addIncoming(V, NewPredBB);
+        } else {
+          LLVM_DEBUG(dbgs()
+                     << "ERROR: Cannot find the original BB for the new BB\n");
         }
+
+        if (V == nullptr)
+          V = UndefValue::get(NewPHI->getType());
+
+        IRBuilder<> Builder(NewPredBB->getTerminator());
+        V = tryBitcast(Builder, V, NewPHI->getType());
+        NewPHI->addIncoming(V, NewPredBB);
       }
     }
     return true;
