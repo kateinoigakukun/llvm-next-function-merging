@@ -92,6 +92,9 @@ jobs:
         - name: Function Merging (2 functions)
           id: fm
           args: "'-Xopt=--passes=func-merging,default<Oz>'"
+        - name: Baseline
+          id: baseline
+          args: ""
         enable-test: [true, false]
         # TODO: Enable after LLVM 14 support
         llvm-version: [13]
