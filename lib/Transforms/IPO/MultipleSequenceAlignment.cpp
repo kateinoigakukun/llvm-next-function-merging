@@ -605,7 +605,6 @@ MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
   size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
 
   for (auto &thunk : Thunks) {
-    auto *F = thunk.getFunction();
     ThunkOverhead += Merged.getFunctionType()->getNumParams();
   }
   return Score{
