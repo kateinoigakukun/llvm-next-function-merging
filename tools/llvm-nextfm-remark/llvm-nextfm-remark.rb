@@ -48,6 +48,10 @@ class MergePassedRemark < MergeRemark
   def hash
     @remark["Name"].hash ^ funcs.hash
   end
+
+  def function
+    @remark["Function"]
+  end
 end
 
 class MergeMissedRemark < MergeRemark;
