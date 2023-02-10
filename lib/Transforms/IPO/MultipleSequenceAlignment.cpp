@@ -143,8 +143,7 @@ class MSAligner {
   }
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
-  static bool advancePointInShape(SmallVector<size_t, 4> &Point,
-                                  const std::vector<size_t> &Shape) {
+  bool advancePointInShape(SmallVector<size_t, 4> &Point) const {
     NumAdvancePointInShape++;
     for (size_t i = 0; i < Point.size(); i++) {
       if (Point[i] < Shape[i] - 1) {
@@ -272,7 +271,7 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
   // |           |           |/
   // +-----------+-----------+
   // The current visiting point in the virtual tensor table.
-  TransitionOffset TransOffset(ScoreTable.getShape().size(), 1);
+  TransitionOffset TransOffset(Shape.size(), 1);
 
   // Visit all possible transitions except for the current point itself.
   do {
@@ -280,8 +279,8 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
       break;
     if (!ScoreTable.contains(Point, TransOffset, true))
       continue;
-    auto OffsettedCursor = TensorTableCursor::fromPoint(
-        Point, ScoreTable.getShape(), TransOffset, true);
+    auto OffsettedCursor =
+        TensorTableCursor::fromPoint(Point, Shape, TransOffset, true);
 
     int32_t similarity = 0;
     bool IsMatched = false;
@@ -313,9 +312,9 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
 void MSAligner::buildScoreTable() {
   // Start visiting from (0, 0, ..., 0)
   auto Cursor = TensorTableCursor::zero();
-  SmallVector<size_t, 4> Point(ScoreTable.getShape().size(), 0);
+  SmallVector<size_t, 4> Point(Shape.size(), 0);
 
-  while (advancePointInShape(Point, ScoreTable.getShape())) {
+  while (advancePointInShape(Point)) {
     Cursor.advance();
     computeBestTransition(Cursor, Point);
   };
