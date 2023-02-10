@@ -257,7 +257,6 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
   // | (1, 0, 0) | (1, 1, 0) | /
   // |           |           |/
   // +-----------+-----------+
-  const std::vector<int32_t> TransScore{0, Scoring.getGapPenalty()};
   // The current visiting point in the virtual tensor table.
   TransitionOffset TransOffset(ScoreTable.getShape().size(), 1);
 
@@ -270,8 +269,10 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
 
     int32_t similarity = 0;
     for (size_t i = 0; i < TransOffset.size(); i++) {
-      similarity =
-          MSAlignerUtilites::addScore(similarity, TransScore[TransOffset[i]]);
+      if (TransOffset[i]) {
+        similarity =
+            MSAlignerUtilites::addScore(similarity, Scoring.getGapPenalty());
+      }
     }
     bool IsMatched = false;
     // If diagonal transition, add the match score.
