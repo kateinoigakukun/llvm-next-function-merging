@@ -274,6 +274,9 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
   TransitionOffset TransOffset(Shape.size(), 1);
 
   // Visit all possible transitions except for the current point itself.
+  fmutils::OptionalScore BestScore = fmutils::OptionalScore::None();
+  TransitionEntry BestTransition;
+
   do {
     if (TransOffset.none())
       break;
@@ -299,14 +302,14 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
     auto fromScore = *ScoreTable.get(OffsettedCursor);
     int32_t newScore = MSAlignerUtilites::addScore(fromScore, similarity);
-    if (auto existingScore = ScoreTable.get(Cursor)) {
-      if (newScore > *existingScore) {
-        updateBestScore(Cursor, TransOffset, newScore, IsMatched);
-      }
-    } else {
-      updateBestScore(Cursor, TransOffset, newScore, IsMatched);
+    if (!BestScore.hasValue() || newScore > *BestScore) {
+      BestScore = newScore;
+      BestTransition = TransitionEntry(TransOffset, IsMatched);
     }
   } while (MSAlignerUtilites::decrementOffset(TransOffset));
+
+  ScoreTable.set(Cursor, BestScore);
+  BestTransTable.set(Cursor, BestTransition);
 }
 
 void MSAligner::buildScoreTable() {
