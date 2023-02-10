@@ -155,7 +155,7 @@ class MSAligner {
     return false;
   }
 
-  MatchResult matchInstructions(std::vector<size_t> Point) const {
+  MatchResult matchInstructions(SmallVector<size_t, 4> Point) const {
     auto *TheInstr = InstrVecList[0][Point[0]];
     bool IdenticalTypes = true;
     for (size_t i = 1; i < InstrVecList.size(); i++) {
@@ -238,9 +238,10 @@ static bool decrementOffset(SmallBitVector &Point) {
   return false;
 };
 
-std::vector<size_t> minusOffsetFromPoint(const TransitionOffset &Offset,
-                                         const std::vector<size_t> &Point) {
-  std::vector<size_t> Result(Point.size());
+inline SmallVector<size_t, 4>
+minusOffsetFromPoint(const TransitionOffset &Offset,
+                     const std::vector<size_t> &Point) {
+  SmallVector<size_t, 4> Result(Point.size());
   for (size_t i = 0; i < Point.size(); i++) {
     Result[i] = Point[i] - Offset[i];
   }
