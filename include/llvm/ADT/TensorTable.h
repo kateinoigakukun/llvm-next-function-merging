@@ -27,6 +27,20 @@ template <typename T> class TensorTable {
     return Index;
   }
 
+  size_t getIndex(const std::vector<size_t> &Point) const {
+    size_t Index = 0;
+    for (size_t dim = 0; dim < Shape.size(); dim++) {
+      assert(Point[dim] < Shape[dim] && "Point out of bounds");
+      size_t Term = 1;
+      for (size_t i = 0; i < dim; i++) {
+        Term *= Shape[i];
+      }
+      Term *= Point[dim];
+      Index += Term;
+    }
+    return Index;
+  }
+
 public:
   TensorTable(std::vector<size_t> Shape, T DefaultValue) : Shape(Shape) {
     size_t Size = 1;
@@ -37,7 +51,7 @@ public:
   }
 
   const T &operator[](const std::vector<size_t> &Point) const {
-    return get(Point, std::vector<size_t>(Shape.size(), 0), false);
+    return get(Point);
   }
 
   const T &get(const std::vector<size_t> &Point, std::vector<size_t> Offset,
@@ -45,15 +59,19 @@ public:
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
 
-  T &operator[](const std::vector<size_t> &Point) {
-    return get(Point, std::vector<size_t>(Shape.size(), 0), false);
+  const T &get(const std::vector<size_t> &Point) const {
+    return Data[getIndex(Point)];
   }
+
+  T &operator[](const std::vector<size_t> &Point) { return get(Point); }
 
   template <typename OffsetVec>
   T &get(const std::vector<size_t> &Point, OffsetVec Offset,
          bool NegativeOffset) {
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
+
+  T &get(const std::vector<size_t> &Point) { return Data[getIndex(Point)]; }
 
   template <typename OffsetVec>
   void set(const std::vector<size_t> &Point, OffsetVec Offset,
@@ -62,7 +80,7 @@ public:
   }
 
   void set(const std::vector<size_t> &Point, T NewValue) {
-    set(Point, std::vector<size_t>(Shape.size(), 0), false, NewValue);
+    Data[getIndex(Point)] = NewValue;
   }
 
   template <typename OffsetVec>
