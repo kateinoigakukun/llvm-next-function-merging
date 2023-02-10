@@ -12,7 +12,7 @@ template <typename T> class TensorTable {
   std::vector<size_t> Shape;
 
   template <typename OffsetVec>
-  size_t getIndex(const std::vector<size_t> &Point, OffsetVec Offset,
+  size_t getIndex(const std::vector<size_t> &Point, const OffsetVec &Offset,
                   bool NegativeOffset) const {
     size_t Index = 0;
     for (size_t dim = 0; dim < Shape.size(); dim++) {
@@ -54,8 +54,8 @@ public:
     return get(Point);
   }
 
-  const T &get(const std::vector<size_t> &Point, std::vector<size_t> Offset,
-               bool NegativeOffset) const {
+  const T &get(const std::vector<size_t> &Point,
+               const std::vector<size_t> &Offset, bool NegativeOffset) const {
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
 
@@ -66,7 +66,7 @@ public:
   T &operator[](const std::vector<size_t> &Point) { return get(Point); }
 
   template <typename OffsetVec>
-  T &get(const std::vector<size_t> &Point, OffsetVec Offset,
+  T &get(const std::vector<size_t> &Point, const OffsetVec &Offset,
          bool NegativeOffset) {
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
@@ -74,7 +74,7 @@ public:
   T &get(const std::vector<size_t> &Point) { return Data[getIndex(Point)]; }
 
   template <typename OffsetVec>
-  void set(const std::vector<size_t> &Point, OffsetVec Offset,
+  void set(const std::vector<size_t> &Point, const OffsetVec &Offset,
            bool NegativeOffset, T NewValue) {
     Data[getIndex(Point, Offset, NegativeOffset)] = NewValue;
   }
@@ -84,7 +84,7 @@ public:
   }
 
   template <typename OffsetVec>
-  bool contains(const std::vector<size_t> &Point, OffsetVec Offset,
+  bool contains(const std::vector<size_t> &Point, const OffsetVec &Offset,
                 bool NegativeOffset = false) const {
     assert(Point.size() == Shape.size() && "Point and shape have different "
                                            "dimensions");
