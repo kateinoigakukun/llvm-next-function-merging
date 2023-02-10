@@ -300,20 +300,40 @@ void MSAligner::buildScoreTable() {
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
 
-  while (advancePointInShape(Cursor, ScoreTable.getShape())) {
-    computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
-      auto *TheInstr = InstrVecList[0][Point[0]];
+  // Build matching table
+  TensorTable<MatchResult> MatchingTable(Shape, MatchResult{false, false});
+  {
+    TimeTraceScope TimeScope("BuildMatchingTable");
+    std::vector<size_t> MatchingCursor(Shape.size(), 0);
+    while (advancePointInShape(MatchingCursor, Shape)) {
+      if (InstrVecList[0].size() <= MatchingCursor[0])
+        continue;
+      auto *TheInstr = InstrVecList[0][MatchingCursor[0]];
+      bool Match = true;
       bool IdenticalTypes = true;
       for (size_t i = 1; i < InstrVecList.size(); i++) {
-        auto *OtherInstr = InstrVecList[i][Point[i]];
+        if (InstrVecList[i].size() <= MatchingCursor[i])
+          continue;
+        auto *OtherInstr = InstrVecList[i][MatchingCursor[i]];
         IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
         if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
-          return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
+          Match = false;
+          break;
         }
       }
-      return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
-    });
-  };
+
+      MatchingTable.set(MatchingCursor, {Match, IdenticalTypes});
+    }
+  }
+
+  {
+    TimeTraceScope TimeScope("BuildTransitionTable");
+    while (advancePointInShape(Cursor, ScoreTable.getShape())) {
+      computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
+        return MatchingTable[Point];
+      });
+    };
+  }
 }
 
 void MSAligner::buildAlignment(
