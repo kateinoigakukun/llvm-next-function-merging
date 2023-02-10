@@ -123,6 +123,7 @@ class MSAligner {
   };
 
   void initScoreTable();
+  void buildScoreTable();
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
   void computeBestTransition(
       const std::vector<size_t> &Point,
@@ -285,8 +286,30 @@ void MSAligner::computeBestTransition(
   } while (decrementOffset(TransOffset));
 }
 
+void MSAligner::buildScoreTable() {
+  TimeTraceScope TimeScope("BuildScoreTable");
+  // Start visiting from (0, 0, ..., 0)
+  std::vector<size_t> Cursor(Shape.size(), 0);
+
+  while (advancePointInShape(Cursor, ScoreTable.getShape())) {
+    computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
+      auto *TheInstr = InstrVecList[0][Point[0]];
+      bool IdenticalTypes = true;
+      for (size_t i = 1; i < InstrVecList.size(); i++) {
+        auto *OtherInstr = InstrVecList[i][Point[i]];
+        IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
+        if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
+          return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
+        }
+      }
+      return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
+    });
+  };
+}
+
 void MSAligner::buildAlignment(
     std::vector<llvm::MSAAlignmentEntry> &Alignment) {
+  TimeTraceScope TimeScope("BuildAlignment");
   size_t MaxDim = BestTransTable.getShape().size();
   std::vector<size_t> Cursor(MaxDim, 0);
 
@@ -337,23 +360,7 @@ void MSAligner::buildAlignment(
 void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
   /* ===== Needleman–Wunsch algorithm ======= */
 
-  // Start visiting from (0, 0, ..., 0)
-  std::vector<size_t> Cursor(Shape.size(), 0);
-
-  while (advancePointInShape(Cursor, ScoreTable.getShape())) {
-    computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
-      auto *TheInstr = InstrVecList[0][Point[0]];
-      bool IdenticalTypes = true;
-      for (size_t i = 1; i < InstrVecList.size(); i++) {
-        auto *OtherInstr = InstrVecList[i][Point[i]];
-        IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
-        if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
-          return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
-        }
-      }
-      return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
-    });
-  };
+  buildScoreTable();
   MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
   MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
               BestTransTable.print(llvm::dbgs()));
@@ -394,11 +401,14 @@ bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;
 
-  for (size_t i = 0; i < Functions.size(); i++) {
-    auto &F = *Functions[i];
-    PairMerger.linearize(&F, InstrVecList[i]);
-    Shape.push_back(InstrVecList[i].size() + 1);
-    ShapeSize *= Shape[i];
+  {
+    TimeTraceScope TimeScope("Linearize");
+    for (size_t i = 0; i < Functions.size(); i++) {
+      auto &F = *Functions[i];
+      PairMerger.linearize(&F, InstrVecList[i]);
+      Shape.push_back(InstrVecList[i].size() + 1);
+      ShapeSize *= Shape[i];
+    }
   }
 
   // FIXME(katei): The current algorithm is not optimal and consumes too much
@@ -692,7 +702,6 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
 Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
 
-  TimeTraceScope TimeScope("PlanMerge");
   std::vector<MSAAlignmentEntry> Alignment;
   if (!align(Alignment, Options)) {
     return None;
