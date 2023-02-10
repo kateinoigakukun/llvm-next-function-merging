@@ -129,13 +129,12 @@ class MSAligner {
     bool Match;
     bool IdenticalTypes;
   };
+  TensorTable<MatchResult> MatchingTable;
 
   void initScoreTable();
   void buildScoreTable();
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
-  void computeBestTransition(
-      const std::vector<size_t> &Point,
-      const std::function<MatchResult(std::vector<size_t> Point)> Match);
+  void computeBestTransition(const std::vector<size_t> &Point);
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   static bool advancePointInShape(std::vector<size_t> &Point,
@@ -158,7 +157,8 @@ class MSAligner {
       : Scoring(Scoring), Functions(Functions), Shape(Shape), Options(Options),
         InstrVecList(InstrVecList),
         ScoreTable(Shape, fmutils::OptionalScore::None()),
-        BestTransTable(Shape, {}) {
+        BestTransTable(Shape, {}),
+        MatchingTable(Shape, MatchResult{false, false}) {
 
     initScoreTable();
   }
@@ -194,9 +194,7 @@ void MSAligner::initScoreTable() {
   }
 }
 
-void MSAligner::computeBestTransition(
-    const std::vector<size_t> &Point,
-    const std::function<MatchResult(std::vector<size_t> Point)> Match) {
+void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
 
   // Build a virtual tensor table for transition scores.
   // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
@@ -271,7 +269,7 @@ void MSAligner::computeBestTransition(
     bool IsMatched = false;
     // If diagonal transition, add the match score.
     if (TransOffset.all()) {
-      auto result = Match(minusOffsetFromPoint(TransOffset, Point));
+      auto result = MatchingTable[minusOffsetFromPoint(TransOffset, Point)];
       IsMatched = result.Match;
       similarity = IsMatched
                        ? (result.IdenticalTypes ? Scoring.getMatchProfit()
@@ -296,12 +294,10 @@ void MSAligner::computeBestTransition(
 }
 
 void MSAligner::buildScoreTable() {
-  TimeTraceScope TimeScope("BuildScoreTable");
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
 
   // Build matching table
-  TensorTable<MatchResult> MatchingTable(Shape, MatchResult{false, false});
   {
     TimeTraceScope TimeScope("BuildMatchingTable");
     std::vector<size_t> MatchingCursor(Shape.size(), 0);
@@ -329,9 +325,7 @@ void MSAligner::buildScoreTable() {
   {
     TimeTraceScope TimeScope("BuildTransitionTable");
     while (advancePointInShape(Cursor, ScoreTable.getShape())) {
-      computeBestTransition(Cursor, [&](std::vector<size_t> Point) {
-        return MatchingTable[Point];
-      });
+      computeBestTransition(Cursor);
     };
   }
 }
