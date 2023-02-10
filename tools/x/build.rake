@@ -47,6 +47,8 @@ class Build < Rake::TaskLib
       "--load", @pass_plugin,
       "--load-pass-plugin", @pass_plugin,
       "-S", "--passes=multiple-func-merging",
+      "-stats",
+      "-multiple-func-merging-stats",
       "-func-merging-explore=2", "-o", "/dev/null",
       File.join(@repo_root, test_target)
     ]

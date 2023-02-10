@@ -7,6 +7,7 @@
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TensorTable.h"
 #include "llvm/ADT/Twine.h"
@@ -66,6 +67,13 @@ static cl::list<std::string>
 static cl::opt<bool> DisablePostOpt(
     "multiple-func-merging-disable-post-opt", cl::init(false), cl::Hidden,
     cl::desc("Disable post-optimization of the merged function"));
+
+static cl::opt<bool> EnableStats(
+    "multiple-func-merging-stats", cl::init(false), cl::Hidden,
+    cl::desc("Enable statistics for the multiple function merging"));
+
+ALWAYS_ENABLED_STATISTIC(NumAdvancePointInShape,
+                         "The # of times 'advancePointInShape' called");
 
 namespace {
 
@@ -132,6 +140,7 @@ class MSAligner {
 
   static bool advancePointInShape(std::vector<size_t> &Point,
                                   const std::vector<size_t> &Shape) {
+    NumAdvancePointInShape++;
     for (size_t i = 0; i < Point.size(); i++) {
       if (Point[i] < Shape[i] - 1) {
         Point[i]++;
@@ -2386,5 +2395,10 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   }
 
   timeTraceProfilerEnd();
+
+  if (EnableStats) {
+    std::unique_ptr<raw_ostream> OutStream = llvm::CreateInfoOutputFile();
+    llvm::PrintStatistics(*OutStream);
+  }
   return PreservedAnalyses::none();
 }
