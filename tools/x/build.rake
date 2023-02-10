@@ -38,7 +38,7 @@ class Build < Rake::TaskLib
   def perf_opt_speed_test(test_target)
     perf_data = File.join(@repo_root, ".x", "perf", "opt-speed-test.data")
     mkdir_p File.dirname(perf_data)
-    sh "perf", "record", "-g", "-o", perf_data, "--", *speed_test_target(test_target)
+    sh "perf", "record", "--call-graph", "dwarf", "-F", "99", "-o", perf_data, "--", *speed_test_target(test_target)
   end
 
   def speed_test_target(test_target)
@@ -107,7 +107,7 @@ def main
   end
   opt.on("--perf-opt-speed-test") do
     build.build
-    build.perf_opt_speed_test
+    build.perf_opt_speed_test(test_target)
   end
   opt.parse!
 end
