@@ -129,7 +129,6 @@ class MSAligner {
     bool Match;
     bool IdenticalTypes;
   };
-  TensorTable<MatchResult> MatchingTable;
 
   void initScoreTable();
   void buildScoreTable();
@@ -156,6 +155,19 @@ class MSAligner {
     return false;
   }
 
+  MatchResult matchInstructions(std::vector<size_t> Point) const {
+    auto *TheInstr = InstrVecList[0][Point[0]];
+    bool IdenticalTypes = true;
+    for (size_t i = 1; i < InstrVecList.size(); i++) {
+      auto *OtherInstr = InstrVecList[i][Point[i]];
+      IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
+      if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
+        return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
+      }
+    }
+    return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
+  }
+
   MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
             std::vector<size_t> Shape,
             std::vector<SmallVector<Value *, 16>> &InstrVecList,
@@ -163,8 +175,7 @@ class MSAligner {
       : Scoring(Scoring), Functions(Functions), Shape(Shape), Options(Options),
         InstrVecList(InstrVecList),
         ScoreTable(Shape, fmutils::OptionalScore::None()),
-        BestTransTable(Shape, {}),
-        MatchingTable(Shape, MatchResult{false, false}) {
+        BestTransTable(Shape, {}) {
 
     initScoreTable();
   }
@@ -277,8 +288,8 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
     bool IsMatched = false;
     // If diagonal transition, add the match score.
     if (TransOffset.all()) {
-      auto result = MatchingTable[MSAlignerUtilites::minusOffsetFromPoint(
-          TransOffset, Point)];
+      auto result = matchInstructions(
+          MSAlignerUtilites::minusOffsetFromPoint(TransOffset, Point));
       IsMatched = result.Match;
       similarity = IsMatched
                        ? (result.IdenticalTypes ? Scoring.getMatchProfit()
@@ -302,37 +313,9 @@ void MSAligner::buildScoreTable() {
   // Start visiting from (0, 0, ..., 0)
   std::vector<size_t> Cursor(Shape.size(), 0);
 
-  // Build matching table
-  {
-    TimeTraceScope TimeScope("BuildMatchingTable");
-    std::vector<size_t> MatchingCursor(Shape.size(), 0);
-    while (advancePointInShape(MatchingCursor, Shape)) {
-      if (InstrVecList[0].size() <= MatchingCursor[0])
-        continue;
-      auto *TheInstr = InstrVecList[0][MatchingCursor[0]];
-      bool Match = true;
-      bool IdenticalTypes = true;
-      for (size_t i = 1; i < InstrVecList.size(); i++) {
-        if (InstrVecList[i].size() <= MatchingCursor[i])
-          continue;
-        auto *OtherInstr = InstrVecList[i][MatchingCursor[i]];
-        IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
-        if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
-          Match = false;
-          break;
-        }
-      }
-
-      MatchingTable.set(MatchingCursor, {Match, IdenticalTypes});
-    }
-  }
-
-  {
-    TimeTraceScope TimeScope("BuildTransitionTable");
-    while (advancePointInShape(Cursor, ScoreTable.getShape())) {
-      computeBestTransition(Cursor);
-    };
-  }
+  while (advancePointInShape(Cursor, ScoreTable.getShape())) {
+    computeBestTransition(Cursor);
+  };
 }
 
 void MSAligner::buildAlignment(
