@@ -77,7 +77,47 @@ ALWAYS_ENABLED_STATISTIC(NumAdvancePointInShape,
 
 namespace {
 
-using TransitionOffset = SmallBitVector;
+struct TransitionOffset {
+  uint32_t Value;
+
+  static TransitionOffset fill(size_t Size) {
+    assert(Size <= 32 && "Size is too large");
+    return {static_cast<uint32_t>((1 << Size) - 1)};
+  }
+
+  static TransitionOffset zero(size_t Size) {
+    assert(Size <= 32 && "Size is too large");
+    return {0};
+  }
+
+  bool decrement() {
+    return Value-- != 0;
+  }
+
+  bool none() const {
+    return Value == 0;
+  }
+  size_t count() const {
+    return __builtin_popcount(Value);
+  }
+
+  bool operator ==(const TransitionOffset &Other) const {
+    return Value == Other.Value;
+  }
+
+  bool operator [](size_t Idx) const {
+    return (Value >> Idx) & 1;
+  }
+
+  void set(size_t Idx) {
+    Value |= (1 << Idx);
+  }
+
+  void print(raw_ostream &OS) const {
+    OS << Value;
+  }
+};
+
 struct TransitionEntry {
   TransitionOffset Offset;
   bool Match;
@@ -93,7 +133,7 @@ struct TransitionEntry {
   void print(raw_ostream &OS) const {
     OS << "(";
     OS << "{";
-    for (size_t i = 0; i < Offset.size(); i++) {
+    for (size_t i = 0; i < 32; i++) {
       if (i != 0)
         OS << ", ";
       OS << Offset[i];
@@ -195,7 +235,7 @@ void MSAligner::initScoreTable() {
   {
     // Initialize {0,0,...,0}
     std::vector<size_t> Point(Shape.size(), 0);
-    TransitionOffset transOffset(Shape.size(), 0);
+    TransitionOffset transOffset = TransitionOffset::zero(Shape.size());
     BestTransTable[Point] = TransitionEntry(transOffset, false, 0);
   }
 
@@ -204,8 +244,8 @@ void MSAligner::initScoreTable() {
     for (size_t i = 1; i < Shape[dim]; i++) {
       Point[dim] = i;
       auto score = Scoring.getGapPenalty() * i;
-      TransitionOffset transOffset(Shape.size(), 0);
-      transOffset[dim] = 1;
+      TransitionOffset transOffset = TransitionOffset::zero(Shape.size());
+      transOffset.set(dim);
       BestTransTable[Point] = TransitionEntry(transOffset, false, score);
     }
   }
@@ -271,7 +311,9 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
   // |           |           |/
   // +-----------+-----------+
   // The current visiting point in the virtual tensor table.
-  TransitionOffset TransOffset(Shape.size(), 1);
+  assert(Shape.size() < 32 && "Shape size is too large");
+  auto TransOffset = TransitionOffset::fill(Shape.size());
+  auto DiagnoalOffset = TransitionOffset::fill(Shape.size());
 
   // Visit all possible transitions except for the current point itself.
   TransitionEntry BestTransition;
@@ -285,7 +327,7 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     int32_t similarity = 0;
     bool IsMatched = false;
     // If diagonal transition, add the match score.
-    if (TransOffset.all()) {
+    if (TransOffset == DiagnoalOffset) {
       auto result = matchInstructions(
           MSAlignerUtilites::minusOffsetFromPoint(TransOffset, Point));
       IsMatched = result.Match;
@@ -303,7 +345,7 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     if (!bestScore.hasValue() || newScore > *bestScore) {
       BestTransition = TransitionEntry(TransOffset, IsMatched, newScore);
     }
-  } while (MSAlignerUtilites::decrementOffset(TransOffset));
+  } while (TransOffset.decrement());
 
   BestTransTable.set(Cursor, BestTransition);
 }
@@ -329,7 +371,7 @@ void MSAligner::buildAlignment(
                                  std::vector<size_t> Cursor) {
     std::vector<Value *> Instrs;
     const TransitionOffset &TransOffset = Entry.Offset;
-    for (int FuncIdx = 0; FuncIdx < TransOffset.size(); FuncIdx++) {
+    for (int FuncIdx = 0; FuncIdx < Shape.size(); FuncIdx++) {
       size_t diff = TransOffset[FuncIdx];
       if (diff == 1) {
         Value *I = InstrVecList[FuncIdx][Cursor[FuncIdx] - 1];
