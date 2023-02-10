@@ -26,6 +26,8 @@ TEST(TensorTableTest, GetSet) {
 
 TEST(TensorTableTest, Contains) {
   TensorTable<int32_t> t(std::vector<size_t>{2, 2}, 0);
-  EXPECT_TRUE(t.contains({0, 0}, std::vector<size_t>{0, 0}));
-  EXPECT_FALSE(t.contains({2, 0}, std::vector<size_t>{0, 0}));
+  EXPECT_TRUE(
+      t.contains(SmallVector<size_t, 2>{0, 0}, std::vector<size_t>{0, 0}));
+  EXPECT_FALSE(
+      t.contains(SmallVector<size_t, 2>{2, 0}, std::vector<size_t>{0, 0}));
 }

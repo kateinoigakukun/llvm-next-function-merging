@@ -7,6 +7,39 @@
 
 namespace llvm {
 
+template <typename T> class TensorTable;
+
+class TensorTableCursor {
+  size_t Index;
+
+  TensorTableCursor(size_t Index) : Index(Index) {}
+
+public:
+  static TensorTableCursor zero() { return TensorTableCursor(0); }
+
+  template <typename OffsetVec>
+  static TensorTableCursor fromPoint(const SmallVector<size_t, 4> &Point,
+                                     const std::vector<size_t> &Shape,
+                                     const OffsetVec &Offset,
+                                     bool NegativeOffset = false) {
+    size_t Index = 0;
+    for (size_t dim = 0; dim < Shape.size(); dim++) {
+      assert(Point[dim] < Shape[dim] && "Point out of bounds");
+      size_t Term = 1;
+      for (size_t i = 0; i < dim; i++) {
+        Term *= Shape[i];
+      }
+      Term *= Point[dim] + (NegativeOffset ? -Offset[dim] : Offset[dim]);
+      Index += Term;
+    }
+    return TensorTableCursor(Index);
+  }
+
+  size_t getIndex() const { return Index; }
+
+  void advance() { Index++; }
+};
+
 template <typename T> class TensorTable {
   std::vector<T> Data;
   std::vector<size_t> Shape;
@@ -63,6 +96,10 @@ public:
     return Data[getIndex(Point)];
   }
 
+  const T &get(const TensorTableCursor &Cursor) const {
+    return Data[Cursor.getIndex()];
+  }
+
   T &operator[](const std::vector<size_t> &Point) { return get(Point); }
 
   template <typename OffsetVec>
@@ -72,6 +109,8 @@ public:
   }
 
   T &get(const std::vector<size_t> &Point) { return Data[getIndex(Point)]; }
+
+  T &get(const TensorTableCursor &Cursor) { return Data[Cursor.getIndex()]; }
 
   template <typename OffsetVec>
   void set(const std::vector<size_t> &Point, const OffsetVec &Offset,
@@ -83,8 +122,18 @@ public:
     Data[getIndex(Point)] = NewValue;
   }
 
+  void set(const TensorTableCursor &Point, T NewValue) {
+    Data[Point.getIndex()] = NewValue;
+  }
+
+  template <typename... Args>
+  void emplace(const std::vector<size_t> &Point, Args &&... args) {
+    // TODO(katei): Take const_iterator instead of vector for point
+    Data.emplace(Data.begin() + getIndex(Point), std::forward<Args>(args)...);
+  }
+
   template <typename OffsetVec>
-  bool contains(const std::vector<size_t> &Point, const OffsetVec &Offset,
+  bool contains(const SmallVectorImpl<size_t> &Point, const OffsetVec &Offset,
                 bool NegativeOffset = false) const {
     assert(Point.size() == Shape.size() && "Point and shape have different "
                                            "dimensions");

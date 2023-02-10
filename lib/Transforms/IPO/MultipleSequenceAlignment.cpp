@@ -133,8 +133,9 @@ class MSAligner {
   void initScoreTable();
   void buildScoreTable();
   void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
-  void computeBestTransition(const std::vector<size_t> &Point);
-  inline void updateBestScore(std::vector<size_t> Point,
+  void computeBestTransition(const TensorTableCursor &Cursor,
+                             const SmallVector<size_t, 4> &Point);
+  inline void updateBestScore(const TensorTableCursor &Point,
                               TransitionOffset TransOffset,
                               fmutils::OptionalScore newScore, bool IsMatched) {
     ScoreTable.set(Point, newScore);
@@ -142,7 +143,7 @@ class MSAligner {
   }
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
-  static bool advancePointInShape(std::vector<size_t> &Point,
+  static bool advancePointInShape(SmallVector<size_t, 4> &Point,
                                   const std::vector<size_t> &Shape) {
     NumAdvancePointInShape++;
     for (size_t i = 0; i < Point.size(); i++) {
@@ -155,7 +156,7 @@ class MSAligner {
     return false;
   }
 
-  MatchResult matchInstructions(SmallVector<size_t, 4> Point) const {
+  MatchResult matchInstructions(const SmallVector<size_t, 4> &Point) const {
     auto *TheInstr = InstrVecList[0][Point[0]];
     bool IdenticalTypes = true;
     for (size_t i = 1; i < InstrVecList.size(); i++) {
@@ -240,7 +241,7 @@ static bool decrementOffset(SmallBitVector &Point) {
 
 inline SmallVector<size_t, 4>
 minusOffsetFromPoint(const TransitionOffset &Offset,
-                     const std::vector<size_t> &Point) {
+                     const SmallVector<size_t, 4> &Point) {
   SmallVector<size_t, 4> Result(Point.size());
   for (size_t i = 0; i < Point.size(); i++) {
     Result[i] = Point[i] - Offset[i];
@@ -249,7 +250,8 @@ minusOffsetFromPoint(const TransitionOffset &Offset,
 };
 }; // namespace MSAlignerUtilites
 
-void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
+void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
+                                      const SmallVector<size_t, 4> &Point) {
 
   // Build a virtual tensor table for transition scores.
   // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
@@ -278,6 +280,8 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
       break;
     if (!ScoreTable.contains(Point, TransOffset, true))
       continue;
+    auto OffsettedCursor = TensorTableCursor::fromPoint(
+        Point, ScoreTable.getShape(), TransOffset, true);
 
     int32_t similarity = 0;
     bool IsMatched = false;
@@ -294,24 +298,26 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
       similarity = Scoring.getGapPenalty() * TransOffset.count();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
-    auto fromScore = *ScoreTable.get(Point, TransOffset, true);
+    auto fromScore = *ScoreTable.get(OffsettedCursor);
     int32_t newScore = MSAlignerUtilites::addScore(fromScore, similarity);
-    if (auto existingScore = ScoreTable[Point]) {
+    if (auto existingScore = ScoreTable.get(Cursor)) {
       if (newScore > *existingScore) {
-        updateBestScore(Point, TransOffset, newScore, IsMatched);
+        updateBestScore(Cursor, TransOffset, newScore, IsMatched);
       }
     } else {
-      updateBestScore(Point, TransOffset, newScore, IsMatched);
+      updateBestScore(Cursor, TransOffset, newScore, IsMatched);
     }
   } while (MSAlignerUtilites::decrementOffset(TransOffset));
 }
 
 void MSAligner::buildScoreTable() {
   // Start visiting from (0, 0, ..., 0)
-  std::vector<size_t> Cursor(Shape.size(), 0);
+  auto Cursor = TensorTableCursor::zero();
+  SmallVector<size_t, 4> Point(ScoreTable.getShape().size(), 0);
 
-  while (advancePointInShape(Cursor, ScoreTable.getShape())) {
-    computeBestTransition(Cursor);
+  while (advancePointInShape(Point, ScoreTable.getShape())) {
+    Cursor.advance();
+    computeBestTransition(Cursor, Point);
   };
 }
 
