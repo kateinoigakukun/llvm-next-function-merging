@@ -35,10 +35,11 @@ class Build < Rake::TaskLib
     puts "Optimization took #{time} seconds"
   end
 
-  def perf_opt_speed_test(test_target)
-    perf_data = File.join(@repo_root, ".x", "perf", "opt-speed-test.data")
+  def perf_opt_speed_test(test_target, perf_data_filename)
+    perf_data = File.join(@repo_root, ".x", "perf", perf_data_filename)
     mkdir_p File.dirname(perf_data)
     sh "perf", "record", "--call-graph", "dwarf", "-F", "99", "-o", perf_data, "--", *speed_test_target(test_target)
+    perf_data
   end
 
   def speed_test_target(test_target)
@@ -60,13 +61,29 @@ class Build < Rake::TaskLib
     ]
   end
 
-  def open_trace_ui(trace_filename)
+  def generate_flamegraph(perf_data)
+    flamegraph_dir = File.join(@repo_root, ".x", "flamegraph")
+    tools_dir = File.join(flamegraph_dir, "tools")
+    unless File.exist?(tools_dir)
+      mkdir_p tools_dir
+      Dir.chdir tools_dir do
+        sh "curl -o #{tools_dir}/stackcollapse-perf.pl https://raw.githubusercontent.com/brendangregg/FlameGraph/master/stackcollapse-perf.pl"
+        sh "curl -o #{tools_dir}/flamegraph.pl https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl"
+      end
+    end
+    output = File.join(@repo_root, ".x", "flamegraph", "out", File.basename(perf_data) + "_flamegraph.svg")
+    mkdir_p File.dirname(output)
+    sh "perf script -i #{perf_data} | perl #{tools_dir}/stackcollapse-perf.pl | perl #{tools_dir}/flamegraph.pl > #{output}"
+    output
+  end
+
+  def serve_http(&open)
     require "webrick"
     server = WEBrick::HTTPServer.new(
       # 9001 the port number that perfetto.dev allows to connect to by `connect-src`.
       # Also we use 127.0.0.1 instead of localhost for the same reason.
       Port: 9001,
-      DocumentRoot: @trace_dir,
+      DocumentRoot: File.join(@repo_root, ".x"),
       StartCallback: proc do
         logger = server.logger
         logger.info("To access this server, open this URL in a browser:")
@@ -74,7 +91,7 @@ class Build < Rake::TaskLib
           logger.info("    http://#{listener.connect_address.inspect_sockaddr}")
         end
         if ENV["BROWSER"]
-          system(ENV["BROWSER"], "https://ui.perfetto.dev/#!/?url=http://127.0.0.1:9001/#{trace_filename}")
+          open.call("http://127.0.0.1:9001") if block_given?
         end
       end,
       RequestCallback: proc do |req,res|
@@ -102,12 +119,19 @@ def main
     build.build
     build.opt_speed_test(test_target, trace_filename)
     if ENV["BROWSER"]
-      build.open_trace_ui(trace_filename)
+      build.serve_http do |url|
+        system(ENV["BROWSER"], "https://ui.perfetto.dev/#!/?url=#{url}/trace/#{trace_filename}")
+      end
     end
   end
   opt.on("--perf-opt-speed-test") do
+    perf_data_filename = File.basename(test_target) + "_" + Time.now.strftime("%Y%m%d%H%M%S") + ".data"
     build.build
-    build.perf_opt_speed_test(test_target)
+    perf_data = build.perf_opt_speed_test(test_target, perf_data_filename)
+    fg = build.generate_flamegraph(perf_data)
+    build.serve_http do |url|
+      system(ENV["BROWSER"], "#{url}/flamegraph/out/#{File.basename(fg)}")
+    end
   end
   opt.parse!
 end
