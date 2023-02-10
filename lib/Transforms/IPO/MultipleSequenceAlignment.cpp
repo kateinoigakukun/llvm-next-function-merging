@@ -281,8 +281,6 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
       break;
     if (!BestTransTable.contains(Point, TransOffset, true))
       continue;
-    auto OffsettedCursor =
-        TensorTableCursor::fromPoint(Point, Shape, TransOffset, true);
 
     int32_t similarity = 0;
     bool IsMatched = false;
@@ -299,7 +297,7 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
       similarity = Scoring.getGapPenalty() * TransOffset.count();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
-    auto fromScore = *BestTransTable.get(OffsettedCursor).Score;
+    auto fromScore = *BestTransTable.get(Point, TransOffset, true).Score;
     int32_t newScore = MSAlignerUtilites::addScore(fromScore, similarity);
     auto bestScore = BestTransition.Score;
     if (!bestScore.hasValue() || newScore > *bestScore) {

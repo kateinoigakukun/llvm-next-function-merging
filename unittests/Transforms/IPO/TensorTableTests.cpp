@@ -17,10 +17,11 @@ TEST(TensorTableTest, DefaultValue) {
 TEST(TensorTableTest, GetSet) {
   TensorTable<int32_t> t(std::vector<size_t>{2, 2}, 0);
   t.set({1, 0}, std::vector<size_t>{0, 0}, false, 42);
-  auto v = t.get({1, 0}, {0, 0}, false);
+  auto v =
+      t.get(SmallVector<size_t, 4>{1, 0}, SmallVector<size_t, 4>{0, 0}, false);
   EXPECT_EQ(v, 42);
 
-  v = t.get({0, 0}, {1, 0}, false);
+  v = t.get(SmallVector<size_t, 4>{0, 0}, SmallVector<size_t, 4>{1, 0}, false);
   EXPECT_EQ(v, 42);
 }
 

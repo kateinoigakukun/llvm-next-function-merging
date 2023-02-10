@@ -44,8 +44,8 @@ template <typename T> class TensorTable {
   std::vector<T> Data;
   std::vector<size_t> Shape;
 
-  template <typename OffsetVec>
-  size_t getIndex(const std::vector<size_t> &Point, const OffsetVec &Offset,
+  template <typename OffsetVec, typename PointVec>
+  size_t getIndex(const PointVec &Point, const OffsetVec &Offset,
                   bool NegativeOffset) const {
     size_t Index = 0;
     for (size_t dim = 0; dim < Shape.size(); dim++) {
@@ -87,8 +87,9 @@ public:
     return get(Point);
   }
 
-  const T &get(const std::vector<size_t> &Point,
-               const std::vector<size_t> &Offset, bool NegativeOffset) const {
+  template <typename OffsetVec>
+  const T &get(const SmallVector<size_t, 4> &Point, const OffsetVec &Offset,
+               bool NegativeOffset) const {
     return Data[getIndex(Point, Offset, NegativeOffset)];
   }
 
