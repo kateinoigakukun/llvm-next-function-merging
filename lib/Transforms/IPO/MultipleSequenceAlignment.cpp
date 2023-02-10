@@ -279,12 +279,6 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
       continue;
 
     int32_t similarity = 0;
-    for (size_t i = 0; i < TransOffset.size(); i++) {
-      if (TransOffset[i]) {
-        similarity =
-            MSAlignerUtilites::addScore(similarity, Scoring.getGapPenalty());
-      }
-    }
     bool IsMatched = false;
     // If diagonal transition, add the match score.
     if (TransOffset.all()) {
@@ -295,6 +289,8 @@ void MSAligner::computeBestTransition(const std::vector<size_t> &Point) {
                        ? (result.IdenticalTypes ? Scoring.getMatchProfit()
                                                 : Scoring.getMatchProfit() / 2)
                        : Scoring.getMismatchPenalty();
+    } else {
+      similarity = Scoring.getGapPenalty() * TransOffset.count();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
     auto fromScore = *ScoreTable.get(Point, TransOffset, true);
