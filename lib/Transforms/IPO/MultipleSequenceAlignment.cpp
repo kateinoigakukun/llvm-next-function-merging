@@ -2279,7 +2279,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   std::unique_ptr<Matcher<Function *>> MatchFinder;
   {
     TimeTraceScope TimeScope("CreateMatcher");
-    MatchFinder = createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
+    MatchFinder = createMatcherLSH(PairMerger, Options, Options.LSHRows,
+                                   Options.LSHBands);
   }
 
   if (!OnlyFunctions.empty()) {
