@@ -468,6 +468,7 @@ void MSAAlignmentEntry::print(raw_ostream &OS) const {
 
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
                               const FunctionMergingOptions &Options) {
+  TimeTraceScope TimeScope("Align");
   return MSAligner::align(PairMerger, Scoring, Functions, Alignment,
                           DefaultShapeSizeLimit, &ORE, Options);
 }
@@ -657,6 +658,7 @@ bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
 
 Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
                                    OptimizationRemarkEmitter &ORE) {
+  TimeTraceScope TimeScope("ApplyMerge");
   for (auto replacement : CallReplacements) {
     replacement.applyReplacements(&Merged);
   }
@@ -690,6 +692,7 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
 Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
 
+  TimeTraceScope TimeScope("PlanMerge");
   std::vector<MSAAlignmentEntry> Alignment;
   if (!align(Alignment, Options)) {
     return None;
@@ -702,19 +705,23 @@ MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
     return None;
   }
 
-  if (verifyFunction(*Merged, &llvm::errs())) {
-    LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
-    LLVM_DEBUG(Merged->dump());
-    Merged->eraseFromParent();
+  {
+    TimeTraceScope TimeScope("VerifyMerge");
+    if (verifyFunction(*Merged, &llvm::errs())) {
+      LLVM_DEBUG(dbgs() << "Invalid merged function:\n");
+      LLVM_DEBUG(Merged->dump());
+      Merged->eraseFromParent();
 
-    ORE.emit([&] {
-      return createMissedRemark("CodeGen", "Invalid merged function",
-                                Functions);
-    });
-    return None;
+      ORE.emit([&] {
+        return createMissedRemark("CodeGen", "Invalid merged function",
+                                  Functions);
+      });
+      return None;
+    }
   }
 
   if (!DisablePostOpt) {
+    TimeTraceScope TimeScope("PostOpt");
     FunctionPassManager FPM;
     FPM.addPass(SimplifyCFGPass());
     FPM.addPass(InstSimplifyPass());
@@ -2119,6 +2126,7 @@ Optional<Constant *> MSAGenFunction::computePersonalityFn() const {
 Function *
 MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
                      ValueMap<Argument *, unsigned> &ArgToMergedArgNo) {
+  TimeTraceScope TimeScope("CodeGen");
   Type *RetTy;
   std::vector<std::pair<Type *, AttributeSet>> MergedArgs;
 
@@ -2261,14 +2269,18 @@ public:
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
 
+  timeTraceProfilerBegin("MultipleFunctionMergingPass", "run");
   FunctionAnalysisManager &FAM =
       MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
 
   FunctionMerger PairMerger(&M);
   auto Options = MSAOptions();
 
-  std::unique_ptr<Matcher<Function *>> MatchFinder =
-      createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
+  std::unique_ptr<Matcher<Function *>> MatchFinder;
+  {
+    TimeTraceScope TimeScope("CreateMatcher");
+    MatchFinder = createMatcherLSH(PairMerger, Options, Options.LSHRows, Options.LSHBands);
+  }
 
   if (!OnlyFunctions.empty()) {
     SmallVector<Function *, 16> Functions;
@@ -2294,18 +2306,20 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     return PreservedAnalyses::none();
   }
 
-  size_t count = 0;
-  for (auto &F : M) {
-    if (!isEligibleToBeMergeCandidate(F))
-      continue;
-    MatchFinder->add_candidate(
-        &F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
-    count++;
+  {
+    TimeTraceScope TimeScope("IndexCandidates");
+    for (auto &F : M) {
+      if (!isEligibleToBeMergeCandidate(F))
+        continue;
+      MatchFinder->add_candidate(
+          &F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
+    }
   }
 
   bool Changed = false;
 
   while (MatchFinder->size() > 0) {
+    TimeTraceScope TimeScope("ProcessSimilarSet");
     Function *F1 = MatchFinder->next_candidate();
     auto &Rank = MatchFinder->get_matches(F1);
     MatchFinder->remove_candidate(F1);
@@ -2361,5 +2375,6 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     }
   }
 
+  timeTraceProfilerEnd();
   return PreservedAnalyses::none();
 }
