@@ -82,10 +82,13 @@ struct TransitionEntry {
   TransitionOffset Offset;
   bool Match;
   bool Invalid;
+  fmutils::OptionalScore Score;
 
-  TransitionEntry(TransitionOffset Offset, bool Match)
-      : Offset(Offset), Match(Match), Invalid(false) {}
-  TransitionEntry() : Offset({}), Match(false), Invalid(true) {}
+  TransitionEntry(TransitionOffset Offset, bool Match, uint32_t Score)
+      : Offset(Offset), Match(Match), Invalid(false), Score(Score) {}
+  TransitionEntry()
+      : Offset({}), Match(false), Invalid(true),
+        Score(fmutils::OptionalScore::None()) {}
 
   void print(raw_ostream &OS) const {
     OS << "(";
@@ -122,7 +125,6 @@ class MSAligner {
   const FunctionMergingOptions &Options;
 
   std::vector<SmallVector<Value *, 16>> &InstrVecList;
-  TensorTable<fmutils::OptionalScore> ScoreTable;
   TensorTable<TransitionEntry> BestTransTable;
 
   struct MatchResult {
@@ -138,8 +140,8 @@ class MSAligner {
   inline void updateBestScore(const TensorTableCursor &Point,
                               TransitionOffset TransOffset,
                               fmutils::OptionalScore newScore, bool IsMatched) {
-    ScoreTable.set(Point, newScore);
-    BestTransTable.set(Point, TransitionEntry(TransOffset, IsMatched));
+    BestTransTable.set(Point,
+                       TransitionEntry(TransOffset, IsMatched, newScore));
   }
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
@@ -174,7 +176,6 @@ class MSAligner {
             const FunctionMergingOptions &Options)
       : Scoring(Scoring), Functions(Functions), Shape(Shape), Options(Options),
         InstrVecList(InstrVecList),
-        ScoreTable(Shape, fmutils::OptionalScore::None()),
         BestTransTable(Shape, {}) {
 
     initScoreTable();
@@ -194,19 +195,18 @@ void MSAligner::initScoreTable() {
   {
     // Initialize {0,0,...,0}
     std::vector<size_t> Point(Shape.size(), 0);
-    ScoreTable[Point] = 0;
     TransitionOffset transOffset(Shape.size(), 0);
-    BestTransTable[Point] = TransitionEntry(transOffset, false);
+    BestTransTable[Point] = TransitionEntry(transOffset, false, 0);
   }
 
   for (size_t dim = 0; dim < Shape.size(); dim++) {
     std::vector<size_t> Point(Shape.size(), 0);
     for (size_t i = 1; i < Shape[dim]; i++) {
       Point[dim] = i;
-      ScoreTable[Point] = Scoring.getGapPenalty() * i;
+      auto score = Scoring.getGapPenalty() * i;
       TransitionOffset transOffset(Shape.size(), 0);
       transOffset[dim] = 1;
-      BestTransTable[Point] = TransitionEntry(transOffset, false);
+      BestTransTable[Point] = TransitionEntry(transOffset, false, score);
     }
   }
 }
@@ -274,13 +274,12 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
   TransitionOffset TransOffset(Shape.size(), 1);
 
   // Visit all possible transitions except for the current point itself.
-  fmutils::OptionalScore BestScore = fmutils::OptionalScore::None();
   TransitionEntry BestTransition;
 
   do {
     if (TransOffset.none())
       break;
-    if (!ScoreTable.contains(Point, TransOffset, true))
+    if (!BestTransTable.contains(Point, TransOffset, true))
       continue;
     auto OffsettedCursor =
         TensorTableCursor::fromPoint(Point, Shape, TransOffset, true);
@@ -300,15 +299,14 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
       similarity = Scoring.getGapPenalty() * TransOffset.count();
     }
     assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
-    auto fromScore = *ScoreTable.get(OffsettedCursor);
+    auto fromScore = *BestTransTable.get(OffsettedCursor).Score;
     int32_t newScore = MSAlignerUtilites::addScore(fromScore, similarity);
-    if (!BestScore.hasValue() || newScore > *BestScore) {
-      BestScore = newScore;
-      BestTransition = TransitionEntry(TransOffset, IsMatched);
+    auto bestScore = BestTransition.Score;
+    if (!bestScore.hasValue() || newScore > *bestScore) {
+      BestTransition = TransitionEntry(TransOffset, IsMatched, newScore);
     }
   } while (MSAlignerUtilites::decrementOffset(TransOffset));
 
-  ScoreTable.set(Cursor, BestScore);
   BestTransTable.set(Cursor, BestTransition);
 }
 
