@@ -145,7 +145,7 @@ class MSAligner {
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   bool advancePointInShape(SmallVector<size_t, 4> &Point) const {
-    for (size_t i = 0; i < Point.size(); i++) {
+    for (size_t i = 0; i < ShapeSize; i++) {
       if (Point[i] < Shape[i] - 1) {
         Point[i]++;
         return true;
@@ -158,7 +158,7 @@ class MSAligner {
   MatchResult matchInstructions(const SmallVector<size_t, 4> &Point) const {
     auto *TheInstr = InstrVecList[0][Point[0]];
     bool IdenticalTypes = true;
-    for (size_t i = 1; i < InstrVecList.size(); i++) {
+    for (size_t i = 1; i < ShapeSize; i++) {
       auto *OtherInstr = InstrVecList[i][Point[i]];
       IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
       if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
