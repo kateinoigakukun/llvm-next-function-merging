@@ -255,15 +255,13 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
   // +-----------+-----------+
   // The current visiting point in the virtual tensor table.
   assert(Shape.size() < 32 && "Shape size is too large");
-  TransitionOffset TransOffset(Shape.size(), 1);
-  TransitionOffset DiagnoalOffset(Shape.size(), 1);
+  TransitionOffset TransOffset(Shape.size(), true);
+  TransitionOffset DiagnoalOffset(Shape.size(), true);
 
   // Visit all possible transitions except for the current point itself.
   TransitionEntry BestTransition;
 
   do {
-    if (TransOffset.none())
-      break;
     if (!BestTransTable.contains(Point, TransOffset, true))
       continue;
 
@@ -288,7 +286,7 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     if (!bestScore.hasValue() || newScore > *bestScore) {
       BestTransition = TransitionEntry(TransOffset, IsMatched, newScore);
     }
-  } while (fmutils::decrementOffset(TransOffset, Shape.size()));
+  } while (TransOffset.decrement());
 
   BestTransTable.set(Cursor, BestTransition);
 }
