@@ -2,10 +2,13 @@ require "rake"
 require "rake/tasklib"
 
 class Build < Rake::TaskLib
+  attr_reader :repo_root, :dot_x_dir, :build_dir, :trace_dir, :pass_plugin
+
   def initialize
     @repo_root = File.expand_path(File.join(File.dirname(__FILE__), "..", ".."))
-    @build_dir = File.join(@repo_root, ".x", "build", "RelWithDebInfo")
-    @trace_dir = File.join(@repo_root, ".x", "trace")
+    @dot_x_dir = File.join(@repo_root, ".x")
+    @build_dir = File.join(@dot_x_dir, "build", "RelWithDebInfo")
+    @trace_dir = File.join(@dot_x_dir, "trace")
     @pass_plugin = File.join(@build_dir, "lib/LLVMNextFM.so")
   end
 
@@ -136,4 +139,6 @@ def main
   opt.parse!
 end
 
-main
+if $0 == __FILE__
+  main
+end
