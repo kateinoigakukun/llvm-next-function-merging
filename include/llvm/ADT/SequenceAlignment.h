@@ -120,11 +120,11 @@ public:
 };
 
 class ScoringSystem {
+public:
   ScoreSystemType Gap;
   ScoreSystemType Match;
   ScoreSystemType Mismatch;
   bool AllowMismatch;
-public:
   ScoringSystem(ScoreSystemType Gap, ScoreSystemType Match) {
     this->Gap = Gap;
     this->Match = Match;

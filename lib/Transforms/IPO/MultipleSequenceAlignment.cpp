@@ -273,10 +273,9 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
       auto result = matchInstructions(MSAlignerUtilites::minusOffsetFromPoint(
           TransOffset, Point, ShapeSize));
       IsMatched = result.Match;
-      similarity = IsMatched
-                       ? (result.IdenticalTypes ? Scoring.getMatchProfit()
-                                                : Scoring.getMatchProfit() / 2)
-                       : Scoring.getMismatchPenalty();
+      similarity = IsMatched ? (result.IdenticalTypes ? Scoring.Match
+                                                      : Scoring.Match / 2)
+                             : Scoring.Mismatch;
     } else {
       similarity = Scoring.getGapPenalty() * TransOffset.count();
     }
