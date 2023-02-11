@@ -67,6 +67,25 @@ public:
   }
 };
 
+// Decrement bit vector as a unsigned integer
+// If Point.size() == 2
+// [1, 1] -> [1, 0] -> [0, 1] -> [0, 0] -> STOP
+//
+// If Point.size() == 3
+// [1, 1, 1] -> [1, 1, 0] -> [1, 0, 1] -> [1, 0, 0]
+// -> [0, 1, 1] -> [0, 1, 0] -> [0, 0, 1] -> STOP
+template <typename OffsetVec>
+static bool decrementOffset(OffsetVec &Offset, size_t Size) {
+  for (int i = Size - 1; i >= 0; i--) {
+    if (Offset[i]) {
+      Offset.set(i, false);
+      return true;
+    }
+    Offset.set(i, true);
+  }
+  return false;
+};
+
 } // namespace fmutils
 } // namespace llvm
 #endif

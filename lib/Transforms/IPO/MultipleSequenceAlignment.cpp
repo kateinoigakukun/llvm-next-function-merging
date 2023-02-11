@@ -221,24 +221,6 @@ static int32_t addScore(int32_t Score, int32_t addend) {
   return Score + addend;
 };
 
-  // Decrement bit vector as a unsigned integer
-  // If Point.size() == 2
-  // [1, 1] -> [1, 0] -> [0, 1] -> [0, 0] -> STOP
-  //
-  // If Point.size() == 3
-  // [1, 1, 1] -> [1, 1, 0] -> [1, 0, 1] -> [1, 0, 0]
-  // -> [0, 1, 1] -> [0, 1, 0] -> [0, 0, 1] -> STOP
-static bool decrementOffset(TransitionOffset &Point, size_t Size) {
-  for (int i = Size - 1; i >= 0; i--) {
-    if (Point[i]) {
-      Point.set(i, false);
-      return true;
-    }
-    Point.set(i, true);
-  }
-  return false;
-};
-
 inline SmallVector<size_t, 4>
 minusOffsetFromPoint(const TransitionOffset &Offset,
                      const SmallVector<size_t, 4> &Point) {
@@ -306,7 +288,7 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     if (!bestScore.hasValue() || newScore > *bestScore) {
       BestTransition = TransitionEntry(TransOffset, IsMatched, newScore);
     }
-  } while (MSAlignerUtilites::decrementOffset(TransOffset, Shape.size()));
+  } while (fmutils::decrementOffset(TransOffset, Shape.size()));
 
   BestTransTable.set(Cursor, BestTransition);
 }
