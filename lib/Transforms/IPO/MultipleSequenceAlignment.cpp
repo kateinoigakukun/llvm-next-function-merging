@@ -2,6 +2,7 @@
 #include "FunctionMergingUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/FixedBitVector.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -77,7 +78,7 @@ ALWAYS_ENABLED_STATISTIC(NumAdvancePointInShape,
 
 namespace {
 
-using TransitionOffset = SmallBitVector;
+using TransitionOffset = FixedBitVector;
 struct TransitionEntry {
   TransitionOffset Offset;
   bool Match;
