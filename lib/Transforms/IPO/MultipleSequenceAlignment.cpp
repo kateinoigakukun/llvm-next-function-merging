@@ -275,7 +275,8 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     } else {
       similarity = Scoring.getGapPenalty() * TransOffset.count();
     }
-    assert(ScoreTable.get(Point, TransOffset, true) && "non-visited point");
+    assert(BestTransTable.get(Point, TransOffset, true).Score &&
+           "non-visited point");
     auto fromScore = *BestTransTable.get(Point, TransOffset, true).Score;
     int32_t newScore = MSAlignerUtilites::addScore(fromScore, similarity);
     auto bestScore = BestTransition.Score;
@@ -327,7 +328,10 @@ void MSAligner::buildAlignment(
   }
 
   while (true) {
-    MSA_VERBOSE(dbgs() << "BackCursor: "; for (auto v : Cursor) { dbgs() << v << " "; } dbgs() << "\n");
+    MSA_VERBOSE(
+        dbgs() << "BackCursor: "; for (size_t dim = 0; dim < MaxDim; dim++) {
+          dbgs() << Cursor[dim] << " ";
+        } dbgs() << "\n");
     // If the current point is the start edge of the table, we are done.
     if (std::all_of(Cursor.begin(), Cursor.end(),
                     [](size_t v) { return v == 0; })) {
@@ -337,7 +341,6 @@ void MSAligner::buildAlignment(
     auto &Entry = BestTransTable[Cursor];
     MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
-    assert(!Offset.empty() && "not transitioned yet!?");
     auto alignEntry = BuildAlignmentEntry(Entry, Cursor);
     Alignment.emplace_back(alignEntry);
     for (size_t dim = 0; dim < MaxDim; dim++) {
@@ -352,7 +355,6 @@ void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
   /* ===== Needleman–Wunsch algorithm ======= */
 
   buildScoreTable();
-  MSA_VERBOSE(llvm::dbgs() << "ScoreTable:\n"; ScoreTable.print(llvm::dbgs()));
   MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
               BestTransTable.print(llvm::dbgs()));
 
