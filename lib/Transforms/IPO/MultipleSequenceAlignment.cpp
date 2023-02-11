@@ -73,9 +73,6 @@ static cl::opt<bool> EnableStats(
     "multiple-func-merging-stats", cl::init(false), cl::Hidden,
     cl::desc("Enable statistics for the multiple function merging"));
 
-ALWAYS_ENABLED_STATISTIC(NumAdvancePointInShape,
-                         "The # of times 'advancePointInShape' called");
-
 namespace {
 
 using TransitionOffset = FixedBitVector;
@@ -148,7 +145,6 @@ class MSAligner {
   void align(std::vector<MSAAlignmentEntry> &Alignment);
 
   bool advancePointInShape(SmallVector<size_t, 4> &Point) const {
-    NumAdvancePointInShape++;
     for (size_t i = 0; i < Point.size(); i++) {
       if (Point[i] < Shape[i] - 1) {
         Point[i]++;
