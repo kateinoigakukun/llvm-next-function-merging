@@ -122,7 +122,8 @@ raw_ostream &operator<<(raw_ostream &OS, const MSAAlignmentEntry &Entry) {
 class MSAligner {
   ScoringSystem &Scoring;
   ArrayRef<Function *> Functions;
-  std::vector<size_t> Shape;
+  const std::vector<size_t> Shape;
+  const size_t ShapeSize;
   const FunctionMergingOptions &Options;
 
   std::vector<SmallVector<Value *, 16>> &InstrVecList;
@@ -175,8 +176,8 @@ class MSAligner {
             std::vector<size_t> Shape,
             std::vector<SmallVector<Value *, 16>> &InstrVecList,
             const FunctionMergingOptions &Options)
-      : Scoring(Scoring), Functions(Functions), Shape(Shape), Options(Options),
-        InstrVecList(InstrVecList),
+      : Scoring(Scoring), Functions(Functions), Shape(Shape),
+        ShapeSize(Shape.size()), Options(Options), InstrVecList(InstrVecList),
         BestTransTable(Shape, {}) {
 
     initScoreTable();
@@ -223,9 +224,9 @@ static int32_t addScore(int32_t Score, int32_t addend) {
 
 inline SmallVector<size_t, 4>
 minusOffsetFromPoint(const TransitionOffset &Offset,
-                     const SmallVector<size_t, 4> &Point) {
-  SmallVector<size_t, 4> Result(Point.size());
-  for (size_t i = 0; i < Point.size(); i++) {
+                     const SmallVector<size_t, 4> &Point, size_t ShapeSize) {
+  SmallVector<size_t, 4> Result(ShapeSize);
+  for (size_t i = 0; i < ShapeSize; i++) {
     Result[i] = Point[i] - Offset[i];
   }
   return Result;
@@ -254,9 +255,9 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
   // |           |           |/
   // +-----------+-----------+
   // The current visiting point in the virtual tensor table.
-  assert(Shape.size() < 32 && "Shape size is too large");
-  TransitionOffset TransOffset(Shape.size(), true);
-  TransitionOffset DiagnoalOffset(Shape.size(), true);
+  assert(ShapeSize < 32 && "Shape size is too large");
+  TransitionOffset TransOffset(ShapeSize, true);
+  TransitionOffset DiagnoalOffset(ShapeSize, true);
 
   // Visit all possible transitions except for the current point itself.
   TransitionEntry BestTransition;
@@ -269,8 +270,8 @@ void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
     bool IsMatched = false;
     // If diagonal transition, add the match score.
     if (TransOffset == DiagnoalOffset) {
-      auto result = matchInstructions(
-          MSAlignerUtilites::minusOffsetFromPoint(TransOffset, Point));
+      auto result = matchInstructions(MSAlignerUtilites::minusOffsetFromPoint(
+          TransOffset, Point, ShapeSize));
       IsMatched = result.Match;
       similarity = IsMatched
                        ? (result.IdenticalTypes ? Scoring.getMatchProfit()
