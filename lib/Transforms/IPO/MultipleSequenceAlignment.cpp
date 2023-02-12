@@ -66,6 +66,11 @@ static cl::opt<bool> AllowUnprofitableMerge(
     "multiple-func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
     cl::desc("Allow merging functions that are not profitable"));
 
+static cl::opt<bool>
+    HasWholeProgram("multiple-func-merging-whole-program", cl::init(false),
+                    cl::Hidden,
+                    cl::desc("Function merging applied on whole program"));
+
 static cl::list<std::string>
     OnlyFunctions("multiple-func-merging-only", cl::Hidden,
                   cl::desc("Merge only the specified functions"));
@@ -745,7 +750,8 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
-    if (!F->hasAddressTaken() && F->isDiscardableIfUnused()) {
+    if (!F->hasAddressTaken() &&
+        (HasWholeProgram || F->isDiscardableIfUnused())) {
       if (auto replacement =
               MSACallReplacement::create(FuncId, F, ArgToMergedArgNo)) {
         // We don't need to create a thunk if we can just replace calls.
