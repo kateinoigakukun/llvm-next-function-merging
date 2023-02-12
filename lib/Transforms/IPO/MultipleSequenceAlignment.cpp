@@ -67,6 +67,10 @@ static cl::opt<bool> AllowUnprofitableMerge(
     cl::desc("Allow merging functions that are not profitable"));
 
 static cl::opt<bool>
+    IdenticalType("multiple-func-merging-identical-type", cl::init(false), cl::Hidden,
+                  cl::desc("Match only values with identical types"));
+
+static cl::opt<bool>
     HasWholeProgram("multiple-func-merging-whole-program", cl::init(false),
                     cl::Hidden,
                     cl::desc("Function merging applied on whole program"));
@@ -2374,7 +2378,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
           }
           if (selectCursor == Functions.size() - 1) {
             if (MergingSet.size() >= 2) {
-              Planner.tryPlanMerge(MergingSet, false);
+              if (!IdenticalType) {
+                Planner.tryPlanMerge(MergingSet, false);
+              }
               Planner.tryPlanMerge(MergingSet, true);
             }
           } else {
