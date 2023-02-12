@@ -814,7 +814,8 @@ public:
   }
 
   Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
-  Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty);
+  Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty,
+                    const Twine &Name = "");
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
@@ -903,7 +904,7 @@ Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
 }
 
 Value *MSAGenFunctionBody::tryBitcast(IRBuilder<> &Builder, Value *V,
-                                      Type *DestTy) {
+                                      Type *DestTy, const Twine &Name) {
   // 1. If the value type is already the same as the destination type, return it
   // as is.
   if (V->getType() == DestTy) {
@@ -915,19 +916,19 @@ Value *MSAGenFunctionBody::tryBitcast(IRBuilder<> &Builder, Value *V,
   if (V->getType()->isPointerTy() && DestTy->isPointerTy() &&
       V->getType()->getPointerAddressSpace() ==
           DestTy->getPointerAddressSpace()) {
-    return Builder.CreatePointerCast(V, DestTy);
+    return Builder.CreatePointerCast(V, DestTy, Name);
   }
   // 3. If the value type is a pointer type, and the destination type is an
   // integer type, ptrtoint the value and return it.
   if (V->getType()->isPointerTy() && DestTy->isIntegerTy()) {
-    return Builder.CreatePtrToInt(V, DestTy);
+    return Builder.CreatePtrToInt(V, DestTy, Name);
   }
   // 4. If the value type is an integer type, and the destination type is a
   // pointer type, inttoptr the value and return it.
   if (V->getType()->isIntegerTy() && DestTy->isPointerTy()) {
-    return Builder.CreateIntToPtr(V, DestTy);
+    return Builder.CreateIntToPtr(V, DestTy, Name);
   }
-  return Builder.CreateBitCast(V, DestTy);
+  return Builder.CreateBitCast(V, DestTy, Name);
 }
 
 // Corresponding to `CodeGen` in SALSSACodeGen.cpp
@@ -1419,7 +1420,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     auto *V1 = Values[0];
     auto *V2 = Values[1];
     IRBuilder<> BuilderBB(MergedI);
-    V2 = tryBitcast(BuilderBB, V2, V1->getType());
+    V2 = tryBitcast(BuilderBB, V2, V1->getType(), "select.bitcast");
     {
       auto *IV1 = dyn_cast<Instruction>(V1);
       auto *IV2 = dyn_cast<Instruction>(V2);
@@ -1491,7 +1492,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
-    V = tryBitcast(BuilderBB, V, PHI->getType());
+    V = tryBitcast(BuilderBB, V, PHI->getType(), "switch.select.bitcast");
     PHI->addIncoming(V, BB);
   }
 
@@ -1536,7 +1537,7 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
       if (V == nullptr) {
         return false; // ErrorResponse;
       }
-      V = tryBitcast(Builder, V, Op->getType());
+      V = tryBitcast(Builder, V, Op->getType(), "valuemap.bitcast");
       NewI->setOperand(i, V);
     }
   }
@@ -1938,31 +1939,42 @@ bool MSAGenFunctionBody::assignPHIOperandsInBlock() {
       }
       auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
+      // Reuse the incoming values if already computed.
+      // Without this, PHI node can have multiple entries for the
+      // same basic block with different incoming values due to bitcast
+      // insertions.
+      SmallDenseMap<BasicBlock *, Value *> IncomingValuesCache;
+
       for (auto It = pred_begin(NewPHI->getParent()),
                 E = pred_end(NewPHI->getParent());
            It != E; It++) {
 
         BasicBlock *NewPredBB = *It;
 
-        Value *V = nullptr;
+        Value *V = IncomingValuesCache[NewPredBB];
 
-        if (BlocksReMap.find(NewPredBB) != BlocksReMap.end()) {
-          int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
-          if (Index >= 0) {
-            V = MapValue(PHI->getIncomingValue(Index), VMap);
+        if (V == nullptr) {
+          if (BlocksReMap.find(NewPredBB) != BlocksReMap.end()) {
+            int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
+            if (Index >= 0) {
+              V = MapValue(PHI->getIncomingValue(Index), VMap);
+            } else {
+              LLVM_DEBUG(dbgs()
+                         << "ERROR: Cannot find incoming value for BB\n");
+            }
           } else {
-            LLVM_DEBUG(dbgs() << "ERROR: Cannot find incoming value for BB\n");
+            LLVM_DEBUG(
+                dbgs()
+                << "ERROR: Cannot find the original BB for the new BB\n");
           }
-        } else {
-          LLVM_DEBUG(dbgs()
-                     << "ERROR: Cannot find the original BB for the new BB\n");
+
+          if (V == nullptr)
+            V = UndefValue::get(NewPHI->getType());
+          IRBuilder<> Builder(NewPredBB->getTerminator());
+          V = tryBitcast(Builder, V, NewPHI->getType(), "phicoalesce.bitcast");
+          IncomingValuesCache[NewPredBB] = V;
         }
 
-        if (V == nullptr)
-          V = UndefValue::get(NewPHI->getType());
-
-        IRBuilder<> Builder(NewPredBB->getTerminator());
-        V = tryBitcast(Builder, V, NewPHI->getType());
         NewPHI->addIncoming(V, NewPredBB);
       }
     }

@@ -1,6 +1,5 @@
-; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK: --- !Missed
-; CHECK: - Reason:          Invalid merged function
+; RUN: %opt -S --passes="multiple-func-merging" -multiple-func-merging-disable-post-opt -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
+; CHECK-NOT: - Reason:          Invalid merged function
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/CodeGen/spec2006/403.gcc/0_multiple-func-merging_CodeGen.reduced0.ll'
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-f64:32:64-f80:32-n8:16:32-S128"

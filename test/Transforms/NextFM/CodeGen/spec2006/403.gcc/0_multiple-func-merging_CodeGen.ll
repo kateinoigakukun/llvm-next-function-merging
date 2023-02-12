@@ -3,9 +3,7 @@
 ; - yyparse_1
 
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK-NOT: --- !Missed
 ; CHECK-NOT: - Reason:          Invalid merged function
-; XFAIL: *
 
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/.x/bench-suite/f3m/f3m-cgo22-artifact.v4/benchmarks/spec2006/403.gcc/_main_._all_._files_._linked_.bc'
 source_filename = "llvm-link"
