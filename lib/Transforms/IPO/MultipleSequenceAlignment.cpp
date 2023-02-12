@@ -54,7 +54,7 @@
 using namespace llvm;
 
 static cl::opt<size_t> DefaultShapeSizeLimit(
-    "multiple-func-merging-shape-limit", cl::init(10 * 1024 * 1024), cl::Hidden,
+    "multiple-func-merging-shape-limit", cl::init(24 * 1024 * 1024), cl::Hidden,
     cl::desc("The shape size limit for the multiple function merging"));
 
 static cl::opt<size_t>
