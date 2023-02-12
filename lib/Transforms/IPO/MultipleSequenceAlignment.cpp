@@ -57,6 +57,11 @@ static cl::opt<size_t> DefaultShapeSizeLimit(
     "multiple-func-merging-shape-limit", cl::init(10 * 1024 * 1024), cl::Hidden,
     cl::desc("The shape size limit for the multiple function merging"));
 
+static cl::opt<size_t>
+    MaxNumSelection("multiple-func-merging-max-selects", cl::init(500),
+                    cl::Hidden,
+                    cl::desc("Maximum number of allowed operand selection"));
+
 static cl::opt<bool> AllowUnprofitableMerge(
     "multiple-func-merging-allow-unprofitable", cl::init(false), cl::Hidden,
     cl::desc("Allow merging functions that are not profitable"));
@@ -616,12 +621,16 @@ MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
       .ThunkOverhead = ThunkOverhead,
       .OriginalTotalSize = OriginalTotalSize,
       .Options = Options,
+      .Stats = Stats,
   };
 }
 
 bool MSAMergePlan::Score::isProfitableMerge() const {
   if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
     return true;
+  }
+  if (Stats.NumSelection > MaxNumSelection) {
+    return false;
   }
   if (MergedSize + ThunkOverhead < OriginalTotalSize) {
     return true;
@@ -635,7 +644,8 @@ void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
                 << ore::NV("MergedSize", MergedSize)
                 << ore::NV("ThunkOverhead", ThunkOverhead)
                 << ore::NV("OriginalTotalSize", OriginalTotalSize)
-                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
+                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
+                << ore::NV("NumSelection", Stats.NumSelection);
   ORE.emit(remark);
 }
 
@@ -693,8 +703,8 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
 }
 
 Optional<MSAMergePlan>
-MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
-
+MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
+  MSAStats Stats;
   std::vector<MSAAlignmentEntry> Alignment;
   if (!align(Alignment, Options)) {
     return None;
@@ -731,7 +741,7 @@ MSAFunctionMerger::planMerge(MSAStats &Stats, FunctionMergingOptions Options) {
     FPM.run(*Merged, FAM);
   }
 
-  MSAMergePlan plan(*Merged, Functions, Options);
+  MSAMergePlan plan(*Merged, Functions, Options, Stats);
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
@@ -1436,6 +1446,7 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     assert(Parent.Functions.size() == 2 && "Expected two functions!");
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
         Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
+    Stats.NumSelection++;
     return BuilderBB.CreateSelect(DiscriminatorBit, V2, V1, "switch.select");
   }
 
@@ -2245,11 +2256,10 @@ public:
 
   void tryPlanMerge(SmallVectorImpl<Function *> &Functions,
                     bool IdenticalTypesOnly = true) {
-    MSAStats Stats;
     MSAOptions Opt = BaseOpt;
     Opt.matchOnlyIdenticalTypes(IdenticalTypesOnly);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    auto maybePlan = FM.planMerge(Stats, Opt);
+    auto maybePlan = FM.planMerge(Opt);
     if (!maybePlan) {
       return;
     }

@@ -30,7 +30,7 @@ public:
 };
 
 struct MSAStats {
-  unsigned NumSelection;
+  size_t NumSelection = 0;
 };
 
 class MSAThunkFunction {
@@ -74,11 +74,12 @@ class MSAMergePlan {
   std::vector<MSACallReplacement> CallReplacements;
   std::vector<Function *> Functions;
   const FunctionMergingOptions &Options;
+  MSAStats Stats;
 
 public:
   MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions,
-               const FunctionMergingOptions &Options)
-      : Merged(Merged), Functions(Functions), Options(Options) {}
+               const FunctionMergingOptions &Options, MSAStats Stats)
+      : Merged(Merged), Functions(Functions), Options(Options), Stats(Stats) {}
 
   ArrayRef<Function *> getFunctions() const { return Functions; }
   Function &getMerged() const { return Merged; }
@@ -92,6 +93,7 @@ public:
     size_t ThunkOverhead;
     size_t OriginalTotalSize;
     const FunctionMergingOptions &Options;
+    MSAStats Stats;
 
     bool isProfitableMerge() const;
     bool isBetterThan(const Score &Other) const;
@@ -126,8 +128,7 @@ public:
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
-  Optional<MSAMergePlan> planMerge(MSAStats &Stats,
-                                   FunctionMergingOptions Options = {});
+  Optional<MSAMergePlan> planMerge(FunctionMergingOptions Options = {});
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
