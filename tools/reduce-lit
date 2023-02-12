@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+
+require "fileutils"
+
+LIT_TEST_ENV = "LLVM_NEXTFM_REDUCE_LIT_INTERESTINGNESS_TEST"
+
+def main
+  lit_test = File.expand_path(ARGV[0])
+  # Pass this script itself as the interestingness test harness to llvm-reduce.
+  env = { LIT_TEST_ENV => lit_test }
+  Kernel.exec env, "llvm-reduce-13", "--test", File.expand_path(__FILE__), lit_test, chdir: guess_build_dir
+end
+
+def interestingness_test
+  raise "Not in build directory" unless File.exist? "CMakeCache.txt"
+
+  input_ll = File.expand_path(ARGV[0])
+  original_lit_test = ENV[LIT_TEST_ENV]
+  original_lit_contents = File.read(original_lit_test)
+  lit_directives = original_lit_contents.lines.grep(/^; (RUN|CHECK|CHECK-NEXT): /)
+
+  tmp_lit_test = File.join(File.dirname(original_lit_test), "tmp.ll")
+  File.open(tmp_lit_test, "w") do |f|
+    f.puts lit_directives
+    f.puts File.read(input_ll)
+  end
+
+  require "pathname"
+  repo_relative_path = Pathname.new(tmp_lit_test).relative_path_from(Pathname.new(guess_repo_root))
+
+  # Run the lit test with the reduced input.
+  Kernel.exec "lit", "-v", repo_relative_path.to_s
+end
+
+def guess_build_dir
+  return Dir.pwd if File.exist? "CMakeCache.txt"
+  $stderr.puts "Not in build directory, guessing..."
+
+  candidates = [".x/build/RelWithDebInfo"]
+  candidates.each do |c|
+    $stderr.puts "Trying #{c} ..."
+    if File.exist? File.join(c, "CMakeCache.txt")
+      $stderr.puts "Found build directory: #{c}"
+      return c
+    end
+  end
+end
+
+def guess_repo_root
+  return Dir.pwd if File.exist? ".git"
+  dir = Dir.pwd
+  loop do
+    dir = File.dirname(dir)
+    return dir if File.exist? File.join(dir, ".git")
+  end
+end
+
+if __FILE__ == $0
+  if ENV[LIT_TEST_ENV]
+    interestingness_test
+  else
+    main
+  end
+end
