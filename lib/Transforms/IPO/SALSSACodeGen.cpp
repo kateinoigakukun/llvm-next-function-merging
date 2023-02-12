@@ -764,6 +764,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
       if (auto *PHI = dyn_cast<PHINode>(&I)) {
         auto *NewPHI = dyn_cast<PHINode>(VMap[PHI]);
 
+        std::set<int> FoundIndices;
+
         for (auto It = pred_begin(NewPHI->getParent()),
                   E = pred_end(NewPHI->getParent());
              It != E; It++) {
@@ -776,6 +778,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
             int Index = PHI->getBasicBlockIndex(BlocksReMap[NewPredBB]);
             if (Index >= 0) {
               V = MapValue(PHI->getIncomingValue(Index), VMap);
+              FoundIndices.insert(Index);
             }
           }
 
@@ -787,6 +790,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
           // IntPtrTy);
           NewPHI->addIncoming(V, NewPredBB);
         }
+        if (FoundIndices.size() != PHI->getNumIncomingValues())
+          return false;
       }
     }
     return true;
