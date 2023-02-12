@@ -70,6 +70,10 @@ static cl::opt<bool>
     IdenticalType("multiple-func-merging-identical-type", cl::init(false), cl::Hidden,
                   cl::desc("Match only values with identical types"));
 
+static cl::opt<bool> EnableSALSSACoalescing(
+    "multiple-func-merging-coalescing", cl::init(true), cl::Hidden,
+    cl::desc("Enable phi-node coalescing during SSA reconstruction"));
+
 static cl::opt<bool>
     HasWholeProgram("multiple-func-merging-whole-program", cl::init(false),
                     cl::Hidden,
@@ -1903,7 +1907,9 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     InstSet.insert(I);
 
     // Create a coalescing group in InstSet
-    OptimizeCoalescing(I, InstSet, CoalescingCandidates, Visited);
+    if (EnableSALSSACoalescing) {
+      OptimizeCoalescing(I, InstSet, CoalescingCandidates, Visited);
+    }
 
     for (Instruction *OtherI : InstSet)
       Visited.insert(OtherI);
