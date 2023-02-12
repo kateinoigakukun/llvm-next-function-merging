@@ -1,0 +1,3 @@
+#!/bin/bash
+plugin="${LLVM_NEXTFM_PLUGIN:?'LLVM_NEXTFM_PLUGIN not set'}"
+${OPT:-opt-13} --load "${plugin}" --load-pass-plugin "${plugin}" "$@"

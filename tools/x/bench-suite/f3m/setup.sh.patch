@@ -1,0 +1,58 @@
+--- ./setup.sh	2023-02-11 07:30:28.296805806 +0000
++++ ./setup.patched.sh	2023-02-11 07:50:24.901331834 +0000
+@@ -116,17 +116,17 @@
+ #********************************* SCRIPT BODY *********************************
+ #*******************************************************************************
+ 
+-if [[ $(check_python) == 0 ]]
+-then
+-    install_python || { echo "Python Installation Failed"; rm -rf pyenv; exit 1; }
+-fi
+-
+-pip3 install --user numpy matplotlib statsmodels
+-
+-if [[ $(check_cmake) == 0 ]]
+-then
+-    install_cmake || { echo "CMake Installation Failed"; exit 1; }
+-fi
++# if [[ $(check_python) == 0 ]]
++# then
++#     install_python || { echo "Python Installation Failed"; rm -rf pyenv; exit 1; }
++# fi
++# 
++# pip3 install --user numpy matplotlib statsmodels
++# 
++# if [[ $(check_cmake) == 0 ]]
++# then
++#     install_cmake || { echo "CMake Installation Failed"; exit 1; }
++# fi
+ 
+ install_custom_time
+ 
+@@ -134,16 +134,16 @@
+ #********************************** LLVM + F3M *********************************
+ #*******************************************************************************
+ 
+-git clone --depth 1 https://github.com/ppetoumenos/llvm-project.git -b cgo22ae2
+-mkdir -p llvm-project/build
+-cd llvm-project/build
+-
+-# The experiments in the paper used lld, this might have a small effect on the timing results
+-LINKER=gold
+-#LINKER=lld
+-
+-cmake -DLLVM_ENABLE_PROJECTS='clang;compiler-rt;lld' -DCMAKE_BUILD_TYPE="Release" -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_DUMP=ON -DLLVM_INCLUDE_TESTS=OFF -DLLVM_USE_LINKER=$LINKER ../llvm
+-make -j$NJOBS opt clang lld llvm-size llvm-link clang_rt.builtins-x86_64
++# git clone --depth 1 https://github.com/ppetoumenos/llvm-project.git -b cgo22ae2
++# mkdir -p llvm-project/build
++# cd llvm-project/build
++# 
++# # The experiments in the paper used lld, this might have a small effect on the timing results
++# LINKER=gold
++# #LINKER=lld
++# 
++# cmake -DLLVM_ENABLE_PROJECTS='clang;compiler-rt;lld' -DCMAKE_BUILD_TYPE="Release" -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_DUMP=ON -DLLVM_INCLUDE_TESTS=OFF -DLLVM_USE_LINKER=$LINKER ../llvm
++# make -j$NJOBS opt clang lld llvm-size llvm-link clang_rt.builtins-x86_64
+ 
+ # If you already have Ninja installed, it might make things faster if you replace the two lines above with these two:
+ #cmake -G 'Ninja' -DLLVM_ENABLE_PROJECTS='clang;compiler-rt;lld' -DCMAKE_BUILD_TYPE="Release" -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_DUMP=ON -DLLVM_INCLUDE_TESTS=OFF -DLLVM_USE_LINKER=$LINKER ../llvm
