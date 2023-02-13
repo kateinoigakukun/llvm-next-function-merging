@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 from yaml import CLoader as Loader
 import sqlite3
+import sys
 
 
 class Passed(yaml.YAMLObject):
@@ -96,19 +97,47 @@ class MergedFunctionsDataSource(DataSource):
         with multiprocessing.Pool() as pool:
             rows = conn.execute("SELECT benchmark, flags, remark FROM builds").fetchall()
             results = pool.imap_unordered(self.__class__.load_row, rows)
-            for idx, (bmark, flags, count) in enumerate(results):
-                print(f"[{idx} / {len(rows)}]: {bmark} {flags} {count}]")
+            for idx, (bmark, flags, count, all_funcs) in enumerate(results):
+                print(f"[{idx} / {len(rows)}]: {bmark} {flags} {count} / {all_funcs}")
                 if bmark not in data:
                     data[bmark] = {}
-                data[bmark][flags] = count
+                data[bmark][flags] = { "count": count, "all_funcs": all_funcs }
         self.data = data
 
     @classmethod
     def load_row(cls, row):
         bmark, flags, remark = row
+        bc_file = cls.find_bc_file(bmark)
+        if bc_file:
+            all_funcs = cls.count_source_functions(bc_file)
+        else:
+            sys.stderr.write(f"WARNING: No bitcode file found for {bmark}\n")
+            all_funcs = 0
         with open(remark, "r") as f:
             count = cls.load_remark_content(f)
-            return (bmark, flags, count)
+            return (bmark, flags, count, all_funcs)
+
+    @classmethod
+    def count_source_functions(cls, bc_file):
+        # Count the number of defined functions in the given bitcode file.
+        import subprocess
+        pass_plugin = os.path.join(os.path.dirname(__file__), "../../../../.x/build/RelWithDebInfo/lib/LLVMNextFM.so")
+        json_bytes = subprocess.check_output([
+            "opt-13", "-o", "/dev/null", "--passes=instcount2", bc_file,
+            "--load", pass_plugin, "--load-pass-plugin", pass_plugin,
+        ], stderr=subprocess.DEVNULL)
+        import json
+        json_str = json_bytes.decode("utf-8")
+        json_obj = json.loads(json_str)
+        return json_obj["instcount2.TotalFuncs"]
+
+    @classmethod
+    def find_bc_file(cls, bmark):
+        path = f".x/bench-suite/f3m/f3m-cgo22-artifact.v4/benchmarks/**/{bmark}/**/_main_._all_._files_._linked_.bc"
+        bc_files = glob(path, recursive=True)
+        if len(bc_files) == 0:
+            return None
+        return bc_files[0]
 
     @classmethod
     def load_remark_content(cls, remark_file):
@@ -135,12 +164,13 @@ class MergedFunctionsDataSource(DataSource):
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
             return None
-        return self.data[bmark][case_name]
+        entry = self.data[bmark][case_name]
+        return 100 * (float(entry["count"]) / float(entry["all_funcs"]))
 
     def title(self):
-        return "Number of merged input functions"
+        return "Percentage of merged functions in total non-external functions"
     def xlabel(self):
-        return "Number of merged input functions"
+        return "Percentage of merged functions (%)"
 
 class CompileTimeDataSource(DataSource):
     def __init__(self, conn):
