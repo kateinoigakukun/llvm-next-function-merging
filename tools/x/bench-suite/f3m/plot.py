@@ -50,17 +50,19 @@ class DataSource:
     def y_labels(self):
         return sorted(self.data.keys())
 
-    def __baseline_case_name(self):
+    def baseline_case_name(self):
         return "TECHNIQUE=baseline"
 
     def variants(self):
-        variants = set(self.data[self.y_labels()[0]].keys())
-        return sorted(variants - {"TECHNIQUE=hyfm"} - {self.__baseline_case_name()}, reverse=True)
+        variants = self.data[self.y_labels()[0]].keys()
+        variants = filter(lambda x: x.count("IDENTICAL_TYPE_ONLY") == 0 and x.count("F3M") == 0, variants)
+        variants = set(variants)
+        return sorted(variants - {"TECHNIQUE=hyfm"} - {self.baseline_case_name()}, reverse=True)
 
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
-            return None 
-        return 100 * (1 - self.data[bmark][case_name] / self.data[bmark][self.__baseline_case_name()])
+            return None
+        return 100 * (1 - self.data[bmark][case_name] / self.data[bmark][self.baseline_case_name()])
 
     def succeeded(self, bmark, case_name):
         return self.data[bmark][case_name] != 0
@@ -132,7 +134,7 @@ class MergedFunctionsDataSource(DataSource):
 
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
-            return None 
+            return None
         return self.data[bmark][case_name]
 
     def title(self):
@@ -142,40 +144,39 @@ class MergedFunctionsDataSource(DataSource):
 
 class CompileTimeDataSource(DataSource):
     def __init__(self, conn):
-        self.conn = conn
-
-    def data(self):
         data = {}
-        for row in self.conn.execute("SELECT benchmark, flags, runtime FROM builds"):
+        for row in conn.execute("SELECT benchmark, flags, runtime FROM builds"):
             bmark, flags, time = row
             if bmark not in data:
                 data[bmark] = {}
             data[bmark][flags] = time
-        return data
+        self.data = data
+
+    def xlabel(self):
+        return "Compile time (%)"
+
+    def plotting_value(self, bmark, case_name):
+        if not case_name in self.data[bmark]:
+            return None
+        return 100 * (self.data[bmark][case_name] / self.data[bmark][self.baseline_case_name()])
 
 class Plotter:
 
     def __init__(self, options):
         self.options = options
 
-    def plot_value(self, result, case_name, baseline):
-        v = result.data[case_name]
-        if baseline:
-            v = 100 * (1 - v / baseline.data[case_name])
-        return v
-
     def plot(self, data_source: DataSource, colors, ax):
         fontsize = self.options.fontsize
         bmarks = data_source.y_labels()
         variants = data_source.variants()
 
-        bench_space = 0.3
+        bench_space = 0.2
         bar_width = (1 - bench_space) / len(variants)
-        x = np.arange(len(bmarks))
+        y = np.arange(len(bmarks))
         values_by_variant = []
 
         for idx, variant in enumerate(variants):
-            x_pos = x + idx * bar_width - (len(bmarks) - 1) * bar_width/2
+            y_pos = y + idx * bar_width + bar_width/2 - bar_width * len(variants)/2
             values = []
             bar_labels = []
             for bmark in bmarks:
@@ -187,7 +188,7 @@ class Plotter:
                     values.append(0)
                     bar_labels.append("failure")
 
-            rect = ax.barh(x_pos, values, bar_width, label=variant, color=colors[idx])
+            rect = ax.barh(y_pos, values, bar_width, label=variant, color=colors[idx])
             ax.bar_label(rect, padding=3, labels=bar_labels, fontsize=fontsize)
             values_by_variant.append(values)
 
@@ -197,7 +198,7 @@ class Plotter:
         ax.axvline(0, color="black", linewidth=0.5)
         ax.set_title(data_source.title(), fontsize=fontsize + 6)
         ax.set_xlabel(data_source.xlabel(), fontsize=fontsize)
-        ax.set_yticks(x, bmarks, fontsize=fontsize)
+        ax.set_yticks(y, bmarks, fontsize=fontsize)
 
 
 def main():
@@ -213,7 +214,7 @@ def main():
 
     options = parser.parse_args()
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(15, 10))
+    fig, ax = plt.subplots(figsize=(15, 17))
     plotter = Plotter(options)
     colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
 
