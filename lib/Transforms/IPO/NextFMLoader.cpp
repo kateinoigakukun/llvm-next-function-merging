@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Analysis/InstCount2.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
@@ -21,6 +22,10 @@ llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &PM,
                    ArrayRef<PassBuilder::PipelineElement>) {
+                  if (Name == "instcount2") {
+                    PM.addPass(InstCount2Pass());
+                    return true;
+                  }
                   PM.addPass(
                       createModuleToFunctionPassAdaptor(SimplifyCFGPass()));
                   if (Name == "func-merging") {

@@ -1,4 +1,5 @@
 add_library(LLVMNextFMObjects OBJECT
+  Analysis/InstCount2.cpp
   Transforms/IPO/FastFM.cpp
   Transforms/IPO/FMSA.cpp
   Transforms/IPO/FunctionMerging.cpp
