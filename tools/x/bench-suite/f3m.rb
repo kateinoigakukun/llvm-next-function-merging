@@ -31,10 +31,8 @@ class F3M < Rake::TaskLib
   def run
     tar = download
     dir = extract tar
-
-    fakebin = File.join(@build.dot_x_dir, "bench-suite", "f3m", "llvm-fakebin")
-    sh ({ LLVM_NEXTFM_PLUGIN: @build.pass_plugin }),
-      "./run_exps.py --llvm_dir #{fakebin} spec2006", chdir: dir
+    # sh "#{@suite_dir}/f3m/experiments/exp.1.build.py"
+    sh "#{@suite_dir}/f3m/experiments/exp.2.run.py"
   end
 end
 
