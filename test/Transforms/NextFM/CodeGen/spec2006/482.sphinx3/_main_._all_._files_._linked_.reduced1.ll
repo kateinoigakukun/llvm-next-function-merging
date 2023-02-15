@@ -19,29 +19,6 @@ target triple = "x86_64-unknown-linux-gnu"
 
 @head = external unnamed_addr global %struct.mylist_s*, align 8
 
-define %struct.gnode_s* @glist_add_ptr(%struct.gnode_s* %g, i8* %ptr) local_unnamed_addr {
-entry:
-  %call = tail call i8* @__mymalloc__(i32 16, i8* poison, i32 69)
-  %0 = bitcast i8* %call to %struct.gnode_s*
-  %ptr1 = bitcast i8* %call to i8**
-  store i8* %ptr, i8** %ptr1, align 8, !tbaa !0
-  %next = getelementptr inbounds i8, i8* %call, i64 8
-  %1 = bitcast i8* %next to %struct.gnode_s**
-  store %struct.gnode_s* %g, %struct.gnode_s** %1, align 8, !tbaa !3
-  ret %struct.gnode_s* %0
-}
-
-define %struct.gnode_s* @glist_add_int32(%struct.gnode_s* %g, i32 %val) local_unnamed_addr {
-entry:
-  %call = tail call i8* @__mymalloc__(i32 16, i8* poison, i32 80)
-  %int32 = bitcast i8* %call to i32*
-  store i32 %val, i32* %int32, align 8, !tbaa !0
-  %next = getelementptr inbounds i8, i8* %call, i64 8
-  %0 = bitcast i8* %next to %struct.gnode_s**
-  store %struct.gnode_s* %g, %struct.gnode_s** %0, align 8, !tbaa !3
-  ret %struct.gnode_s* undef
-}
-
 define %struct.gnode_s* @glist_add_float32(%struct.gnode_s* %g, float %val) local_unnamed_addr {
 entry:
   %call = tail call i8* @__mymalloc__(i32 16, i8* poison, i32 102)

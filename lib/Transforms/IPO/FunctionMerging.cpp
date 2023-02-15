@@ -3424,7 +3424,8 @@ bool FunctionMerging::runImpl(
           size_t Overhead = EstimateThunkOverhead(Result, AlwaysPreserved);
 
           size_t SizeF12 = MergedSize + Overhead;
-          size_t SizeF1F2 = match.OtherSize + match.Size;
+          size_t SizeF1F2 = EstimateFunctionSize(F1, GTTI(*F1)) +
+                            EstimateFunctionSize(F2, GTTI(*F2));
 
           match.MergedSize = SizeF12;
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;

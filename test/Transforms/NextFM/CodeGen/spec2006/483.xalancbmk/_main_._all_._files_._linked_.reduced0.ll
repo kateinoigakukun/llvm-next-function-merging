@@ -3,10 +3,7 @@
 ; CHECK-NEXT: Args:
 ; CHECK-NEXT:   - Function:        _ZN11xercesc_2_514TraverseSchema14traverseUniqueEPKNS_10DOMElementEPNS_17SchemaElementDeclE
 ; CHECK-NEXT:   - Function:        _ZN11xercesc_2_514TraverseSchema11traverseKeyEPKNS_10DOMElementEPNS_17SchemaElementDeclE
-; CHECK-NEXT:   - MergedSize:      '152'
-; CHECK-NEXT:   - ThunkOverhead:   '0'
-; CHECK-NEXT:   - OriginalTotalSize: '254'
-; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/CodeGen/spec2006/483.xalancbmk/_main_._all_._files_._linked_.reduced0.ll'
+
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"

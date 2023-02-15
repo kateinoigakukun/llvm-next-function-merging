@@ -43,8 +43,10 @@ static void postProcessFunction(Function &F) {
   legacy::FunctionPassManager FPM(F.getParent());
 
   // FPM.add(createPromoteMemoryToRegisterPass());
-  if (!DisablePostOpt)
+  if (!DisablePostOpt) {
     FPM.add(createCFGSimplificationPass());
+    FPM.add(createInstSimplifyLegacyPass());
+  }
   // FPM.add(createInstructionCombiningPass(2));
   // FPM.add(createCFGSimplificationPass());
 
