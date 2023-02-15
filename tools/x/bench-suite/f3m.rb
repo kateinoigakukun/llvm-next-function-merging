@@ -31,8 +31,8 @@ class F3M < Rake::TaskLib
   def run
     tar = download
     dir = extract tar
-    # sh "#{@suite_dir}/f3m/experiments/exp.1.build.py"
-    sh "#{@suite_dir}/f3m/experiments/exp.2.run.py"
+    sh "#{@suite_dir}/f3m/experiments/exp.1.build.py"
+    # sh "#{@suite_dir}/f3m/experiments/exp.2.run.py"
   end
 end
 
