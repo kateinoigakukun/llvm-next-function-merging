@@ -11,12 +11,20 @@ def size_diff_remarks(remarks1, remarks2, options = {})
       true
     end
   end
-  remarks1.remarks.filter_map do |remark1|
-    remark2 = remarks2.remarks.find { |r| r.funcs == remark1.funcs }
-    next unless remark2
-    merged_size1 = remark1.merged_size
-    merged_size2 = remark2.merged_size
-    next unless merged_size1 && merged_size2 && merged_size1 != merged_size2
+  remarks1_funcs_map = Hash.new
+  remarks1.remarks.each do |remark|
+    remarks1_funcs_map[remark.funcs] = remark
+  end
+  remarks2_funcs_map = Hash.new
+  remarks2.remarks.each do |remark|
+    remarks2_funcs_map[remark.funcs] = remark
+  end
+
+  intersections = remarks1_funcs_map.keys | remarks2_funcs_map.keys
+
+  intersections.map do |funcs|
+    remark1 = remarks1_funcs_map[funcs]
+    remark2 = remarks2_funcs_map[funcs]
     next [remark1, remark2]
   end
 end
@@ -85,15 +93,21 @@ if __FILE__ == $0
   remark2_total_size = 0
 
   remark_pairs.each do |remark1, remark2|
-    winner = remark1.merged_size < remark2.merged_size ? "R1" : "R2"
-    if remark1.merged_size < remark2.merged_size
+    if remark1.nil? || remark2.nil?
+      win1 = remark2.nil?
+    else
+      next if remark1.merged_size == remark2.merged_size
+      win1 = remark1.merged_size < remark2.merged_size
+    end
+    winner = win1 ? "+R1" : "-R2"
+    if win1
       remark1_wins += 1
     else
       remark2_wins += 1
     end
-    remark1_total_size += remark1.merged_size
-    remark2_total_size += remark2.merged_size
-    puts "+#{winner} #{remark1.funcs} #{remark1.merged_size} #{remark2.merged_size}"
+    remark1_total_size += remark1.merged_size if remark1
+    remark2_total_size += remark2.merged_size if remark2
+    puts "#{winner} #{remark1&.funcs || remark2&.funcs} #{remark1&.merged_size || "x"} #{remark2&.merged_size || "x"}"
   end
   puts "Remark1 (#{remark1}) wins: #{remark1_wins}"
   puts "Remark2 (#{remark2}) wins: #{remark2_wins}"
