@@ -17,7 +17,7 @@ def interestingness_test
   input_ll = File.expand_path(ARGV[0])
   original_lit_test = ENV[LIT_TEST_ENV]
   original_lit_contents = File.read(original_lit_test)
-  lit_directives = original_lit_contents.lines.grep(/^; (RUN|CHECK|CHECK-NEXT): /)
+  lit_directives = original_lit_contents.lines.grep(/^; (RUN|CHECK|CHECK-NEXT).*: /)
 
   tmp_lit_test = File.join(File.dirname(original_lit_test), "tmp.ll")
   File.open(tmp_lit_test, "w") do |f|
