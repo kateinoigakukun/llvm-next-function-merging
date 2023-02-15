@@ -2326,6 +2326,12 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
   if (F.isDeclaration() || F.hasAvailableExternallyLinkage()) {
     return false;
   }
+  if (F.isVarArg()) {
+    return false;
+  }
+  if (!HasWholeProgram && F.hasAvailableExternallyLinkage()) {
+    return false;
+  }
   return true;
 }
 
