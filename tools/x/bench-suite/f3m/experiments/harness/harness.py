@@ -95,8 +95,8 @@ class Exp():
         return False
 
     def do_all(self):
-        for bmark in self.benchmarks:
-            for flags in self.combos:
+        for flags in self.combos:
+            for bmark in self.benchmarks:
                 for idx in range(self.repeats):
                     if self.is_complete(bmark, flags):
                         break
