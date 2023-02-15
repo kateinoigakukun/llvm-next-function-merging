@@ -79,7 +79,6 @@ class Exp():
                 self._update_stats(bmark, flags, runtime)
 
     def is_complete(self, bmark, flags):
-        print(f"stats: {self.stats}, self: {self}")
         print(f"Checking if {bmark.name} {flags} is complete")
         print(f"  {bmark} in stats: {bmark in self.stats}")
         if bmark not in self.stats:

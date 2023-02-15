@@ -92,7 +92,6 @@ class Benchmark(object):
             start = time.perf_counter()
             self._execute(cmd, fout, subprocess.STDOUT)
             end = time.perf_counter()
-        shutil.copy(self.binary_file(flags), build_dir)
         return {'cmd': cmd,
                 'runtime': end-start,
                 'object_size': self.object_size(flags),
