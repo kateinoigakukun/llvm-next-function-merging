@@ -61,6 +61,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
                     ValueToValueMapTy &VMap,
                     std::unordered_map<BasicBlock *, BasicBlock *> &BlocksF1,
                     std::unordered_map<BasicBlock *, BasicBlock *> &BlocksF2,
+                    DenseMap<BasicBlock *, bool> &IsMergedBB,
                     std::unordered_map<Value *, BasicBlock *> &MaterialNodes) {
 
   auto CloneInst = [](IRBuilder<> &Builder, Function *MF,
@@ -143,6 +144,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
         VMap[I2] = NewI;
         BlocksF1[MergedBB] = I1->getParent();
         BlocksF2[MergedBB] = I2->getParent();
+        IsMergedBB[MergedBB] = true;
       } else {
         assert(isa<BasicBlock>(Entry.get(0)) && isa<BasicBlock>(Entry.get(1)) &&
                "Both nodes must be basic blocks!");
@@ -153,6 +155,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
         VMap[BB2] = MergedBB;
         BlocksF1[MergedBB] = BB1;
         BlocksF2[MergedBB] = BB2;
+        IsMergedBB[MergedBB] = true;
 
         // IMPORTANT: make sure any use in a blockaddress constant
         // operation is updated correctly
@@ -253,6 +256,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
                 NewBB = BasicBlock::Create(MergedFunc->getContext(), BBName,
                                            MergedFunc);
                 ChainBlocks(LastMergedBB, NewBB, FuncId);
+                BlocksFX[NewBB] = BB;
                 // errs() << "Splitting last merged " << LastMergedBB->getName()
                 // << " into " << NewBB->getName() << "\n";
               }
@@ -286,7 +290,6 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
     Builder.CreateCondBr(FuncId, BB2, BB1);
   }
 }
-
 
 template <class BlockListType>
 bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
@@ -340,10 +343,11 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   // correspondents
   std::unordered_map<BasicBlock *, BasicBlock *> BlocksF1;
   std::unordered_map<BasicBlock *, BasicBlock *> BlocksF2;
+  DenseMap<BasicBlock *, bool> IsMergedBB;
   std::unordered_map<Value *, BasicBlock *> MaterialNodes;
 
   CodeGen(Blocks1, Blocks2, EntryBB1, EntryBB2, MergedFunc, FuncId, PreBB,
-          AlignedSeq, VMap, BlocksF1, BlocksF2, MaterialNodes);
+          AlignedSeq, VMap, BlocksF1, BlocksF2, IsMergedBB, MaterialNodes);
 
   if (RequiresUnifiedReturn) {
     IRBuilder<> Builder(PreBB);
@@ -449,6 +453,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
           BlocksF2[SelectBB] = I2->getParent();
 
           BuilderBB.CreateCondBr(FuncId, BB2, BB1);
+          IsMergedBB[SelectBB] = true;
           V = SelectBB;
         }
 
@@ -469,6 +474,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
           BlocksF1[LPadBB] = I1->getParent();
           BlocksF2[LPadBB] = I2->getParent();
+          IsMergedBB[LPadBB] = true; // XXX: is this really merged?
 
           VMap[F1BB->getLandingPadInst()] = NewLP;
           VMap[F2BB->getLandingPadInst()] = NewLP;
@@ -560,8 +566,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
     if (IV1 && IV2) {
       // if both IV1 and IV2 are non-merged values
-      if (BlocksF1.find(IV1->getParent()) == BlocksF1.end() &&
-          BlocksF2.find(IV2->getParent()) == BlocksF2.end()) {
+      if (!IsMergedBB[IV1->getParent()] && !IsMergedBB[IV2->getParent()]) {
         CoalescingCandidates[IV1][IV2]++;
         CoalescingCandidates[IV2][IV1]++;
       }
