@@ -55,7 +55,9 @@ class DataSource:
         return "TECHNIQUE=baseline"
 
     def variants(self):
-        variants = self.data[self.y_labels()[0]].keys()
+        variants = set()
+        for y_label in self.y_labels():
+            variants.update(self.data[y_label].keys())
         variants = filter(lambda x: x.count("IDENTICAL_TYPE_ONLY") == 0 and x.count("F3M") == 0, variants)
         variants = set(variants)
         return sorted(variants - {"TECHNIQUE=hyfm"} - {self.baseline_case_name()}, reverse=True)
@@ -216,7 +218,7 @@ class Plotter:
                     bar_labels.append("{v:.3f}".format(v=v))
                 else:
                     values.append(0)
-                    bar_labels.append("failure")
+                    bar_labels.append("no data")
 
             rect = ax.barh(y_pos, values, bar_width, label=variant, color=colors[idx])
             ax.bar_label(rect, padding=3, labels=bar_labels, fontsize=fontsize)
@@ -230,6 +232,17 @@ class Plotter:
         ax.set_xlabel(data_source.xlabel(), fontsize=fontsize)
         ax.set_yticks(y, bmarks, fontsize=fontsize)
 
+def plot(data_source, options, output):
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(15, 17))
+    plotter = Plotter(options)
+    colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
+    plotter.plot(data_source, colors, ax)
+    fig.tight_layout()
+
+    plt.savefig(output)
+    print("Plot saved to {}".format(output))
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -240,29 +253,31 @@ def main():
     parser.add_argument("--exclude-failures", action="store_true")
     parser.add_argument("--exclude-zeros", action="store_true")
     parser.add_argument("--fontsize", type=int, default=11)
-    parser.add_argument("--target", type=str, default="objsize")
+    parser.add_argument("--target", type=str, default="all")
 
     options = parser.parse_args()
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(15, 17))
-    plotter = Plotter(options)
-    colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
 
-    data_sources = {
+    all_data_sources = {
         "objsize": ObjSizeDataSource,
         "compiletime": CompileTimeDataSource,
         "merges": MergedFunctionsDataSource,
     }
+
+    if options.target == "all":
+        data_sources = all_data_sources.keys()
+    else:
+        data_sources = [options.target]
+
+    if options.output and len(data_sources) > 1:
+        print("Cannot specify output file with multiple targets")
+        return
+
     with sqlite3.connect(options.result) as conn:
-        data_source_class = data_sources[options.target]
-        data_source = data_source_class(conn)
-        plotter.plot(data_source, colors, ax)
-    fig.tight_layout()
-
-    output = options.output or f".x/bench-suite/f3m/plot_{options.target}.png"
-    plt.savefig(output)
-    print("Plot saved to {}".format(output))
-
+        for target in data_sources:
+            data_source_class = all_data_sources[target]
+            data_source = data_source_class(conn)
+            output = options.output or f".x/bench-suite/f3m/plot_{target}.png"
+            plot(data_source, options, output)
 
 if __name__ == "__main__":
     main()
