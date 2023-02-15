@@ -2110,10 +2110,14 @@ bool MSAGenFunction::layoutReturnType(Type *&RetTy) {
   // TODO(katei): This accepts only the same return type for all functions.
   Type *TheReTy = nullptr;
   auto MergeRetTy = [&](Function *F) -> bool {
+    Type *Ty = F->getReturnType();
     if (TheReTy == nullptr) {
-      TheReTy = F->getReturnType();
+      if (Ty->isVoidTy()) {
+        return true;
+      }
+      TheReTy = Ty;
       return true;
-    } else if (TheReTy == F->getReturnType()) {
+    } else if (TheReTy == Ty || Ty->isVoidTy()) {
       return true;
     } else {
       return false;
@@ -2124,6 +2128,8 @@ bool MSAGenFunction::layoutReturnType(Type *&RetTy) {
       return false;
     }
   }
+  if (TheReTy == nullptr)
+    TheReTy = Type::getVoidTy(M->getContext());
   RetTy = TheReTy;
   return true;
 }
