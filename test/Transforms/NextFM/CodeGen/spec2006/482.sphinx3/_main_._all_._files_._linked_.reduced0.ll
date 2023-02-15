@@ -76,9 +76,28 @@ entry:
 
 declare i8* @__ckd_calloc__() local_unnamed_addr
 
-declare i8* @__mymalloc__(i32 %elemsize, i8* %caller_file, i32 %caller_line) local_unnamed_addr
+define i8* @__mymalloc__(i32 %elemsize, i8* %caller_file, i32 %caller_line) local_unnamed_addr {
+entry:
+  %list.0109 = load %struct.mylist_s*, %struct.mylist_s** @head, align 8, !tbaa !6
+  br label %land.rhs.preheader
 
-declare void @__myfree__() local_unnamed_addr
+land.rhs.preheader:                               ; preds = %entry
+  br i1 undef, label %if.else, label %for.body
+
+for.body:                                         ; preds = %land.rhs.preheader
+  %tobool.not = icmp eq %struct.mylist_s* undef, null
+  ret i8* undef
+
+if.else:                                          ; preds = %land.rhs.preheader
+  ret i8* undef
+}
+
+define void @__myfree__() local_unnamed_addr {
+entry:
+  %list.028 = load %struct.mylist_s*, %struct.mylist_s** @head, align 8, !tbaa !6
+  %tobool.not29 = icmp eq %struct.mylist_s* %list.028, null
+  ret void
+}
 
 declare void @_E__pr_header() local_unnamed_addr
 
