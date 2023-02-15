@@ -2119,7 +2119,7 @@ void MSAGenFunction::layoutParameters(
     // In the above example, %d can be reused with both %c and %a,
     // but %a is better to avoid additonal select.
 
-    size_t bestScore = 0;
+    Optional<size_t> bestScore;
     Optional<size_t> bestArgIndex;
     for (size_t i = preservedArgs; i < Args.size(); i++) {
       Type *ty;
@@ -2136,7 +2136,7 @@ void MSAGenFunction::layoutParameters(
         continue;
 
       size_t score = ComputeMatchScore(srcArg, i);
-      if (score >= bestScore) {
+      if (!bestScore || score > bestScore) {
         bestScore = score;
         bestArgIndex = i;
       }
