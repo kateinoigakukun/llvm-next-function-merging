@@ -25,7 +25,7 @@ class MSAFunctionMergerAlignmentTest : public ::testing::Test {
 protected:
   void withAlignment(
       Module &M, const std::vector<std::string> &FuncNames,
-      function_ref<void(ArrayRef<MSAAlignmentEntry>, ArrayRef<Function *>)>
+      function_ref<void(std::vector<MSAAlignmentEntry> &, ArrayRef<Function *>)>
           Test) {
     ASSERT_GT(M.getFunctionList().size(), 0);
 

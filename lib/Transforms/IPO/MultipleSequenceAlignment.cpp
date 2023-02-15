@@ -2042,11 +2042,70 @@ void MSAGenFunction::layoutParameters(
   assert(Functions.size() > 0 && "No functions to merge!");
   Args.emplace_back(DiscriminatorTy, AttributeSet());
 
+  DenseMap<size_t, SmallVector<Argument *, 4>> IndexToMergedArgs;
+
+  auto ComputeMatchScore = [&](Argument *srcArg, size_t candArgIdx) -> size_t {
+    auto &otherArgs = IndexToMergedArgs[candArgIdx];
+    size_t score = 0;
+    for (auto &Entry : Alignment) {
+      if (!Entry.match()) {
+        continue;
+      }
+      bool argUsed = false;
+      size_t argUsedOperandIdx = 0;
+
+      // 1. Check if the srcArg is used in the matching instructions.
+      for (Value *V : Entry.getValues()) {
+        auto *I = dyn_cast<Instruction>(V);
+        if (!I) {
+          continue;
+        }
+        for (size_t i = 0; i < I->getNumOperands(); i++) {
+          if (I->getOperand(i) == srcArg) {
+            argUsed = true;
+            argUsedOperandIdx = i;
+            break;
+          }
+        }
+        if (argUsed) {
+          break;
+        }
+      }
+      if (!argUsed) {
+        continue;
+      }
+      // 2. Check how mnay the instructions that do not use the srcArg use
+      //    other arguments.
+      size_t matchingInsts = 0;
+      for (Value *V : Entry.getValues()) {
+        auto *I = dyn_cast<Instruction>(V);
+        if (!I) {
+          continue;
+        }
+        if (I->getNumOperands() <= argUsedOperandIdx) {
+          continue;
+        }
+        for (auto *otherArg : otherArgs) {
+          if (I->getOperand(argUsedOperandIdx) != otherArg) {
+            continue;
+          }
+          matchingInsts++;
+        }
+      }
+
+      if (!argUsed) {
+        continue;
+      }
+      score += matchingInsts;
+    }
+    return score;
+  };
+
   size_t preservedArgs = Args.size();
   auto FindReusableArg =
-      [&](Argument *NewArg, AttributeSet NewAttr,
-          const std::set<unsigned> &reusedArgs) -> Optional<int> {
-    // TODO(katei): Find the best argument to reuse based on the uses to
+      [&](Argument *srcArg, AttributeSet srcAttr,
+          const std::set<unsigned> &reusedArgs) -> Optional<size_t> {
+    // Find the best argument to reuse based on the uses to
     // minimize selections. Ex:
     // ```
     // void @f(i32 %a, i8 %b, i32 %c) {
@@ -2060,23 +2119,29 @@ void MSAGenFunction::layoutParameters(
     // In the above example, %d can be reused with both %c and %a,
     // but %a is better to avoid additonal select.
 
+    size_t bestScore = 0;
+    Optional<size_t> bestArgIndex;
     for (size_t i = preservedArgs; i < Args.size(); i++) {
       Type *ty;
       AttributeSet attr;
       std::tie(ty, attr) = Args[i];
 
-      if (ty != NewArg->getType())
+      if (ty != srcArg->getType())
         continue;
-      if (attr != NewAttr)
+      if (attr != srcAttr)
         continue;
       // If the argument is already reused, we can't reuse it again for the
       // function.
       if (reusedArgs.find(i) != reusedArgs.end())
         continue;
 
-      return i;
+      size_t score = ComputeMatchScore(srcArg, i);
+      if (score >= bestScore) {
+        bestScore = score;
+        bestArgIndex = i;
+      }
     }
-    return None;
+    return bestArgIndex;
   };
 
   auto MergeArgs = [&](Function *F) {
@@ -2089,12 +2154,22 @@ void MSAGenFunction::layoutParameters(
         LLVM_DEBUG(dbgs() << "Reuse arg %" << *found << " for " << arg << " of "
                           << F->getName() << "\n");
         ArgToMergedIndex[&arg] = *found;
+        if (IndexToMergedArgs.find(*found) == IndexToMergedArgs.end()) {
+          IndexToMergedArgs[*found] = {&arg};
+        } else {
+          IndexToMergedArgs[*found].push_back(&arg);
+        }
         auto inserted = usedArgIndices.insert(*found).second;
         assert(inserted && "Argument already reused!");
       } else {
         Args.emplace_back(arg.getType(), argAttr);
         auto newArgIdx = Args.size() - 1;
         ArgToMergedIndex[&arg] = newArgIdx;
+        if (IndexToMergedArgs.find(newArgIdx) == IndexToMergedArgs.end()) {
+          IndexToMergedArgs[newArgIdx] = {&arg};
+        } else {
+          llvm_unreachable("Argument must not be used before");
+        }
         usedArgIndices.insert(newArgIdx);
       }
     }

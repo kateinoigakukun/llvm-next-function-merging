@@ -1317,43 +1317,46 @@ static void MergeArguments(LLVMContext &Context, Function *F1, Function *F2,
     // first try to find an argument with the same name/type
     // otherwise try to match by type only
     for (unsigned i = 0; i < F1->arg_size(); i++) {
-      if (F1->getArg(i)->getType() == (*I).getType()) {
-
-        auto AttrSet1 = AttrList1.getParamAttributes(F1->getArg(i)->getArgNo());
-        auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
-        if (AttrSet1 != AttrSet2)
-          continue;
-
-        bool hasConflict = false; // check for conflict from a previous matching
-        for (auto ParamPair : ParamMap2) {
-          if (ParamPair.second == ParamMap1[i]) {
-            hasConflict = true;
-            break;
-          }
-        }
-        if (hasConflict)
-          continue;
-        MatchingScore[i] = 0;
-        if (!Options.MaximizeParamScore)
-          break; // if not maximize score, get the first one
+      if (F1->getArg(i)->getType() != (*I).getType()) {
+        continue;
       }
+
+      auto AttrSet1 = AttrList1.getParamAttributes(F1->getArg(i)->getArgNo());
+      auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
+      if (AttrSet1 != AttrSet2)
+        continue;
+
+      bool hasConflict = false; // check for conflict from a previous matching
+      for (auto ParamPair : ParamMap2) {
+        if (ParamPair.second == ParamMap1[i]) {
+          hasConflict = true;
+          break;
+        }
+      }
+      if (hasConflict)
+        continue;
+      MatchingScore[i] = 0;
+      if (!Options.MaximizeParamScore)
+        break; // if not maximize score, get the first one
     }
 
     if (MatchingScore.size() > 0) { // maximize scores
       for (auto &Entry : AlignedSeq) {
-        if (Entry.match()) {
-          auto *I1 = dyn_cast<Instruction>(Entry.get(0));
-          auto *I2 = dyn_cast<Instruction>(Entry.get(1));
-          if (I1 != nullptr && I2 != nullptr) { // test both for sanity
-            for (unsigned i = 0; i < I1->getNumOperands(); i++) {
-              for (auto KV : MatchingScore) {
-                if (I1->getOperand(i) == F1->getArg(KV.first)) {
-                  if (i < I2->getNumOperands() && I2->getOperand(i) == &(*I)) {
-                    MatchingScore[KV.first]++;
-                  }
-                }
-              }
-            }
+        if (!Entry.match()) {
+          continue;
+        }
+        auto *I1 = dyn_cast<Instruction>(Entry.get(0));
+        auto *I2 = dyn_cast<Instruction>(Entry.get(1));
+        if (I1 == nullptr || I2 == nullptr) { // test both for sanity
+          continue;
+        }
+        for (unsigned i = 0; i < I1->getNumOperands(); i++) {
+          for (auto KV : MatchingScore) {
+            if (I1->getOperand(i) != F1->getArg(KV.first))
+              continue;
+            if (!(i < I2->getNumOperands() && I2->getOperand(i) == &(*I)))
+              continue;
+            MatchingScore[KV.first]++;
           }
         }
       }
