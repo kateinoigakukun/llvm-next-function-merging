@@ -60,7 +60,8 @@ class DataSource:
             'TECHNIQUE=mfm3',
             'TECHNIQUE=mfm2',
             'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
-            'TECHNIQUE=f3m'
+            'TECHNIQUE=f3m',
+            'TECHNIQUE=f3m-legacy'
         ]
 
     def plotting_value(self, bmark, case_name):
@@ -78,7 +79,20 @@ class DataSource:
         raise NotImplementedError()
 
     def stats(self):
-        pass
+        baseline = self.baseline_case_name()
+        baseline_sizes = [self.data[bmark][baseline] for bmark in self.y_labels()]
+        baseline_mean = np.mean(baseline_sizes)
+
+        variant_width = 20
+        for variant in self.variants():
+            if len(variant) > variant_width:
+                variant_width = len(variant)
+
+        for variant in self.variants():
+            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+            mean = np.mean(sizes)
+            std = np.std(sizes)
+            print(f"{variant:{variant_width}}: {(1 - sum(sizes) / sum(baseline_sizes)) * 100:.2f}%")
 
 class ObjSizeDataSource(DataSource):
     def __init__(self, conn):
@@ -95,23 +109,6 @@ class ObjSizeDataSource(DataSource):
         return "Object size reduction rate compared to baseline"
     def xlabel(self):
         return "Object size reduction (%)"
-
-    def stats(self):
-        baseline = self.baseline_case_name()
-        baseline_sizes = [self.data[bmark][baseline] for bmark in self.y_labels()]
-        baseline_mean = np.mean(baseline_sizes)
-        baseline_std = np.std(baseline_sizes)
-
-        variant_width = 20
-        for variant in self.variants():
-            if len(variant) > variant_width:
-                variant_width = len(variant)
-
-        for variant in self.variants():
-            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
-            mean = np.mean(sizes)
-            std = np.std(sizes)
-            print(f"{variant:{variant_width}}: {(1 - mean / baseline_mean) * 100:.2f}%")
 
 class MergedFunctionsDataSource(DataSource):
     def __init__(self, conn):
@@ -190,6 +187,22 @@ class MergedFunctionsDataSource(DataSource):
         entry = self.data[bmark][case_name]
         return 100 * (float(entry["count"]) / float(entry["all_funcs"]))
 
+    def stats(self):
+        baseline = self.baseline_case_name()
+        baseline_sizes = [self.data[bmark][baseline]["all_funcs"] for bmark in self.y_labels()]
+        baseline_mean = np.mean(baseline_sizes)
+
+        variant_width = 20
+        for variant in self.variants():
+            if len(variant) > variant_width:
+                variant_width = len(variant)
+
+        for variant in self.variants():
+            sizes = [self.data[bmark][variant]["count"] for bmark in self.y_labels()]
+            mean = np.mean(sizes)
+            std = np.std(sizes)
+            print(f"{variant:{variant_width}}: {(float(sum(sizes)) / sum(baseline_sizes)) * 100:.2f}%")
+
     def title(self):
         return "Percentage of merged functions in total non-external functions"
     def xlabel(self):
@@ -212,6 +225,23 @@ class CompileTimeDataSource(DataSource):
         if not case_name in self.data[bmark]:
             return None
         return 100 * (self.data[bmark][case_name] / self.data[bmark][self.baseline_case_name()])
+
+    def stats(self):
+        baseline = self.baseline_case_name()
+        baseline_sizes = [self.data[bmark][baseline] for bmark in self.y_labels()]
+        baseline_mean = np.mean(baseline_sizes)
+
+        variant_width = 20
+        for variant in self.variants():
+            if len(variant) > variant_width:
+                variant_width = len(variant)
+
+        for variant in self.variants():
+            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+            mean = np.mean(sizes)
+            std = np.std(sizes)
+            print(f"{variant:{variant_width}}: {-(1 - mean / baseline_mean) * 100:.2f}%")
+
 
 class Plotter:
 
