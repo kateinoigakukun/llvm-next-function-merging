@@ -55,12 +55,13 @@ class DataSource:
         return "TECHNIQUE=baseline"
 
     def variants(self):
-        variants = set()
-        for y_label in self.y_labels():
-            variants.update(self.data[y_label].keys())
-        variants = filter(lambda x: x.count("IDENTICAL_TYPE_ONLY") == 0 and x.count("F3M") == 0, variants)
-        variants = set(variants)
-        return sorted(variants - {"TECHNIQUE=hyfm"} - {self.baseline_case_name()}, reverse=True)
+        return [
+            'TECHNIQUE=mfm4',
+            'TECHNIQUE=mfm3',
+            'TECHNIQUE=mfm2',
+            'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
+            'TECHNIQUE=f3m'
+        ]
 
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
