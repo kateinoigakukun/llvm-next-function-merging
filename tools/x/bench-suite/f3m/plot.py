@@ -77,6 +77,9 @@ class DataSource:
     def xlabel(self):
         raise NotImplementedError()
 
+    def stats(self):
+        pass
+
 class ObjSizeDataSource(DataSource):
     def __init__(self, conn):
         self.conn = conn
@@ -92,6 +95,23 @@ class ObjSizeDataSource(DataSource):
         return "Object size reduction rate compared to baseline"
     def xlabel(self):
         return "Object size reduction (%)"
+
+    def stats(self):
+        baseline = self.baseline_case_name()
+        baseline_sizes = [self.data[bmark][baseline] for bmark in self.y_labels()]
+        baseline_mean = np.mean(baseline_sizes)
+        baseline_std = np.std(baseline_sizes)
+
+        variant_width = 20
+        for variant in self.variants():
+            if len(variant) > variant_width:
+                variant_width = len(variant)
+
+        for variant in self.variants():
+            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+            mean = np.mean(sizes)
+            std = np.std(sizes)
+            print(f"{variant:{variant_width}}: {(1 - mean / baseline_mean) * 100:.2f}%")
 
 class MergedFunctionsDataSource(DataSource):
     def __init__(self, conn):
@@ -279,6 +299,7 @@ def main():
             data_source = data_source_class(conn)
             output = options.output or f".x/bench-suite/f3m/plot_{target}.png"
             plot(data_source, options, output)
+            data_source.stats()
 
 if __name__ == "__main__":
     main()
