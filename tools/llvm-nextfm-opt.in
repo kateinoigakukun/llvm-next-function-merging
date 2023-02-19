@@ -1,0 +1,4 @@
+#!/bin/bash
+set -eu
+
+exec "@LLVM_DIR@/../../../bin/opt" --load "@LLVM_NEXT_FM_PLUGIN_PATH@" --load-pass-plugin="@LLVM_NEXT_FM_PLUGIN_PATH@" $@
