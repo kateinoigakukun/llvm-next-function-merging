@@ -322,6 +322,8 @@ class Plotter:
         ax.set_title(data_source.title(), fontsize=fontsize + 6)
         ax.set_xlabel(data_source.xlabel(), fontsize=fontsize)
         ax.set_yticks(y, bmarks, fontsize=fontsize)
+        ax.grid(axis='x')
+        ax.spines['right'].set_visible(False)
 
 def plot(data_source, options, output):
     import matplotlib.pyplot as plt
