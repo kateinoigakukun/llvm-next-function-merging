@@ -294,7 +294,7 @@ class Plotter:
         bmarks = data_source.y_labels()
         variants = data_source.variants()
 
-        bench_space = 0.1
+        bench_space = 0.05
         bar_width = (1 - bench_space) / len(variants)
         y = np.arange(len(bmarks))
         values_by_variant = []
