@@ -242,7 +242,7 @@ class MergedFunctionsDataSource(DataSource):
             print(f"{variant:{variant_width}}: {(float(sum(sizes)) / sum(baseline_sizes)) * 100:.2f}%")
 
     def title(self):
-        return "Percentage of merged functions in total non-external functions"
+        return "Percentage of merged functions in total functions"
     def xlabel(self):
         return "Percentage of merged functions (%)"
 
@@ -255,6 +255,9 @@ class CompileTimeDataSource(DataSource):
                 data[bmark] = {}
             data[bmark][flags] = time
         self.data = data
+
+    def title(self):
+        return "Compile time increase rate compared to baseline"
 
     def xlabel(self):
         return "Compile time (%)"
