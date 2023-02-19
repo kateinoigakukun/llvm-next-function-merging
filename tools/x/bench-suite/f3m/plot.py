@@ -369,7 +369,7 @@ def main():
         for target in data_sources:
             data_source_class = all_data_sources[target]
             data_source = data_source_class(conn)
-            output = options.output or f".x/bench-suite/f3m/plot_{target}.png"
+            output = options.output or f".x/bench-suite/f3m/plot_{target}.svg"
             plot(data_source, options, output)
             data_source.stats()
 
