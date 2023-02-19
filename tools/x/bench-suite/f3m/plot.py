@@ -85,6 +85,17 @@ class DataSource:
             'TECHNIQUE=f3m-legacy'
         ]
 
+    def legend(self, variant):
+        variant_to_legend = {
+            'TECHNIQUE=mfm4': 'Multiple Function Merging N=4',
+            'TECHNIQUE=mfm3': 'Multiple Function Merging N=3',
+            'TECHNIQUE=mfm2': 'Multiple Function Merging N=2',
+            'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': 'Multiple Function Merging N=2 (identical types only)',
+            'TECHNIQUE=f3m': 'F3M (Patched)',
+            'TECHNIQUE=f3m-legacy': 'F3M (Original)'
+        }
+        return variant_to_legend[variant]
+
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
             return None
@@ -98,6 +109,9 @@ class DataSource:
 
     def xlabel(self):
         raise NotImplementedError()
+
+    def has_legend(self):
+        return False
 
     def stats(self):
         baseline = self.baseline_case_name()
@@ -130,6 +144,9 @@ class ObjSizeDataSource(DataSource):
         return "Object size reduction rate compared to baseline"
     def xlabel(self):
         return "Object size reduction (%)"
+
+    def has_legend(self):
+        return True
 
 class MergedFunctionsDataSource(DataSource):
     def __init__(self, conn):
@@ -292,12 +309,14 @@ class Plotter:
                     values.append(0)
                     bar_labels.append("no data")
 
-            rect = ax.barh(y_pos, values, bar_width, label=variant, color=colors[idx])
+            label = data_source.legend(variant)
+            rect = ax.barh(y_pos, values, bar_width, label=label, color=colors[idx])
             ax.bar_label(rect, padding=3, labels=bar_labels, fontsize=fontsize)
             values_by_variant.append(values)
 
         hans, labs = ax.get_legend_handles_labels()
-        ax.legend(handles=hans[::-1], labels=labs[::-1], fontsize=fontsize)
+        if data_source.has_legend():
+            ax.legend(handles=hans[::-1], labels=labs[::-1], fontsize=fontsize-2)
 
         ax.axvline(0, color="black", linewidth=0.5)
         ax.set_title(data_source.title(), fontsize=fontsize + 6)
@@ -306,7 +325,7 @@ class Plotter:
 
 def plot(data_source, options, output):
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(15, 17))
+    fig, ax = plt.subplots(figsize=(8, 8))
     plotter = Plotter(options)
     colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
     plotter.plot(data_source, colors, ax)
