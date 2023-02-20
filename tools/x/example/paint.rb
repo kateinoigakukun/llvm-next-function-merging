@@ -341,7 +341,6 @@ class CFGPainter < Rake::TaskLib
     output = File.join(@dot_x_dir, "example", "dot-cfg", "patched", File.basename(input))
     FileUtils.mkdir_p File.dirname(output)
     content = File.read(input)
-    puts "Patch #{input} -> #{output}"
     content.gsub!(/color="(.*)?", style=filled, fillcolor="(.*)?",label="(.*)"\]/) do |m|
       color = $1
       fillcolor = "#c3e9b3"
@@ -357,9 +356,9 @@ class CFGPainter < Rake::TaskLib
   def emit_svg(dot_input)
     filename = File.basename(dot_input, ".dot")
     filename = filename.start_with?(".") ? filename[1..-1] : filename
-    output = File.join(@dot_x_dir, "example", "svg", "#{filename}.svg")
+    output = File.join(@dot_x_dir, "example", "pdf", "#{filename}.pdf")
     FileUtils.mkdir_p File.dirname(output)
-    sh "dot", "-Tsvg", dot_input, "-o", output
+    sh "dot", "-Tpdf", dot_input, "-o", output
     output
   end
 end
