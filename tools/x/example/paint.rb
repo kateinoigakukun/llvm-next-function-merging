@@ -129,7 +129,7 @@ class DotRecord2HTML
   end
 
   def translate(node)
-    line %Q(<TABLE BORDER="2" CELLBORDER="1" CELLSPACING="0" COLOR="#{@color}" BGCOLOR="#{@fillcolor}">)
+    line %Q(<TABLE BORDER="2" CELLBORDER="1" CELLSPACING="0" COLOR="#{@color}">)
     indent do
       translate_vstack(node)
     end
@@ -161,7 +161,14 @@ class DotRecord2HTML
     indent do
       case c
       when DotRecordParser::Text
-        line "<TD BALIGN=\"LEFT\" ALIGN=\"LEFT\" COLSPAN=\"#{@columns}\" BORDER=\"0\" CELLPADDING=\"0\" CELLSPACING=\"1\">"
+        text = c.text.join(" ")
+        bg_color = @highlighter.background(text)
+        td = %Q(<TD BALIGN="LEFT" ALIGN="LEFT" COLSPAN="#{@columns}" BORDER="0" CELLPADDING="0" CELLSPACING="1")
+        if bg_color
+          td << %Q( BGCOLOR="#{bg_color}")
+        end
+        td << ">"
+        line td
         indent { translate_text(c) }
         line "</TD>"
       when DotRecordParser::HStack
@@ -196,11 +203,10 @@ class DotRecord2HTML
     end
   end
 
-  def push_color_line(line)
-    line = line.gsub(/\s$/, "")
-    color = @highlighter.highlight(line)
-    font = "LiberationSans-Regular"
-    push %Q(<FONT COLOR="#{color}" FACE="#{font}">#{line}</FONT>)
+  def push_color_line(s)
+    s = s.gsub(/ +$/, "")
+    fcolor = @highlighter.foreground(s)
+    line %Q(<FONT COLOR="#{fcolor}">#{s}</FONT>)
   end
 
   def translate_field(node)
@@ -298,8 +304,36 @@ class CFGPainter < Rake::TaskLib
   end
 
   class Highlighter
-    def highlight(line)
+    def initialize
+      diff_color = "#ecb3b3"
+      match_color = "#c3e9b3"
+      @highlight = {
+        /%conv = zext i1 %.+ to i64/ => diff_color,
+        / = bitcast %union.anon.132\* %\d to .+\*/ => diff_color,
+        /store i8 \d+, i8* %.*, align 8/ => diff_color,
+        /store .+ (.+), (.+)\* %.+, align 8/ => diff_color,
+        /entry:/ => match_color,
+        "%0 = bitcast %class.cPar*" => match_color,
+        "load void (%class.cPar*)**, void (%class.cPar*)*** %0, align 8" => match_color,
+        "getelementptr inbounds void (%class.cPar*)*, void (%class.cPar*)**" => match_color, 
+        / = load void \(%class.cPar\*\)\*, void \(%class.cPar\*\)\*\* %.*, align 8/ => match_color,
+        /tail call void %.*\(%class\.cPar\* align 8/ => match_color,
+        "%2 = getelementptr inbounds %class.cPar, %class.cPar* " => match_color,
+        " = getelementptr inbounds %class.cPar, %class.cPar*" => match_color,
+        "ret %class.cPar*" => match_color,
+      }
+    end
+
+    def foreground(line)
       "#000000"
+    end
+
+    def background(line)
+      @highlight.each do |pattern, color|
+        return color if pattern.is_a?(String) && line.include?(pattern)
+        return color if pattern.is_a?(Regexp) && pattern =~ line
+      end
+      nil
     end
   end
 
@@ -310,7 +344,7 @@ class CFGPainter < Rake::TaskLib
     puts "Patch #{input} -> #{output}"
     content.gsub!(/color="(.*)?", style=filled, fillcolor="(.*)?",label="(.*)"\]/) do |m|
       color = $1
-      fillcolor = $2
+      fillcolor = "#c3e9b3"
       label_content = $3
       node = DotRecordParser.parse(label_content)
       "label=<" + DotRecord2HTML.new(color, fillcolor, Highlighter.new).translate(node) + ">]"
