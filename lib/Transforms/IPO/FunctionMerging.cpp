@@ -2325,15 +2325,12 @@ bool FunctionMerger::isPAProfitable(BasicBlock *BB1, BasicBlock *BB2){
 class Aligner {
 public:
   virtual ~Aligner() = default;
-  virtual bool isProfitable() = 0;
-  virtual AlignedSequence<Value *> align(Function *F1, Function *F2) = 0;
+  virtual AlignedSequence<Value *> align(Function *F1, Function *F2, bool &isProfitable) = 0;
 };
 
 class SALSSAAligner : public Aligner {
 public:
-  bool isProfitable() override { return true; }
-
-  AlignedSequence<Value *> align(Function *F1, Function *F2) override {
+  AlignedSequence<Value *> align(Function *F1, Function *F2, bool &isProfitable) override {
     SmallVector<Value *, 8> F1Vec;
     SmallVector<Value *, 8> F2Vec;
 
@@ -2343,6 +2340,7 @@ public:
     NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(
         ScoringSystem(-1, 2),
         [&](auto *F1, auto *F2) { return FunctionMerger::match(F1, F2); });
+    isProfitable = true;
     return SA.getAlignment(F1Vec, F2Vec);
   }
 };
@@ -2373,7 +2371,7 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
     Aligner = std::make_unique<SALSSAAligner>();
   }
   AlignedSequence<Value *> AlignedSeq;
-  AlignedSeq = Aligner->align(F1, F2);
+  AlignedSeq = Aligner->align(F1, F2, ProfitableFn);
 
 #ifdef TIME_STEPS_DEBUG
   TimeAlign.stopTimer();
