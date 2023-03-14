@@ -2326,26 +2326,6 @@ class Aligner {
 public:
   virtual ~Aligner() = default;
   virtual AlignedSequence<Value *> align(Function *F1, Function *F2, bool &isProfitable) = 0;
-};
-
-class SALSSAAligner : public Aligner {
-public:
-  AlignedSequence<Value *> align(Function *F1, Function *F2, bool &isProfitable) override {
-    SmallVector<Value *, 8> F1Vec;
-    SmallVector<Value *, 8> F2Vec;
-
-    FunctionMerger::linearize(F1, F1Vec);
-    FunctionMerger::linearize(F2, F2Vec);
-
-    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(
-        ScoringSystem(-1, 2),
-        [&](auto *F1, auto *F2) { return FunctionMerger::match(F1, F2); });
-    isProfitable = true;
-    return SA.getAlignment(F1Vec, F2Vec);
-  }
-};
-
-class HyFMNWAligner : public Aligner {
 
   static void extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq,
                                AlignedSequence<Value *> &AlignedSubSeq,
@@ -2374,8 +2354,9 @@ class HyFMNWAligner : public Aligner {
     }
   }
 
-  void extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq, BasicBlock *BB1,
-                        BasicBlock *BB2, AlignmentStats &stats) {
+  static void extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq,
+                               BasicBlock *BB1, BasicBlock *BB2,
+                               AlignmentStats &stats) {
     if (BB1 != nullptr && BB2 == nullptr) {
       AlignedSeq.Data.emplace_back(BB1, nullptr, false);
       for (Instruction &I : *BB1) {
@@ -2424,6 +2405,27 @@ class HyFMNWAligner : public Aligner {
       assert((It1 == BB1->end()) && (It2 == BB2->end()));
     }
   }
+};
+
+class SALSSAAligner : public Aligner {
+public:
+  AlignedSequence<Value *> align(Function *F1, Function *F2,
+                                 bool &isProfitable) override {
+    SmallVector<Value *, 8> F1Vec;
+    SmallVector<Value *, 8> F2Vec;
+
+    FunctionMerger::linearize(F1, F1Vec);
+    FunctionMerger::linearize(F2, F2Vec);
+
+    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(
+        ScoringSystem(-1, 2),
+        [&](auto *F1, auto *F2) { return FunctionMerger::match(F1, F2); });
+    isProfitable = true;
+    return SA.getAlignment(F1Vec, F2Vec);
+  }
+};
+
+class HyFMNWAligner : public Aligner {
 
   AlignedSequence<Value *> align(Function *F1, Function *F2,
                                  bool &isProfitable) override {
@@ -2535,6 +2537,81 @@ class HyFMNWAligner : public Aligner {
   }
 };
 
+class HyFMPAAligner : public Aligner {
+  virtual AlignedSequence<Value *> align(Function *F1, Function *F2,
+                                         bool &isProfitable) {
+    AlignedSequence<Value *> AlignedSeq;
+    AlignmentStats TotalAlignmentStats;
+
+    int NumBB1 = 0;
+    int NumBB2 = 0;
+    size_t MemSize = 0;
+
+#ifdef TIME_STEPS_DEBUG
+    TimeAlignRank.startTimer();
+#endif
+    std::map<size_t, std::vector<BlockFingerprint>> BlocksF1;
+    for (BasicBlock &BB1 : *F1) {
+      BlockFingerprint BD1(&BB1);
+      NumBB1++;
+      MemSize += BD1.footprint();
+      BlocksF1[BD1.Size].push_back(std::move(BD1));
+    }
+#ifdef TIME_STEPS_DEBUG
+    TimeAlignRank.stopTimer();
+#endif
+
+    for (BasicBlock &BIt : *F2) {
+#ifdef TIME_STEPS_DEBUG
+      TimeAlignRank.startTimer();
+#endif
+      NumBB2++;
+      BasicBlock *BB2 = &BIt;
+      BlockFingerprint BD2(BB2);
+
+      auto &SetRef = BlocksF1[BD2.Size];
+
+      auto BestIt = SetRef.end();
+      float BestDist = std::numeric_limits<float>::max();
+      for (auto BDIt = SetRef.begin(), E = SetRef.end(); BDIt != E; BDIt++) {
+        auto D = BD2.distance(*BDIt);
+        if (D < BestDist) {
+          BestDist = D;
+          BestIt = BDIt;
+        }
+      }
+#ifdef TIME_STEPS_DEBUG
+      TimeAlignRank.stopTimer();
+#endif
+
+      bool MergedBlock = false;
+      if (BestIt != SetRef.end()) {
+        BasicBlock *BB1 = BestIt->BB;
+
+        if (!HyFMProfitability || FunctionMerger::isPAProfitable(BB1, BB2)) {
+          extendAlignedSeq(AlignedSeq, BB1, BB2, TotalAlignmentStats);
+          SetRef.erase(BestIt);
+          MergedBlock = true;
+        }
+      }
+
+      if (!MergedBlock)
+        extendAlignedSeq(AlignedSeq, nullptr, BB2, TotalAlignmentStats);
+    }
+
+    for (auto &Pair : BlocksF1)
+      for (auto &BD1 : Pair.second)
+        extendAlignedSeq(AlignedSeq, BD1.BB, nullptr, TotalAlignmentStats);
+
+    if (Verbose)
+      errs() << "RStats: " << NumBB1 << " , " << NumBB2 << " , " << MemSize
+             << "\n";
+
+    isProfitable = TotalAlignmentStats.isProfitable();
+    return AlignedSeq;
+  }
+};
+
 FunctionMergeResult
 FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
                       OptimizationRemarkEmitter *ORE,
@@ -2559,6 +2636,8 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
   std::unique_ptr<Aligner> Aligner;
   if (EnableHyFMNW) {
     Aligner = std::make_unique<HyFMNWAligner>();
+  } else if (EnableHyFMPA) {
+    Aligner = std::make_unique<HyFMPAAligner>();
   } else { // default SALSSA
     Aligner = std::make_unique<SALSSAAligner>();
   }
