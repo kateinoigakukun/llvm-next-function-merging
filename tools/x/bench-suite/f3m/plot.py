@@ -79,10 +79,10 @@ class DataSource:
         return [
             'TECHNIQUE=mfm4',
             'TECHNIQUE=mfm3',
-            'TECHNIQUE=mfm2',
-            'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
+            # 'TECHNIQUE=mfm2',
+            # 'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
             'TECHNIQUE=f3m',
-            'TECHNIQUE=f3m-legacy'
+            # 'TECHNIQUE=f3m-legacy'
         ]
 
     def legend(self, variant):
@@ -128,6 +128,22 @@ class DataSource:
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {(1 - sum(sizes) / sum(baseline_sizes)) * 100:.2f}%")
+        print("\n\nMax reduction:")
+        max_reduction = 0
+        max_reduction_bmark = None
+        for bmark in self.y_labels():
+            f3m = 'TECHNIQUE=f3m'
+            for variant in self.variants():
+                if variant == f3m:
+                    continue
+                baseline = self.data[bmark][self.baseline_case_name()]
+                reduction = (self.data[bmark][f3m] - self.data[bmark][variant]) / baseline
+                print(f"{bmark}: {variant} - {f3m} = {reduction}")
+                if reduction > max_reduction:
+                    max_reduction = reduction
+                    max_reduction_bmark = bmark
+        print(f"{max_reduction_bmark}: {max_reduction}%")
+
 
 class ObjSizeDataSource(DataSource):
     def __init__(self, conn):
@@ -246,6 +262,10 @@ class MergedFunctionsDataSource(DataSource):
     def xlabel(self):
         return "Percentage of merged functions (%)"
 
+    def has_legend(self):
+        return True
+
+
 class CompileTimeDataSource(DataSource):
     def __init__(self, conn):
         data = {}
@@ -330,7 +350,7 @@ class Plotter:
 
 def plot(data_source, options, output):
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig, ax = plt.subplots(figsize=(10, 8))
     plotter = Plotter(options)
     colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
     plotter.plot(data_source, colors, ax)
@@ -372,7 +392,7 @@ def main():
         for target in data_sources:
             data_source_class = all_data_sources[target]
             data_source = data_source_class(conn)
-            output = options.output or f".x/bench-suite/f3m/plot_{target}.svg"
+            output = options.output or f".x/bench-suite/f3m/plot_{target}.png"
             plot(data_source, options, output)
             data_source.stats()
 
