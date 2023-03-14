@@ -27,9 +27,6 @@ private:
   // int CountOpReorder = 0;
   // int CountBinOps = 0;
 
-  static bool matchInstructions(Instruction *I1, Instruction *I2,
-                                const FunctionMergingOptions &Options = {});
-
   void replaceByCall(Function *F, FunctionMergeResult &MergedFunc,
                      const FunctionMergingOptions &Options = {});
   bool replaceCallsWith(Function *F, FunctionMergeResult &MergedFunc,
@@ -55,6 +52,9 @@ public:
 
   static void linearize(Function *F, SmallVectorImpl<Value *> &FVec,
                         LinearizationKind LK = LinearizationKind::LK_Canonical);
+
+  static bool matchInstructions(Instruction *I1, Instruction *I2,
+                                const FunctionMergingOptions &Options = {});
 
   bool validMergeTypes(Function *F1, Function *F2,
                        const FunctionMergingOptions &Options = {});
