@@ -53,8 +53,8 @@ public:
 
   enum LinearizationKind { LK_Random, LK_Canonical };
 
-  void linearize(Function *F, SmallVectorImpl<Value *> &FVec,
-                 LinearizationKind LK = LinearizationKind::LK_Canonical);
+  static void linearize(Function *F, SmallVectorImpl<Value *> &FVec,
+                        LinearizationKind LK = LinearizationKind::LK_Canonical);
 
   bool validMergeTypes(Function *F1, Function *F2,
                        const FunctionMergingOptions &Options = {});

@@ -2322,6 +2322,31 @@ bool FunctionMerger::isPAProfitable(BasicBlock *BB1, BasicBlock *BB2){
   return Profitable;
 }
 
+class Aligner {
+public:
+  virtual ~Aligner() = default;
+  virtual bool isProfitable() = 0;
+  virtual AlignedSequence<Value *> align(Function *F1, Function *F2) = 0;
+};
+
+class SALSSAAligner : public Aligner {
+public:
+  bool isProfitable() override { return true; }
+
+  AlignedSequence<Value *> align(Function *F1, Function *F2) override {
+    SmallVector<Value *, 8> F1Vec;
+    SmallVector<Value *, 8> F2Vec;
+
+    FunctionMerger::linearize(F1, F1Vec);
+    FunctionMerger::linearize(F2, F2Vec);
+
+    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(
+        ScoringSystem(-1, 2),
+        [&](auto *F1, auto *F2) { return FunctionMerger::match(F1, F2); });
+    return SA.getAlignment(F1Vec, F2Vec);
+  }
+};
+
 FunctionMergeResult
 FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
                       OptimizationRemarkEmitter *ORE,
@@ -2343,20 +2368,12 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
   time_align_start = std::chrono::steady_clock::now();
 #endif
 
-  AlignedSequence<Value *> AlignedSeq;
+  std::unique_ptr<Aligner> Aligner;
   { //default SALSSA
-    SmallVector<Value *, 8> F1Vec;
-    SmallVector<Value *, 8> F2Vec;
-
-    linearize(F1, F1Vec);
-    linearize(F2, F2Vec);
-
-    NeedlemanWunschSA<SmallVectorImpl<Value *>> SA(ScoringSystem(-1, 2), [&](auto *F1, auto *F2) {
-      return FunctionMerger::match(F1, F2);
-    });
-    AlignedSeq = SA.getAlignment(F1Vec, F2Vec);
-
+    Aligner = std::make_unique<SALSSAAligner>();
   }
+  AlignedSequence<Value *> AlignedSeq;
+  AlignedSeq = Aligner->align(F1, F2);
 
 #ifdef TIME_STEPS_DEBUG
   TimeAlign.stopTimer();
