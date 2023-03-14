@@ -11,7 +11,7 @@
 ; CHECK-F3M-NEXT: Args:
 ; CHECK-F3M-NEXT:   - Function:        muxfa_inv
 ; CHECK-F3M-NEXT:   - Function:        muxha_inv
-; CHECK-F3M-NEXT:   - MergedSize:      '120'
+; CHECK-F3M-NEXT:   - MergedSize:      '142'
 ; CHECK-F3M-NEXT:   - ThunkOverhead:   '0'
 ; CHECK-F3M-NEXT:   - OriginalTotalSize: '149'
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/CodeGen/spec2006/462.libquantum/_main_._all_._files_._linked_.ll'
