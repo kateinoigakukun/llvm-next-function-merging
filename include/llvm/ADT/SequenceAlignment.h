@@ -185,8 +185,4 @@ public:
   virtual size_t getMemoryRequirement(ContainerType &Seq0, ContainerType &Seq1) = 0;
 };
 
-#include "llvm/ADT/SANeedlemanWunsch.h"
-#include "llvm/ADT/SAHirschberg.h"
-#include "llvm/ADT/SADiagonalWindows.h"
-
 #endif

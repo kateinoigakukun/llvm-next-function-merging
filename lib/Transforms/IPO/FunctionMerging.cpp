@@ -111,6 +111,7 @@
 
 #include "llvm/Analysis/InlineSizeEstimatorAnalysis.h"
 
+#include "llvm/ADT/SANeedlemanWunsch.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 #include <algorithm>

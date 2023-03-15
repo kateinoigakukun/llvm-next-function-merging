@@ -1,3 +1,9 @@
+#ifndef LLVM_ADT_SEQUENCE_ALIGNMENT_NEEDLEMANWUNSCH_H
+#define LLVM_ADT_SEQUENCE_ALIGNMENT_NEEDLEMANWUNSCH_H
+
+#include "llvm/ADT/SequenceAlignment.h"
+#include <functional>
+
 template <typename ContainerType,
           typename Ty = typename ContainerType::value_type, Ty Blank = Ty(0),
           typename MatchFnTy = std::function<bool(Ty, Ty)>>
@@ -178,3 +184,5 @@ public:
     return Result;
   }
 };
+
+#endif
