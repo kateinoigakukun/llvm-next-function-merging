@@ -1,6 +1,6 @@
-#include "llvm/Transforms/IPO/MSA/NeedlemanWunschMultipleSequenceAligner.h"
 #include "llvm/ADT/TensorTable.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 
 #define DEBUG_TYPE "multiple-func-merging"
 #define MSA_VERBOSE(X) DEBUG_WITH_TYPE("multiple-func-merging-verbose", X)

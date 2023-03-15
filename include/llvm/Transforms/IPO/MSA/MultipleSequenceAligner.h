@@ -3,10 +3,14 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FixedBitVector.h"
+#include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/FunctionMergingOptions.h"
+#include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 #include <vector>
 
@@ -116,6 +120,25 @@ class MultipleSequenceAligner {
   virtual bool align(std::vector<MSAAlignmentEntry> &Alignment,
                      bool &isProfitable,
                      OptimizationRemarkEmitter *ORE = nullptr) = 0;
+};
+
+class NeedlemanWunschMultipleSequenceAligner : public MultipleSequenceAligner {
+  FunctionMerger &PairMerger;
+  ScoringSystem &Scoring;
+  ArrayRef<Function *> Functions;
+  size_t ShapeSizeLimit;
+  const FunctionMergingOptions &Options;
+
+public:
+  bool align(std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+             OptimizationRemarkEmitter *ORE) override;
+
+  NeedlemanWunschMultipleSequenceAligner(
+      FunctionMerger &PairMerger, ScoringSystem &Scoring,
+      ArrayRef<Function *> Functions, size_t ShapeSizeLimit,
+      const FunctionMergingOptions &Options = {})
+      : PairMerger(PairMerger), Scoring(Scoring), Functions(Functions),
+        ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
 };
 
 } // namespace llvm
