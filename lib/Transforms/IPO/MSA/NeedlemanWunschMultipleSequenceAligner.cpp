@@ -263,8 +263,8 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::align(
 }
 
 bool NeedlemanWunschMultipleSequenceAligner::align(
-    std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
-    OptimizationRemarkEmitter *ORE) {
+    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
+    bool &isProfitable, OptimizationRemarkEmitter *ORE) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;

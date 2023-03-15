@@ -122,9 +122,9 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
   NeedlemanWunschMultipleSequenceAligner Aligner(
-      PairMerger, Scoring, Functions, DefaultShapeSizeLimit, Options);
+      PairMerger, Scoring, DefaultShapeSizeLimit, Options);
   bool isProfitable = true;
-  return Aligner.align(Alignment, isProfitable, &ORE);
+  return Aligner.align(Functions, Alignment, isProfitable, &ORE);
 }
 
 MSAThunkFunction

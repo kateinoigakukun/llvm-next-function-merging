@@ -117,7 +117,8 @@ inline raw_ostream &operator<<(raw_ostream &OS,
 }
 
 class MultipleSequenceAligner {
-  virtual bool align(std::vector<MSAAlignmentEntry> &Alignment,
+  virtual bool align(ArrayRef<Function *> Functions,
+                     std::vector<MSAAlignmentEntry> &Alignment,
                      bool &isProfitable,
                      OptimizationRemarkEmitter *ORE = nullptr) = 0;
 };
@@ -125,19 +126,19 @@ class MultipleSequenceAligner {
 class NeedlemanWunschMultipleSequenceAligner : public MultipleSequenceAligner {
   FunctionMerger &PairMerger;
   ScoringSystem &Scoring;
-  ArrayRef<Function *> Functions;
   size_t ShapeSizeLimit;
   const FunctionMergingOptions &Options;
 
 public:
-  bool align(std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+  bool align(ArrayRef<Function *> Functions,
+             std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE) override;
 
   NeedlemanWunschMultipleSequenceAligner(
       FunctionMerger &PairMerger, ScoringSystem &Scoring,
-      ArrayRef<Function *> Functions, size_t ShapeSizeLimit,
+      size_t ShapeSizeLimit,
       const FunctionMergingOptions &Options = {})
-      : PairMerger(PairMerger), Scoring(Scoring), Functions(Functions),
+      : PairMerger(PairMerger), Scoring(Scoring),
         ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
 };
 
