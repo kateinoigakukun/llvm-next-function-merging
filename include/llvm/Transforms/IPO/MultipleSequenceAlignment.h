@@ -7,27 +7,11 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/FunctionMergingOptions.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 namespace llvm {
-
-class MSAAlignmentEntry {
-  std::vector<Value *> Values;
-  bool IsMatched;
-
-public:
-  MSAAlignmentEntry(std::vector<Value *> Values, bool IsMatched)
-      : Values(Values), IsMatched(IsMatched) {}
-
-  bool match() const { return IsMatched; }
-  ArrayRef<Value *> getValues() const { return Values; }
-  /// Collect all instructions from the values.
-  /// Returns true if all values are instructions. Otherwise returns false.
-  bool collectInstructions(std::vector<Instruction *> &Instructions) const;
-  void verify() const;
-  void print(raw_ostream &OS) const;
-  void dump() const { print(dbgs()); }
-};
 
 struct MSAStats {
   size_t NumSelection = 0;

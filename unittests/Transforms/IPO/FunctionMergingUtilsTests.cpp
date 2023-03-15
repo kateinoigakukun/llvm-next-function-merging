@@ -1,4 +1,5 @@
 #include "../../../lib/Transforms/IPO/FunctionMergingUtils.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "gtest/gtest.h"
 
 using namespace llvm::fmutils;

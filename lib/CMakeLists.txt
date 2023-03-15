@@ -9,7 +9,8 @@ add_library(LLVMNextFMObjects OBJECT
   Transforms/IPO/MergeSimilarFunctions.cpp
   Transforms/IPO/MinSizeAttr.cpp
   Transforms/IPO/MultipleSequenceAlignment.cpp
-  Transforms/IPO/SALSSACodeGen.cpp)
+  Transforms/IPO/SALSSACodeGen.cpp
+  Transforms/IPO/MSA/NeedlemanWunschMultipleSequenceAligner.cpp)
 
 set_property(TARGET LLVMNextFMObjects PROPERTY POSITION_INDEPENDENT_CODE ON)
 
