@@ -82,6 +82,7 @@ class DataSource:
             # 'TECHNIQUE=mfm2',
             # 'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
             'TECHNIQUE=f3m',
+            'TECHNIQUE=hyfm',
             # 'TECHNIQUE=f3m-legacy'
         ]
 
@@ -92,6 +93,7 @@ class DataSource:
             'TECHNIQUE=mfm2': 'Multiple Function Merging N=2',
             'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': 'Multiple Function Merging N=2 (identical types only)',
             'TECHNIQUE=f3m': 'F3M (Patched)',
+            'TECHNIQUE=hyfm': 'HyFM',
             'TECHNIQUE=f3m-legacy': 'F3M (Original)'
         }
         return variant_to_legend[variant]
