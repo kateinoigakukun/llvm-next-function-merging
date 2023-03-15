@@ -166,7 +166,7 @@ static cl::opt<bool>
     MaxParamScore("func-merging-max-param", cl::init(true), cl::Hidden,
                   cl::desc("Maximizing the score for merging parameters"));
 
-static cl::opt<bool> Debug("func-merging-debug", cl::init(false), cl::Hidden,
+static cl::opt<bool> Debug("func-merging-debug", cl::init(true), cl::Hidden,
                            cl::desc("Outputs debug information"));
 
 static cl::opt<bool> Verbose("func-merging-verbose", cl::init(false),
@@ -181,7 +181,6 @@ static cl::opt<bool>
                             cl::Hidden,
                             cl::desc("Enable unified return types"));
 
-
 static cl::opt<bool>
     HasWholeProgram("func-merging-whole-program", cl::init(false), cl::Hidden,
                     cl::desc("Function merging applied on whole program"));
@@ -194,7 +193,6 @@ static cl::opt<bool>
     EnableHyFMNW("func-merging-hyfm-nw", cl::init(false), cl::Hidden,
                  cl::desc("Enable HyFM with the Needleman-Wunsch alignment"));
 
-
 static cl::opt<bool> ReuseMergedFunctions(
     "func-merging-reuse-merges", cl::init(true), cl::Hidden,
     cl::desc("Try to reuse merged functions for another merge operation"));
@@ -203,21 +201,21 @@ static cl::opt<bool> HyFMProfitability(
     "hyfm-profitability", cl::init(true), cl::Hidden,
     cl::desc("Try to reuse merged functions for another merge operation"));
 
-static cl::opt<bool> EnableF3M(
-    "func-merging-f3m", cl::init(true), cl::Hidden,
-    cl::desc("Enable function pairing based on MinHashes and LSH"));
+static cl::opt<bool>
+    EnableF3M("func-merging-f3m", cl::init(false), cl::Hidden,
+              cl::desc("Enable function pairing based on MinHashes and LSH"));
 
-static cl::opt<unsigned> LSHRows(
-    "hyfm-f3m-rows", cl::init(2), cl::Hidden,
-    cl::desc("Number of rows in the LSH structure"));
+static cl::opt<unsigned>
+    LSHRows("hyfm-f3m-rows", cl::init(2), cl::Hidden,
+            cl::desc("Number of rows in the LSH structure"));
 
-static cl::opt<unsigned> LSHBands(
-    "hyfm-f3m-bands", cl::init(100), cl::Hidden,
-    cl::desc("Number of bands in the LSH structure"));
+static cl::opt<unsigned>
+    LSHBands("hyfm-f3m-bands", cl::init(100), cl::Hidden,
+             cl::desc("Number of bands in the LSH structure"));
 
-static cl::opt<bool> ShingleCrossBBs(
-    "shingling-cross-basic-blocks", cl::init(true), cl::Hidden,
-    cl::desc("Do shingles in MinHash cross basic blocks"));
+static cl::opt<bool>
+    ShingleCrossBBs("shingling-cross-basic-blocks", cl::init(true), cl::Hidden,
+                    cl::desc("Do shingles in MinHash cross basic blocks"));
 
 static cl::opt<bool> AdaptiveThreshold(
     "adaptive-threshold", cl::init(false), cl::Hidden,
@@ -227,29 +225,32 @@ static cl::opt<bool> AdaptiveBands(
     "adaptive-bands", cl::init(false), cl::Hidden,
     cl::desc("Adaptively define the LSH geometry based on the application"));
 
-static cl::opt<double> RankingDistance(
-    "ranking-distance", cl::init(1.0), cl::Hidden,
-    cl::desc("Define a threshold to be used"));
+static cl::opt<double>
+    RankingDistance("ranking-distance", cl::init(1.0), cl::Hidden,
+                    cl::desc("Define a threshold to be used"));
 
 static cl::opt<bool> EnableThunkPrediction(
     "thunk-predictor", cl::init(false), cl::Hidden,
-    cl::desc("Enable dismissal of candidates caused by thunk non-profitability"));
+    cl::desc(
+        "Enable dismissal of candidates caused by thunk non-profitability"));
 
-static cl::opt<bool> ReportStats(
-    "func-merging-report", cl::init(false), cl::Hidden,
-    cl::desc("Only report the distances and alignment between all allowed function pairs"));
+static cl::opt<bool>
+    ReportStats("func-merging-report", cl::init(false), cl::Hidden,
+                cl::desc("Only report the distances and alignment between all "
+                         "allowed function pairs"));
 
-static cl::opt<bool> MatcherStats(
-    "func-merging-matcher-report", cl::init(false), cl::Hidden,
-    cl::desc("Only report statistics about the distribution of distances and bucket sizes in the Matcher"));
+static cl::opt<bool>
+    MatcherStats("func-merging-matcher-report", cl::init(false), cl::Hidden,
+                 cl::desc("Only report statistics about the distribution of "
+                          "distances and bucket sizes in the Matcher"));
 
 static cl::opt<bool> Deterministic(
     "func-merging-deterministic", cl::init(true), cl::Hidden,
     cl::desc("Replace all random number generators with deterministic values"));
 
-static cl::opt<unsigned> BucketSizeCap(
-    "bucket-size-cap", cl::init(1000000000), cl::Hidden,
-    cl::desc("Define a threshold to be used"));
+static cl::opt<unsigned>
+    BucketSizeCap("bucket-size-cap", cl::init(1000000000), cl::Hidden,
+                  cl::desc("Define a threshold to be used"));
 
 static std::string GetValueName(const Value *V);
 
