@@ -1,4 +1,4 @@
-; RUN: %opt -S --passes=func-merging < %s | FileCheck %s
+; RUN: %opt -S --passes=func-merging -func-merging-f3m < %s | FileCheck %s
 
 ; Afunc and Bfunc differ only in that one returns 0, the other 42.
 ; These should be merged.
