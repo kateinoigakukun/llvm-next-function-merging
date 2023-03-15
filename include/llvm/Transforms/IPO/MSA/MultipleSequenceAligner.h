@@ -135,9 +135,26 @@ public:
              OptimizationRemarkEmitter *ORE) override;
 
   NeedlemanWunschMultipleSequenceAligner(
-      FunctionMerger &PairMerger, ScoringSystem &Scoring,
-      size_t ShapeSizeLimit,
+      FunctionMerger &PairMerger, ScoringSystem &Scoring, size_t ShapeSizeLimit,
       const FunctionMergingOptions &Options = {})
+      : PairMerger(PairMerger), Scoring(Scoring),
+        ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
+};
+
+class HyFMMultipleSequenceAligner : public MultipleSequenceAligner {
+  FunctionMerger &PairMerger;
+  ScoringSystem &Scoring;
+  size_t ShapeSizeLimit;
+  const FunctionMergingOptions &Options;
+
+public:
+  bool align(ArrayRef<Function *> Functions,
+             std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+             OptimizationRemarkEmitter *ORE) override;
+
+  HyFMMultipleSequenceAligner(FunctionMerger &PairMerger,
+                              ScoringSystem &Scoring, size_t ShapeSizeLimit,
+                              const FunctionMergingOptions &Options = {})
       : PairMerger(PairMerger), Scoring(Scoring),
         ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
 };
