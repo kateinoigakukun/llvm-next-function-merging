@@ -3,6 +3,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FixedBitVector.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -112,8 +113,9 @@ inline raw_ostream &operator<<(raw_ostream &OS,
 }
 
 class MultipleSequenceAligner {
-  virtual void align(std::vector<MSAAlignmentEntry> &Alignment,
-                     bool &isProfitable) = 0;
+  virtual bool align(std::vector<MSAAlignmentEntry> &Alignment,
+                     bool &isProfitable,
+                     OptimizationRemarkEmitter *ORE = nullptr) = 0;
 };
 
 } // namespace llvm

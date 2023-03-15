@@ -121,9 +121,10 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
-  return NeedlemanWunschMultipleSequenceAligner::align(
-      PairMerger, Scoring, Functions, Alignment, DefaultShapeSizeLimit, &ORE,
-      Options);
+  NeedlemanWunschMultipleSequenceAligner Aligner(
+      PairMerger, Scoring, Functions, DefaultShapeSizeLimit, Options);
+  bool isProfitable = true;
+  return Aligner.align(Alignment, isProfitable, &ORE);
 }
 
 MSAThunkFunction

@@ -1,5 +1,5 @@
 #include "llvm/Transforms/IPO/MSA/NeedlemanWunschMultipleSequenceAligner.h"
-#include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/ADT/TensorTable.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "multiple-func-merging"
@@ -19,7 +19,74 @@ createMissedRemark(StringRef RemarkName, StringRef Reason,
   return remark;
 }
 
-void NeedlemanWunschMultipleSequenceAligner::initScoreTable() {
+class NeedlemanWunschMultipleSequenceAlignerImpl {
+  ScoringSystem &Scoring;
+  ArrayRef<Function *> Functions;
+  const std::vector<size_t> Shape;
+  const size_t ShapeSize;
+  const FunctionMergingOptions &Options;
+
+  std::vector<SmallVector<Value *, 16>> &InstrVecList;
+  TensorTable<TransitionEntry> BestTransTable;
+
+  struct MatchResult {
+    bool Match;
+    bool IdenticalTypes;
+  };
+
+  void initScoreTable();
+  void buildScoreTable();
+  void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
+  void computeBestTransition(const TensorTableCursor &Cursor,
+                             const SmallVector<size_t, 4> &Point);
+  inline void updateBestScore(const TensorTableCursor &Point,
+                              TransitionOffset TransOffset,
+                              fmutils::OptionalScore newScore, bool IsMatched) {
+    BestTransTable.set(Point,
+                       TransitionEntry(TransOffset, IsMatched, newScore));
+  }
+
+  bool advancePointInShape(SmallVector<size_t, 4> &Point) const {
+    for (size_t i = 0; i < ShapeSize; i++) {
+      if (Point[i] < Shape[i] - 1) {
+        Point[i]++;
+        return true;
+      }
+      Point[i] = 0;
+    }
+    return false;
+  }
+
+  MatchResult matchInstructions(const SmallVector<size_t, 4> &Point) const {
+    auto *TheInstr = InstrVecList[0][Point[0]];
+    bool IdenticalTypes = true;
+    for (size_t i = 1; i < ShapeSize; i++) {
+      auto *OtherInstr = InstrVecList[i][Point[i]];
+      IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
+      if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
+        return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
+      }
+    }
+    return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
+  }
+
+public:
+  NeedlemanWunschMultipleSequenceAlignerImpl(
+      ScoringSystem &Scoring, ArrayRef<Function *> Functions,
+      std::vector<size_t> Shape,
+      std::vector<SmallVector<Value *, 16>> &InstrVecList,
+      const FunctionMergingOptions &Options)
+      : Scoring(Scoring), Functions(Functions), Shape(Shape),
+        ShapeSize(Shape.size()), Options(Options), InstrVecList(InstrVecList),
+        BestTransTable(Shape, {}) {
+
+    initScoreTable();
+  }
+
+  void align(std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable);
+};
+
+void NeedlemanWunschMultipleSequenceAlignerImpl::initScoreTable() {
 
   {
     // Initialize {0,0,...,0}
@@ -60,7 +127,7 @@ minusOffsetFromPoint(const TransitionOffset &Offset,
 };
 }; // namespace MSAlignerUtilites
 
-void NeedlemanWunschMultipleSequenceAligner::computeBestTransition(
+void NeedlemanWunschMultipleSequenceAlignerImpl::computeBestTransition(
     const TensorTableCursor &Cursor, const SmallVector<size_t, 4> &Point) {
 
   // Build a virtual tensor table for transition scores.
@@ -119,7 +186,7 @@ void NeedlemanWunschMultipleSequenceAligner::computeBestTransition(
   BestTransTable.set(Cursor, BestTransition);
 }
 
-void NeedlemanWunschMultipleSequenceAligner::buildScoreTable() {
+void NeedlemanWunschMultipleSequenceAlignerImpl::buildScoreTable() {
   // Start visiting from (0, 0, ..., 0)
   auto Cursor = TensorTableCursor::zero();
   SmallVector<size_t, 4> Point(Shape.size(), 0);
@@ -130,7 +197,7 @@ void NeedlemanWunschMultipleSequenceAligner::buildScoreTable() {
   };
 }
 
-void NeedlemanWunschMultipleSequenceAligner::buildAlignment(
+void NeedlemanWunschMultipleSequenceAlignerImpl::buildAlignment(
     std::vector<llvm::MSAAlignmentEntry> &Alignment) {
   TimeTraceScope TimeScope("BuildAlignment");
   size_t MaxDim = BestTransTable.getShape().size();
@@ -182,7 +249,7 @@ void NeedlemanWunschMultipleSequenceAligner::buildAlignment(
   }
 }
 
-void NeedlemanWunschMultipleSequenceAligner::align(
+void NeedlemanWunschMultipleSequenceAlignerImpl::align(
     std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable) {
   /* ===== Needleman–Wunsch algorithm ======= */
 
@@ -196,10 +263,8 @@ void NeedlemanWunschMultipleSequenceAligner::align(
 }
 
 bool NeedlemanWunschMultipleSequenceAligner::align(
-    FunctionMerger &PairMerger, ScoringSystem &Scoring,
-    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
-    size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE,
-    const FunctionMergingOptions &Options) {
+    std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+    OptimizationRemarkEmitter *ORE) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;
@@ -230,9 +295,8 @@ bool NeedlemanWunschMultipleSequenceAligner::align(
     return false;
   }
 
-  NeedlemanWunschMultipleSequenceAligner Aligner(Scoring, Functions, Shape,
-                                                 InstrVecList, Options);
-  bool isProfitable = true;
+  NeedlemanWunschMultipleSequenceAlignerImpl Aligner(Scoring, Functions, Shape,
+                                                     InstrVecList, Options);
   Aligner.align(Alignment, isProfitable);
   return true;
 }
