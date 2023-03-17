@@ -42,6 +42,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <tuple>
@@ -121,10 +122,17 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
-  NeedlemanWunschMultipleSequenceAligner Aligner(
-      PairMerger, Scoring, DefaultShapeSizeLimit, Options);
+
+  std::unique_ptr<MultipleSequenceAligner> Aligner;
+  if (Options.EnableHyFMAlignment) {
+    Aligner = std::make_unique<HyFMMultipleSequenceAligner>(
+        PairMerger, Scoring, DefaultShapeSizeLimit, Options);
+  } else {
+    Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
+        PairMerger, Scoring, DefaultShapeSizeLimit, Options);
+  }
   bool isProfitable = true;
-  return Aligner.align(Functions, Alignment, isProfitable, &ORE);
+  return Aligner->align(Functions, Alignment, isProfitable, &ORE);
 }
 
 MSAThunkFunction

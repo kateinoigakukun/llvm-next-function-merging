@@ -117,6 +117,8 @@ inline raw_ostream &operator<<(raw_ostream &OS,
 }
 
 class MultipleSequenceAligner {
+public:
+  virtual ~MultipleSequenceAligner() = default;
   virtual bool align(ArrayRef<Function *> Functions,
                      std::vector<MSAAlignmentEntry> &Alignment,
                      bool &isProfitable,

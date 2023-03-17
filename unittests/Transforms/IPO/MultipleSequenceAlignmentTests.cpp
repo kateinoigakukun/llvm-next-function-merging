@@ -11,6 +11,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/FunctionMergingOptions.h"
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "gtest/gtest.h"
@@ -27,7 +28,8 @@ protected:
   void withAlignment(
       Module &M, const std::vector<std::string> &FuncNames,
       function_ref<void(std::vector<MSAAlignmentEntry> &, ArrayRef<Function *>)>
-          Test) {
+          Test,
+      const FunctionMergingOptions &Options = {}) {
     ASSERT_GT(M.getFunctionList().size(), 0);
 
     FunctionMerger PairMerger(&M);
@@ -39,7 +41,7 @@ protected:
     FunctionAnalysisManager FAM;
     MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM);
     std::vector<MSAAlignmentEntry> Alignment;
-    Merger.align(Alignment);
+    Merger.align(Alignment, Options);
     std::reverse(Alignment.begin(), Alignment.end());
     Test(Alignment, Functions);
   }
@@ -243,15 +245,18 @@ attributes #6 = { nounwind optsize }
                                Error, Ctx);
 
   ASSERT_TRUE(M);
+  FunctionMergingOptions Options;
+  Options.EnableHyFMAlignment = true;
+
   withAlignment(
       *M,
-      {
-        "_ZN11xercesc_2_516XMLPlatformUtils10curFilePosEPvPNS_13MemoryManagerE",
-        "_ZN11xercesc_2_516XMLPlatformUtils14readFileBufferEPvjPhPNS_13MemoryManagerE"
-      },
+      {"_ZN11xercesc_2_516XMLPlatformUtils10curFilePosEPvPNS_13MemoryManagerE",
+       "_ZN11xercesc_2_516XMLPlatformUtils14readFileBufferEPvjPhPNS_"
+       "13MemoryManagerE"},
       [&](auto Alignment, auto) {
         LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
-      });
+      },
+      Options);
 }
 
 TEST_F(MSAFunctionMergerAlignmentTest, Regression1) {

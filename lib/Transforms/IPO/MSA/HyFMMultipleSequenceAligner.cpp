@@ -1,29 +1,43 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/Fingerprint.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 
 using namespace llvm;
 
-class HyFMMultipleSequenceAlignerImpl {};
+#define DEBUG_TYPE "msa-hyfm"
 
-bool HyFMMultipleSequenceAligner::align(
-    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
-    bool &isProfitable, OptimizationRemarkEmitter *ORE) {
+class HyFMMultipleSequenceAlignerImpl {
+  bool EnableBlockProfitabilityEstimation;
+  OptimizationRemarkEmitter *ORE;
 
-  SmallVector<std::vector<BlockFingerprint>, 4> FingerprintsByFunction;
-
-  for (Function *F : Functions) {
-    auto &Fingerprints = FingerprintsByFunction.emplace_back();
-    for (BasicBlock &BB : *F) {
-      BlockFingerprint BF(&BB);
-      Fingerprints.push_back(std::move(BF));
-    }
-  }
+public:
+  HyFMMultipleSequenceAlignerImpl(bool EnableBlockProfitabilityEstimation,
+                                  OptimizationRemarkEmitter *ORE)
+      : EnableBlockProfitabilityEstimation(EnableBlockProfitabilityEstimation),
+        ORE(ORE) {}
 
   using BlockAlignment = SmallVector<BasicBlock *, 4>;
+
+  void alignBasicBlocks(ArrayRef<Function *> Functions,
+                        const SmallVectorImpl<std::vector<BlockFingerprint>>
+                            &FingerprintsByFunction,
+                        SmallVectorImpl<BlockAlignment> &Alignments);
+  bool align(ArrayRef<Function *> Functions,
+             std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+             OptimizationRemarkEmitter *ORE);
+
+  void dumpBlockAlignments(ArrayRef<BlockAlignment> Alignments);
+};
+
+void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
+    ArrayRef<Function *> Functions,
+    const SmallVectorImpl<std::vector<BlockFingerprint>>
+        &FingerprintsByFunction,
+    SmallVectorImpl<BlockAlignment> &BlockAlignments) {
+
   SmallPtrSet<BasicBlock *, 16> Used;
-  SmallVector<BlockAlignment, 16> BlockAlignments;
 
   for (size_t BaseFuncId = 0; BaseFuncId < Functions.size(); BaseFuncId++) {
     Function *F = Functions[BaseFuncId];
@@ -66,6 +80,56 @@ bool HyFMMultipleSequenceAligner::align(
       BlockAlignments.push_back(std::move(BestAlignment));
     }
   }
+}
+
+bool HyFMMultipleSequenceAlignerImpl::align(
+    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
+    bool &isProfitable, OptimizationRemarkEmitter *ORE) {
+
+  // 1. Compute the fingerprints for each basic block in each function.
+  SmallVector<std::vector<BlockFingerprint>, 4> FingerprintsByFunction;
+
+  for (Function *F : Functions) {
+    auto &Fingerprints = FingerprintsByFunction.emplace_back();
+    for (BasicBlock &BB : *F) {
+      BlockFingerprint BF(&BB);
+      Fingerprints.push_back(std::move(BF));
+    }
+  }
+
+  // 2. Find the nearest neighbors for each basic block in each function: O(n^k)
+  // where n is the number of basic blocks in a function and k is the number of
+  // functions.
+  SmallVector<BlockAlignment, 16> BlockAlignments;
+  alignBasicBlocks(Functions, FingerprintsByFunction, BlockAlignments);
+
+  LLVM_DEBUG(dumpBlockAlignments(BlockAlignments));
 
   return true;
+}
+
+void HyFMMultipleSequenceAlignerImpl::dumpBlockAlignments(
+    ArrayRef<BlockAlignment> Alignments) {
+  for (auto &BA : Alignments) {
+    llvm::dbgs() << "Alignment:\n";
+    for (size_t i = 0; i < BA.size(); i++) {
+      dbgs() << "- ";
+      auto &BB = BA[i];
+      if (BB) {
+        dbgs() << BB->getName();
+        BB->dump();
+      } else {
+        dbgs() << "null";
+      }
+      dbgs() << "\n";
+    }
+  }
+}
+
+bool HyFMMultipleSequenceAligner::align(
+    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
+    bool &isProfitable, OptimizationRemarkEmitter *ORE) {
+  HyFMMultipleSequenceAlignerImpl Impl(
+      Options.EnableHyFMBlockProfitabilityEstimation, ORE);
+  return Impl.align(Functions, Alignment, isProfitable, ORE);
 }

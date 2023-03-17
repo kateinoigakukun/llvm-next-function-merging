@@ -7,15 +7,22 @@ struct FunctionMergingOptions {
   bool IdenticalTypesOnly;
   bool EnableUnifiedReturnType;
   bool EnableOperandReordering;
+  bool EnableHyFMAlignment;
+  bool EnableHyFMBlockProfitabilityEstimation;
 
   FunctionMergingOptions(bool MaximizeParamScore = true,
                          bool IdenticalTypesOnly = true,
                          bool EnableUnifiedReturnType = true,
-                         bool EnableOperandReordering = true)
+                         bool EnableOperandReordering = true,
+                         bool EnableHyFMAlignment = false,
+                         bool EnableHyFMBlockProfitabilityEstimation = true)
       : MaximizeParamScore(MaximizeParamScore),
         IdenticalTypesOnly(IdenticalTypesOnly),
         EnableUnifiedReturnType(EnableUnifiedReturnType),
-        EnableOperandReordering(EnableOperandReordering) {}
+        EnableOperandReordering(EnableOperandReordering),
+        EnableHyFMAlignment(EnableHyFMAlignment),
+        EnableHyFMBlockProfitabilityEstimation(
+            EnableHyFMBlockProfitabilityEstimation) {}
 
   FunctionMergingOptions &maximizeParameterScore(bool MPS) {
     MaximizeParamScore = MPS;
