@@ -135,6 +135,10 @@ public:
   bool align(ArrayRef<Function *> Functions,
              std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE) override;
+  bool alignBasicBlocks(ArrayRef<BasicBlock *> BBs,
+                        std::vector<MSAAlignmentEntry> &Alignment,
+                        bool &isProfitable,
+                        OptimizationRemarkEmitter *ORE) const;
 
   NeedlemanWunschMultipleSequenceAligner(
       FunctionMerger &PairMerger, ScoringSystem &Scoring, size_t ShapeSizeLimit,
@@ -144,21 +148,21 @@ public:
 };
 
 class HyFMMultipleSequenceAligner : public MultipleSequenceAligner {
-  FunctionMerger &PairMerger;
-  ScoringSystem &Scoring;
-  size_t ShapeSizeLimit;
   const FunctionMergingOptions &Options;
+  /// The underlying Needleman-Wunsch aligner used to estimate the profitablity
+  /// of the basic block alignment. nullptr if profitablity estimation is
+  /// disabled.
+  const NeedlemanWunschMultipleSequenceAligner *NWAligner;
 
 public:
   bool align(ArrayRef<Function *> Functions,
              std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE) override;
 
-  HyFMMultipleSequenceAligner(FunctionMerger &PairMerger,
-                              ScoringSystem &Scoring, size_t ShapeSizeLimit,
-                              const FunctionMergingOptions &Options = {})
-      : PairMerger(PairMerger), Scoring(Scoring),
-        ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
+  HyFMMultipleSequenceAligner(
+      const NeedlemanWunschMultipleSequenceAligner *NWAligner,
+      const FunctionMergingOptions &Options = {})
+      : Options(Options), NWAligner(NWAligner){};
 };
 
 } // namespace llvm

@@ -1,4 +1,5 @@
 #include "llvm/ADT/TensorTable.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 
@@ -15,6 +16,20 @@ createMissedRemark(StringRef RemarkName, StringRef Reason,
     remark << ore::NV("Reason", Reason);
   for (auto *F : Functions) {
     remark << ore::NV("Function", F);
+  }
+  return remark;
+}
+
+static OptimizationRemarkMissed createMissedRemark(StringRef RemarkName,
+                                                   StringRef Reason,
+                                                   ArrayRef<BasicBlock *> BBs) {
+  auto remark =
+      OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, BBs[0]->getParent());
+  if (!Reason.empty())
+    remark << ore::NV("Reason", Reason);
+  for (auto *B : BBs) {
+    remark << ore::NV("Function", B->getParent());
+    remark << ore::NV("BasicBlock", B);
   }
   return remark;
 }
@@ -284,6 +299,45 @@ bool NeedlemanWunschMultipleSequenceAligner::align(
       ORE->emit([&] {
         auto remark =
             createMissedRemark("Alignment", "Too large table size", Functions);
+        for (size_t i = 0; i < Shape.size(); i++) {
+          remark << ore::NV("Shape", Shape[i]);
+        }
+        return remark;
+      });
+    }
+    return false;
+  }
+
+  NeedlemanWunschMultipleSequenceAlignerImpl Aligner(Scoring, Shape,
+                                                     InstrVecList, Options);
+  Aligner.align(Alignment, isProfitable);
+  return true;
+}
+
+bool NeedlemanWunschMultipleSequenceAligner::alignBasicBlocks(
+    ArrayRef<BasicBlock *> BBs, std::vector<MSAAlignmentEntry> &Alignment,
+    bool &isProfitable, OptimizationRemarkEmitter *ORE) const {
+  std::vector<SmallVector<Value *, 16>> InstrVecList(BBs.size());
+  std::vector<size_t> Shape;
+  size_t ShapeSize = 1;
+
+  {
+    TimeTraceScope TimeScope("Linearize");
+    for (size_t i = 0; i < BBs.size(); i++) {
+      auto &B = *BBs[i];
+      for (auto &I : B) {
+        InstrVecList[i].push_back(&I);
+      }
+      Shape.push_back(InstrVecList[i].size() + 1);
+      ShapeSize *= Shape[i];
+    }
+  }
+
+  if (ShapeSize > ShapeSizeLimit) {
+    if (ORE) {
+      ORE->emit([&] {
+        auto remark =
+            createMissedRemark("Alignment", "Too large table size", BBs);
         for (size_t i = 0; i < Shape.size(); i++) {
           remark << ore::NV("Shape", Shape[i]);
         }

@@ -9,14 +9,14 @@ using namespace llvm;
 #define DEBUG_TYPE "msa-hyfm"
 
 class HyFMMultipleSequenceAlignerImpl {
-  bool EnableBlockProfitabilityEstimation;
   OptimizationRemarkEmitter *ORE;
+  const NeedlemanWunschMultipleSequenceAligner *NWAligner;
 
 public:
-  HyFMMultipleSequenceAlignerImpl(bool EnableBlockProfitabilityEstimation,
-                                  OptimizationRemarkEmitter *ORE)
-      : EnableBlockProfitabilityEstimation(EnableBlockProfitabilityEstimation),
-        ORE(ORE) {}
+  HyFMMultipleSequenceAlignerImpl(
+      const NeedlemanWunschMultipleSequenceAligner *NWAligner,
+      OptimizationRemarkEmitter *ORE)
+      : ORE(ORE), NWAligner(NWAligner) {}
 
   using BlockAlignment = SmallVector<BasicBlock *, 4>;
 
@@ -129,7 +129,6 @@ void HyFMMultipleSequenceAlignerImpl::dumpBlockAlignments(
 bool HyFMMultipleSequenceAligner::align(
     ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
     bool &isProfitable, OptimizationRemarkEmitter *ORE) {
-  HyFMMultipleSequenceAlignerImpl Impl(
-      Options.EnableHyFMBlockProfitabilityEstimation, ORE);
+  HyFMMultipleSequenceAlignerImpl Impl(NWAligner, ORE);
   return Impl.align(Functions, Alignment, isProfitable, ORE);
 }
