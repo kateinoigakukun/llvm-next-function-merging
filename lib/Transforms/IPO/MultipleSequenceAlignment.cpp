@@ -126,12 +126,10 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
   std::unique_ptr<MultipleSequenceAligner> Aligner;
   std::unique_ptr<NeedlemanWunschMultipleSequenceAligner> NWAligner;
   if (Options.EnableHyFMAlignment) {
-    if (Options.EnableHyFMBlockProfitabilityEstimation) {
-      NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
-          PairMerger, Scoring, DefaultShapeSizeLimit, Options);
-    }
-    Aligner =
-        std::make_unique<HyFMMultipleSequenceAligner>(NWAligner.get(), Options);
+    NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
+        PairMerger, Scoring, DefaultShapeSizeLimit, Options);
+    Aligner = std::make_unique<HyFMMultipleSequenceAligner>(*NWAligner.get(),
+                                                            Options);
   } else {
     Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
         PairMerger, Scoring, DefaultShapeSizeLimit, Options);

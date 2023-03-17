@@ -95,6 +95,13 @@ public:
   MSAAlignmentEntry(std::vector<Value *> Values, bool IsMatched)
       : Values(Values), IsMatched(IsMatched) {}
 
+  MSAAlignmentEntry(Value *V, size_t FuncSize, size_t FuncId)
+      : IsMatched(false) {
+    std::vector<Value *> Values(FuncSize, nullptr);
+    Values[FuncId] = V;
+    this->Values = Values;
+  }
+
   bool match() const { return IsMatched; }
   ArrayRef<Value *> getValues() const { return Values; }
   /// Collect all instructions from the values.
@@ -152,7 +159,7 @@ class HyFMMultipleSequenceAligner : public MultipleSequenceAligner {
   /// The underlying Needleman-Wunsch aligner used to estimate the profitablity
   /// of the basic block alignment. nullptr if profitablity estimation is
   /// disabled.
-  const NeedlemanWunschMultipleSequenceAligner *NWAligner;
+  const NeedlemanWunschMultipleSequenceAligner &NWAligner;
 
 public:
   bool align(ArrayRef<Function *> Functions,
@@ -160,7 +167,7 @@ public:
              OptimizationRemarkEmitter *ORE) override;
 
   HyFMMultipleSequenceAligner(
-      const NeedlemanWunschMultipleSequenceAligner *NWAligner,
+      const NeedlemanWunschMultipleSequenceAligner &NWAligner,
       const FunctionMergingOptions &Options = {})
       : Options(Options), NWAligner(NWAligner){};
 };

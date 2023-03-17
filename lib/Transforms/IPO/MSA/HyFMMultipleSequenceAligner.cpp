@@ -1,3 +1,5 @@
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/None.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
@@ -11,24 +13,64 @@ using namespace llvm;
 
 class HyFMMultipleSequenceAlignerImpl {
   OptimizationRemarkEmitter *ORE;
-  const NeedlemanWunschMultipleSequenceAligner *NWAligner;
+  const NeedlemanWunschMultipleSequenceAligner &NWAligner;
+  bool EnableHyFMBlockProfitabilityEstimation;
 
 public:
   HyFMMultipleSequenceAlignerImpl(
-      const NeedlemanWunschMultipleSequenceAligner *NWAligner,
-      OptimizationRemarkEmitter *ORE)
-      : ORE(ORE), NWAligner(NWAligner) {}
+      const NeedlemanWunschMultipleSequenceAligner &NWAligner,
+      OptimizationRemarkEmitter *ORE,
+      bool EnableHyFMBlockProfitabilityEstimation)
+      : ORE(ORE), NWAligner(NWAligner),
+        EnableHyFMBlockProfitabilityEstimation(
+            EnableHyFMBlockProfitabilityEstimation) {}
 
-  using BlockAlignment = SmallVector<BasicBlock *, 4>;
+  class BlockAlignment {
+    SmallVector<BasicBlock *, 4> Blocks;
+    Optional<std::vector<MSAAlignmentEntry>> InstAlignment;
+
+  public:
+    BlockAlignment(size_t Size) : Blocks(Size, nullptr), InstAlignment(None) {}
+
+    BasicBlock *operator[](size_t Idx) const { return Blocks[Idx]; }
+    BasicBlock *&operator[](size_t Idx) { return Blocks[Idx]; }
+    decltype(Blocks)::iterator begin() { return Blocks.begin(); }
+    decltype(Blocks)::iterator end() { return Blocks.end(); }
+    decltype(Blocks)::const_iterator begin() const { return Blocks.begin(); }
+    decltype(Blocks)::const_iterator end() const { return Blocks.end(); }
+    size_t size() const { return Blocks.size(); }
+
+    bool isMatched() const {
+      // fast-path for the case after alignment is done.
+      if (InstAlignment.hasValue())
+        return true;
+      return std::all_of(Blocks.begin(), Blocks.end(),
+                         [](BasicBlock *BB) { return BB != nullptr; });
+    }
+
+    void setInstAlignment(std::vector<MSAAlignmentEntry> &&Alignment) {
+      InstAlignment = std::move(Alignment);
+    }
+
+    void appendInstAlignment(std::vector<MSAAlignmentEntry> &Dest) const {
+      assert(isMatched() &&
+             "Cannot append inst alignment for unmatched blocks");
+      Dest.insert(Dest.end(), InstAlignment->begin(), InstAlignment->end());
+    }
+  };
 
   void alignBasicBlocks(ArrayRef<Function *> Functions,
                         const SmallVectorImpl<std::vector<BlockFingerprint>>
                             &FingerprintsByFunction,
                         SmallVectorImpl<BlockAlignment> &Alignments);
+  void appendAlignmentEntries(const BlockAlignment &BA,
+                              std::vector<MSAAlignmentEntry> &Alignment) const;
   bool align(ArrayRef<Function *> Functions,
              std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE);
-  bool isBlockAlignmentProfitable(const BlockAlignment &BA) const;
+  bool isBlockAlignmentProfitable(
+      const BlockAlignment &BA,
+      std::vector<MSAAlignmentEntry> &InstAlignment) const;
 
   static void dumpBlockAlignments(ArrayRef<BlockAlignment> Alignments);
   static bool
@@ -52,7 +94,7 @@ void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
         continue;
 
       double MinDistance = std::numeric_limits<double>::max();
-      BlockAlignment BestAlignment(Functions.size(), nullptr);
+      BlockAlignment BestAlignment(Functions.size());
       BestAlignment[BaseFuncId] = BaseBF.BB;
 
       // 2. Find the best match for each other basic block in other functions.
@@ -79,8 +121,10 @@ void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
       // Then, estimate the BB merge is profitable or not.
       // TODO(katei): For now, we merge only if all BBs are matched. Unlcok
       // partial merge later.
-      bool ShouldMerge = BestAlignment.size() == Functions.size() &&
-                         isBlockAlignmentProfitable(BestAlignment);
+      std::vector<MSAAlignmentEntry> InstAlignment;
+      bool ShouldMerge =
+          BestAlignment.isMatched() &&
+          isBlockAlignmentProfitable(BestAlignment, InstAlignment);
       if (!ShouldMerge) {
         for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
           BasicBlock *BB = BestAlignment[FuncId];
@@ -89,12 +133,14 @@ void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
           }
           Used.insert(BB);
           // If we don't merge, append the BB as a non-matched BB.
-          BlockAlignment NonMatchedAlignment(Functions.size(), nullptr);
+          BlockAlignment NonMatchedAlignment(Functions.size());
           NonMatchedAlignment[FuncId] = BB;
           BlockAlignments.push_back(std::move(NonMatchedAlignment));
         }
         continue;
       }
+
+      BestAlignment.setInstAlignment(std::move(InstAlignment));
 
       for (BasicBlock *BB : BestAlignment) {
         if (!BB) {
@@ -132,7 +178,31 @@ bool HyFMMultipleSequenceAlignerImpl::align(
 
   LLVM_DEBUG(dumpBlockAlignments(BlockAlignments));
 
+  // 3. Align the instructions in each basic block.
+  for (auto &BA : BlockAlignments) {
+    appendAlignmentEntries(BA, Alignment);
+  }
+
   return true;
+}
+
+void HyFMMultipleSequenceAlignerImpl::appendAlignmentEntries(
+    const BlockAlignment &BA, std::vector<MSAAlignmentEntry> &Alignment) const {
+  if (BA.isMatched()) {
+    BA.appendInstAlignment(Alignment);
+  } else {
+    for (size_t FuncId = 0; FuncId < BA.size(); FuncId++) {
+      BasicBlock *BB = BA[FuncId];
+      if (!BB) {
+        continue;
+      }
+      // Append non-matched BBs as a single entry.
+      Alignment.emplace_back(BB, BA.size(), FuncId);
+      for (Instruction &I : *BB) {
+        Alignment.emplace_back(&I, BA.size(), FuncId);
+      }
+    }
+  }
 }
 
 void HyFMMultipleSequenceAlignerImpl::dumpBlockAlignments(
@@ -141,33 +211,33 @@ void HyFMMultipleSequenceAlignerImpl::dumpBlockAlignments(
     llvm::dbgs() << "Alignment:\n";
     for (size_t i = 0; i < BA.size(); i++) {
       dbgs() << "- ";
-      auto &BB = BA[i];
+      auto BB = BA[i];
       if (BB) {
         dbgs() << BB->getName();
         BB->dump();
       } else {
-        dbgs() << "null";
+        dbgs() << "null\n";
       }
-      dbgs() << "\n";
     }
+    dbgs() << "\n";
   }
 }
 
 bool HyFMMultipleSequenceAlignerImpl::isBlockAlignmentProfitable(
-    const BlockAlignment &BA) const {
-  if (NWAligner) {
-    std::vector<MSAAlignmentEntry> InstAlignment;
-    // Needleman Wunsch Aligner does not check the profitability, so just ignore
-    // it.
-    bool _isProfitable = true;
-    if (NWAligner->alignBasicBlocks(BA, InstAlignment, _isProfitable, ORE)) {
-      return isInstructionAlignmentProfitable(InstAlignment);
-    } else {
-      // If the alignment failed for some reason, don't merge.
-      return false;
+    const BlockAlignment &BA,
+    std::vector<MSAAlignmentEntry> &InstAlignment) const {
+  // Needleman Wunsch Aligner does not check the profitability, so just ignore
+  // it.
+  bool _isProfitable = true;
+  ArrayRef<BasicBlock *> BBs(BA.begin(), BA.end());
+  if (NWAligner.alignBasicBlocks(BBs, InstAlignment, _isProfitable, ORE)) {
+    if (!EnableHyFMBlockProfitabilityEstimation) {
+      return true;
     }
+    return isInstructionAlignmentProfitable(InstAlignment);
   } else {
-    return true;
+    // If the alignment failed for some reason, don't merge.
+    return false;
   }
 }
 
@@ -211,6 +281,7 @@ bool HyFMMultipleSequenceAlignerImpl::isInstructionAlignmentProfitable(
 bool HyFMMultipleSequenceAligner::align(
     ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
     bool &isProfitable, OptimizationRemarkEmitter *ORE) {
-  HyFMMultipleSequenceAlignerImpl Impl(NWAligner, ORE);
+  HyFMMultipleSequenceAlignerImpl Impl(
+      NWAligner, ORE, Options.EnableHyFMBlockProfitabilityEstimation);
   return Impl.align(Functions, Alignment, isProfitable, ORE);
 }
