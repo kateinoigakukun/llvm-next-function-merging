@@ -21,7 +21,6 @@ createMissedRemark(StringRef RemarkName, StringRef Reason,
 
 class NeedlemanWunschMultipleSequenceAlignerImpl {
   ScoringSystem &Scoring;
-  ArrayRef<Function *> Functions;
   const std::vector<size_t> Shape;
   const size_t ShapeSize;
   const FunctionMergingOptions &Options;
@@ -72,12 +71,11 @@ class NeedlemanWunschMultipleSequenceAlignerImpl {
 
 public:
   NeedlemanWunschMultipleSequenceAlignerImpl(
-      ScoringSystem &Scoring, ArrayRef<Function *> Functions,
-      std::vector<size_t> Shape,
+      ScoringSystem &Scoring, std::vector<size_t> Shape,
       std::vector<SmallVector<Value *, 16>> &InstrVecList,
       const FunctionMergingOptions &Options)
-      : Scoring(Scoring), Functions(Functions), Shape(Shape),
-        ShapeSize(Shape.size()), Options(Options), InstrVecList(InstrVecList),
+      : Scoring(Scoring), Shape(Shape), ShapeSize(Shape.size()),
+        Options(Options), InstrVecList(InstrVecList),
         BestTransTable(Shape, {}) {
 
     initScoreTable();
@@ -295,7 +293,7 @@ bool NeedlemanWunschMultipleSequenceAligner::align(
     return false;
   }
 
-  NeedlemanWunschMultipleSequenceAlignerImpl Aligner(Scoring, Functions, Shape,
+  NeedlemanWunschMultipleSequenceAlignerImpl Aligner(Scoring, Shape,
                                                      InstrVecList, Options);
   Aligner.align(Alignment, isProfitable);
   return true;
