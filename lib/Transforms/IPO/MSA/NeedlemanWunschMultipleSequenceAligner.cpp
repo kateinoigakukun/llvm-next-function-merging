@@ -324,8 +324,12 @@ bool NeedlemanWunschMultipleSequenceAligner::alignBasicBlocks(
   {
     TimeTraceScope TimeScope("Linearize");
     for (size_t i = 0; i < BBs.size(); i++) {
-      auto &B = *BBs[i];
-      for (auto &I : B) {
+      auto *B = BBs[i];
+      // The first element of the sequence should be the basic block itself
+      // because the aligned sequences will be joined into a single alignment
+      // sequence without any separator.
+      InstrVecList[i].push_back(B);
+      for (auto &I : *B) {
         InstrVecList[i].push_back(&I);
       }
       Shape.push_back(InstrVecList[i].size() + 1);

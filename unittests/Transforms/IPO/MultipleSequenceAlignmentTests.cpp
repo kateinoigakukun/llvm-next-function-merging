@@ -247,6 +247,7 @@ attributes #6 = { nounwind optsize }
   ASSERT_TRUE(M);
   FunctionMergingOptions Options;
   Options.EnableHyFMAlignment = true;
+  Options.EnableHyFMBlockProfitabilityEstimation = true;
 
   withAlignment(
       *M,
