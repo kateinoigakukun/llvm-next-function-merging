@@ -71,6 +71,10 @@ static cl::opt<bool>
     IdenticalType("multiple-func-merging-identical-type", cl::init(false), cl::Hidden,
                   cl::desc("Match only values with identical types"));
 
+static cl::opt<bool>
+    EnableHyFMNW("multiple-func-merging-hyfm-nw", cl::init(false), cl::Hidden,
+                 cl::desc("Enable HyFM with the Pairwise Alignment"));
+
 static cl::opt<bool> EnableSALSSACoalescing(
     "multiple-func-merging-coalescing", cl::init(true), cl::Hidden,
     cl::desc("Enable phi-node coalescing during SSA reconstruction"));
@@ -2005,6 +2009,8 @@ public:
                     bool IdenticalTypesOnly = true) {
     MSAOptions Opt = BaseOpt;
     Opt.matchOnlyIdenticalTypes(IdenticalTypesOnly);
+    Opt.EnableHyFMAlignment = EnableHyFMNW;
+
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     auto maybePlan = FM.planMerge(Opt);
     if (!maybePlan) {
