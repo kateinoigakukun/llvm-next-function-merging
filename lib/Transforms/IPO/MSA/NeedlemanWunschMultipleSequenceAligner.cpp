@@ -325,19 +325,8 @@ bool NeedlemanWunschMultipleSequenceAligner::alignBasicBlocks(
     TimeTraceScope TimeScope("Linearize");
     for (size_t i = 0; i < BBs.size(); i++) {
       auto *B = BBs[i];
-      // The first element of the sequence should be the basic block itself
-      // because the aligned sequences will be joined into a single alignment
-      // sequence without any separator.
-      InstrVecList[i].push_back(B);
-      for (auto &I : *B) {
-        // Those instructions are part of the SSA form and don't have any
-        // size-effect, so we just skip them. They will be handled by
-        // assignMergedInstLabelOperands.
-        if (isa<PHINode>(I) || isa<LandingPadInst>(I)) {
-          continue;
-        }
-        InstrVecList[i].push_back(&I);
-      }
+      auto &InstrVec = InstrVecList[i];
+      linearizeBasicBlock(B, [&InstrVec](Value *I) { InstrVec.push_back(I); });
       Shape.push_back(InstrVecList[i].size() + 1);
       ShapeSize *= Shape[i];
     }

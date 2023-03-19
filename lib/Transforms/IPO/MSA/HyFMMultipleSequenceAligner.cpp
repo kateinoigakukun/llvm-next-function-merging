@@ -199,11 +199,12 @@ void HyFMMultipleSequenceAlignerImpl::appendAlignmentEntries(
       if (!BB) {
         continue;
       }
+      size_t AlignmentSize = BA.size();
       // Append non-matched BBs as a single entry.
-      Alignment.emplace_back(BB, BA.size(), FuncId);
-      for (Instruction &I : *BB) {
-        Alignment.emplace_back(&I, BA.size(), FuncId);
-      }
+      NeedlemanWunschMultipleSequenceAligner::linearizeBasicBlock(
+          BB, [&Alignment, AlignmentSize, FuncId](Value *V) {
+            Alignment.emplace_back(V, AlignmentSize, FuncId);
+          });
     }
   }
 }

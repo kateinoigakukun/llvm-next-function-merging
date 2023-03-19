@@ -142,6 +142,25 @@ public:
   bool align(ArrayRef<Function *> Functions,
              std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE) override;
+
+  inline static void linearizeBasicBlock(BasicBlock *B,
+                                         std::function<void(Value *)> Append) {
+    // The first element of the sequence should be the basic block itself
+    // because the aligned sequences will be joined into a single alignment
+    // sequence without any separator.
+    Append(B);
+    for (Instruction &I : *B) {
+      // Those instructions are part of the SSA form and don't have any
+      // size-effect, so we just skip them. They will be handled by
+      // assignMergedInstLabelOperands.
+      // This follows FunctionMerger::linearize's behavior.
+      if (isa<PHINode>(I) || isa<LandingPadInst>(I)) {
+        continue;
+      }
+      Append(&I);
+    }
+  }
+
   bool alignBasicBlocks(ArrayRef<BasicBlock *> BBs,
                         std::vector<MSAAlignmentEntry> &Alignment,
                         bool &isProfitable,
