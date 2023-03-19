@@ -330,6 +330,12 @@ bool NeedlemanWunschMultipleSequenceAligner::alignBasicBlocks(
       // sequence without any separator.
       InstrVecList[i].push_back(B);
       for (auto &I : *B) {
+        // Those instructions are part of the SSA form and don't have any
+        // size-effect, so we just skip them. They will be handled by
+        // assignMergedInstLabelOperands.
+        if (isa<PHINode>(I) || isa<LandingPadInst>(I)) {
+          continue;
+        }
         InstrVecList[i].push_back(&I);
       }
       Shape.push_back(InstrVecList[i].size() + 1);

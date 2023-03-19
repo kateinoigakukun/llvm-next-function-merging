@@ -6,6 +6,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/Fingerprint.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
+#include <algorithm>
 
 using namespace llvm;
 
@@ -183,6 +184,8 @@ bool HyFMMultipleSequenceAlignerImpl::align(
     appendAlignmentEntries(BA, Alignment);
   }
 
+  // 4. Reverse the alignment order to follow the order of the NW aligner.
+  std::reverse(Alignment.begin(), Alignment.end());
   return true;
 }
 
