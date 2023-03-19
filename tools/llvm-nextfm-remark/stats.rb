@@ -55,7 +55,7 @@ class Stats
 
   def potential_reductions(missed_remarks)
     require "set"
-    deletings = Set.new
+    deletings = ::Set.new
     missed_remarks.map do |remark|
       remark.funcs[1..].map do |func|
         if self.module.functions[func]
@@ -67,7 +67,7 @@ class Stats
   end
 
   def print_effective_merges
-    source_n_by_merged_name = Hash.new
+    source_n_by_merged_name = ::Hash.new
     @remarks.remarks.filter{_1.is_a?(MergePassedRemark)}.each do |remark|
       sources = 0
       remark.funcs.each do |func|

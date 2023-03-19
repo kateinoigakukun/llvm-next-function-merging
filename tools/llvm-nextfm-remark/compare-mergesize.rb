@@ -97,7 +97,11 @@ if __FILE__ == $0
       win1 = remark2.nil?
     else
       next if remark1.merged_size == remark2.merged_size
-      win1 = remark1.merged_size < remark2.merged_size
+      if remark1.merged_size.nil? || remark2.merged_size.nil?
+        win1 = !remark1.merged_size.nil?
+      else
+        win1 = remark1.merged_size < remark2.merged_size
+      end
     end
     winner = win1 ? "+R1" : "-R2"
     if win1
@@ -105,8 +109,8 @@ if __FILE__ == $0
     else
       remark2_wins += 1
     end
-    remark1_total_size += remark1.merged_size if remark1
-    remark2_total_size += remark2.merged_size if remark2
+    remark1_total_size += remark1.merged_size if remark1 and remark1.merged_size
+    remark2_total_size += remark2.merged_size if remark2 and remark2.merged_size
     puts "#{winner} #{remark1&.funcs || remark2&.funcs} #{remark1&.merged_size || "x"} #{remark2&.merged_size || "x"}"
   end
   puts "Remark1 (#{remark1}) wins: #{remark1_wins}"

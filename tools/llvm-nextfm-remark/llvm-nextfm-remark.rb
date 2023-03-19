@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require "yaml"
+require "set"
 
 class Remark
   attr_reader :remark
@@ -68,7 +69,7 @@ class RemarkSet
   attr_reader :remarks
 
   def initialize(docs)
-    @remarks = Set.new docs
+    @remarks = ::Set.new docs
   end
 
   def self.load_file(filename)
