@@ -47,53 +47,6 @@ class Missed(yaml.YAMLObject):
     def __init__(self, Name):
         self.Name = Name
 
-
-class PlottingOptions:
-    def __init__(self):
-        pass
-
-    PRESETS = {
-        'cgo2023-src': {
-            'benchmarks': [
-                '400.perlbench',
-                '401.bzip2',
-                '444.namd',
-                '445.gobmk',
-                '456.hmmer',
-                '462.libquantum',
-                '471.omnetpp',
-                '483.xalancbmk'
-            ],
-            'variants': [
-                'TECHNIQUE=mfm4',
-                'TECHNIQUE=mfm3',
-                'TECHNIQUE=mfm2',
-                'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
-                'TECHNIQUE=f3m',
-                'TECHNIQUE=f3m-legacy'
-            ],
-            'figsize': (10, 8),
-            'fontsize': 11,
-            'has_legend': lambda ds: isinstance(ds, ObjSizeDataSource),
-        }
-    }
-
-    @staticmethod
-    def from_args(args, data_source):
-        opts = PlottingOptions()
-        if args.preset:
-            if not args.preset in PlottingOptions.PRESETS:
-                print(
-                    f"Unknown preset {args.preset}. Available presets: {', '.join(PlottingOptions.PRESETS.keys())}")
-                sys.exit(1)
-            opts.__dict__.update(PlottingOptions.PRESETS[args.preset])
-        else:
-            opts.__dict__.update(args.__dict__)
-            opts.benchmarks = data_source.default_bmarks()
-            opts.variants = data_source.default_variants()
-            opts.has_legend = lambda ds: True
-        return opts
-
 class DataSource:
     def default_bmarks(self):
         return sorted(self.data.keys())
@@ -179,6 +132,69 @@ class DataSource:
                     max_reduction_bmark = bmark
         print(f"{max_reduction_bmark}: {max_reduction}%")
 
+class PlottingOptions:
+    def __init__(self):
+        self.benchmarks = None
+        self.variants = None
+        self.figsize = (10, 8)
+        self.fontsize = 11
+        self.has_legend = lambda ds: True
+
+    PRESETS = {
+        'cgo2023-src': {
+            'benchmarks': [
+                '400.perlbench',
+                '401.bzip2',
+                '444.namd',
+                '445.gobmk',
+                '456.hmmer',
+                '462.libquantum',
+                '471.omnetpp',
+                '483.xalancbmk'
+            ],
+            'variants': [
+                'TECHNIQUE=mfm4',
+                'TECHNIQUE=mfm3',
+                'TECHNIQUE=mfm2',
+                'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
+                'TECHNIQUE=f3m',
+                'TECHNIQUE=f3m-legacy'
+            ],
+            'figsize': (10, 8),
+            'fontsize': 11,
+            'has_legend': lambda ds: isinstance(ds, ObjSizeDataSource),
+        },
+        'next': {
+            'variants': [
+                'TECHNIQUE=mfm4 ALIGNER=hyfm',
+                'TECHNIQUE=mfm4',
+                'TECHNIQUE=mfm3 ALIGNER=hyfm',
+                'TECHNIQUE=mfm3',
+                'TECHNIQUE=f3m',
+                'TECHNIQUE=hyfm',
+            ],
+            'figsize': (20, 20),
+            'fontsize': 11,
+            'has_legend': lambda ds: isinstance(ds, ObjSizeDataSource),
+        }
+    }
+
+    @staticmethod
+    def from_args(args, data_source: DataSource):
+        opts = PlottingOptions()
+        if args.preset:
+            if not args.preset in PlottingOptions.PRESETS:
+                print(
+                    f"Unknown preset {args.preset}. Available presets: {', '.join(PlottingOptions.PRESETS.keys())}")
+                sys.exit(1)
+            opts.__dict__.update(PlottingOptions.PRESETS[args.preset])
+        else:
+            opts.__dict__.update(args.__dict__)
+        if not opts.benchmarks:
+            opts.benchmarks = data_source.default_bmarks()
+        if not opts.variants:
+            opts.variants = data_source.default_variants()
+        return opts
 
 class ObjSizeDataSource(DataSource):
     def __init__(self, conn):
@@ -348,7 +364,6 @@ class Plotter:
         bench_space = 0.05
         bar_width = (1 - bench_space) / len(variants)
         y = np.arange(len(bmarks))
-        values_by_variant = []
 
         for idx, variant in enumerate(variants):
             y_pos = y + idx * bar_width + bar_width/2 - bar_width * len(variants)/2
@@ -366,7 +381,6 @@ class Plotter:
             label = data_source.legend(variant)
             rect = ax.barh(y_pos, values, bar_width, label=label, color=colors[idx])
             ax.bar_label(rect, padding=3, labels=bar_labels, fontsize=fontsize)
-            values_by_variant.append(values)
 
         hans, labs = ax.get_legend_handles_labels()
         has_legend = self.options.has_legend
@@ -382,7 +396,7 @@ class Plotter:
 
 def plot(data_source, options, output):
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=options.figsize)
     plotter = Plotter(options)
     colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
     plotter.plot(data_source, colors, ax)
