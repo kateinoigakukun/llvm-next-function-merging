@@ -130,7 +130,11 @@ class DataSource:
                 variant_width = len(variant)
 
         for variant in self.variants():
-            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+            sizes = []
+            for bmark in self.y_labels():
+                if not variant in self.data[bmark]:
+                    continue
+                sizes.append(self.data[bmark][variant])
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {(1 - sum(sizes) / sum(baseline_sizes)) * 100:.2f}%")
@@ -141,6 +145,8 @@ class DataSource:
             f3m = 'TECHNIQUE=f3m'
             for variant in self.variants():
                 if variant == f3m:
+                    continue
+                if not variant in self.data[bmark]:
                     continue
                 baseline = self.data[bmark][self.baseline_case_name()]
                 reduction = (self.data[bmark][f3m] - self.data[bmark][variant]) / baseline
@@ -304,7 +310,10 @@ class CompileTimeDataSource(DataSource):
                 variant_width = len(variant)
 
         for variant in self.variants():
-            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+            sizes = []
+            for bmark in self.y_labels():
+                if variant in self.data[bmark]:
+                    sizes.append(self.data[bmark][variant])
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {-(1 - mean / baseline_mean) * 100:.2f}%")
