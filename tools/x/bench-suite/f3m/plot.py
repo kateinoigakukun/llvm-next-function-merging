@@ -78,7 +78,9 @@ class DataSource:
     def variants(self):
         return [
             'TECHNIQUE=mfm4',
+            'TECHNIQUE=mfm4 ALIGNER=hyfm',
             'TECHNIQUE=mfm3',
+            'TECHNIQUE=mfm3 ALIGNER=hyfm',
             # 'TECHNIQUE=mfm2',
             # 'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
             'TECHNIQUE=f3m',
@@ -89,7 +91,9 @@ class DataSource:
     def legend(self, variant):
         variant_to_legend = {
             'TECHNIQUE=mfm4': 'Multiple Function Merging N=4',
+            'TECHNIQUE=mfm4 ALIGNER=hyfm': 'Multiple Function Merging N=4 (HyFM)',
             'TECHNIQUE=mfm3': 'Multiple Function Merging N=3',
+            'TECHNIQUE=mfm3 ALIGNER=hyfm': 'Multiple Function Merging N=3 (HyFM)',
             'TECHNIQUE=mfm2': 'Multiple Function Merging N=2',
             'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': 'Multiple Function Merging N=2 (identical types only)',
             'TECHNIQUE=f3m': 'F3M (Patched)',
