@@ -2,6 +2,7 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/Fingerprint.h"
@@ -60,7 +61,8 @@ public:
     }
   };
 
-  void alignBasicBlocks(ArrayRef<Function *> Functions,
+  /// Returns true if the given BBs have at least one profitable BB merge.
+  bool alignBasicBlocks(ArrayRef<Function *> Functions,
                         const SmallVectorImpl<std::vector<BlockFingerprint>>
                             &FingerprintsByFunction,
                         SmallVectorImpl<BlockAlignment> &Alignments);
@@ -78,13 +80,14 @@ public:
   isInstructionAlignmentProfitable(ArrayRef<MSAAlignmentEntry> Alignments);
 };
 
-void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
+bool HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
     ArrayRef<Function *> Functions,
     const SmallVectorImpl<std::vector<BlockFingerprint>>
         &FingerprintsByFunction,
     SmallVectorImpl<BlockAlignment> &BlockAlignments) {
 
   SmallPtrSet<BasicBlock *, 16> Used;
+  bool HasProfitableBBMerge = false;
 
   // 1. Fix the base function and basic block.
   for (size_t BaseFuncId = 0; BaseFuncId < Functions.size(); BaseFuncId++) {
@@ -141,7 +144,9 @@ void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
         continue;
       }
 
+      // 4. We can assume that the BB merge is profitable.
       BestAlignment.setInstAlignment(std::move(InstAlignment));
+      HasProfitableBBMerge = true;
 
       for (BasicBlock *BB : BestAlignment) {
         if (!BB) {
@@ -154,6 +159,7 @@ void HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
       BlockAlignments.push_back(std::move(BestAlignment));
     }
   }
+  return HasProfitableBBMerge;
 }
 
 bool HyFMMultipleSequenceAlignerImpl::align(
@@ -175,7 +181,21 @@ bool HyFMMultipleSequenceAlignerImpl::align(
   // where n is the number of basic blocks in a function and k is the number of
   // functions.
   SmallVector<BlockAlignment, 16> BlockAlignments;
-  alignBasicBlocks(Functions, FingerprintsByFunction, BlockAlignments);
+  bool HasAtLeastOneMerge =
+      alignBasicBlocks(Functions, FingerprintsByFunction, BlockAlignments);
+  if (!HasAtLeastOneMerge) {
+    isProfitable = false;
+    ORE->emit([&]() {
+      auto remark = OptimizationRemarkMissed(DEBUG_TYPE, "UnprofitableMerge",
+                                             Functions[0]);
+      remark << ore::NV("Reason", "No profitable BB merge");
+      for (auto *F : Functions) {
+        remark << ore::NV("Function", F);
+      }
+      return remark;
+    });
+    return true;
+  }
 
   LLVM_DEBUG(dumpBlockAlignments(BlockAlignments));
 

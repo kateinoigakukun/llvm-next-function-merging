@@ -124,6 +124,7 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 }; // namespace
 
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
+                              bool &isProfitable,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
 
@@ -138,7 +139,6 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
     Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
         PairMerger, Scoring, DefaultShapeSizeLimit, Options);
   }
-  bool isProfitable = true;
   return Aligner->align(Functions, Alignment, isProfitable, &ORE);
 }
 
@@ -367,7 +367,15 @@ Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   MSAStats Stats;
   std::vector<MSAAlignmentEntry> Alignment;
-  if (!align(Alignment, Options)) {
+  bool isProfitable = true;
+  if (!align(Alignment, isProfitable, Options)) {
+    return None;
+  }
+  if (!isProfitable && !AllowUnprofitableMerge) {
+    ORE.emit([&] {
+      return createMissedRemark("UnprofitableMerge", "Unprofitable alignment",
+                                Functions);
+    });
     return None;
   }
 

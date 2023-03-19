@@ -41,7 +41,8 @@ protected:
     FunctionAnalysisManager FAM;
     MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM);
     std::vector<MSAAlignmentEntry> Alignment;
-    Merger.align(Alignment, Options);
+    bool _isProfitable = true;
+    Merger.align(Alignment, _isProfitable, Options);
     std::reverse(Alignment.begin(), Alignment.end());
     Test(Alignment, Functions);
   }
