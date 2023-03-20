@@ -200,8 +200,18 @@ bool HyFMMultipleSequenceAlignerImpl::align(
   LLVM_DEBUG(dumpBlockAlignments(BlockAlignments));
 
   // 3. Align the instructions in each basic block.
-  for (auto &BA : BlockAlignments) {
-    appendAlignmentEntries(BA, Alignment);
+  {
+    // FIXME(katei): We depend on the order of "invoke" instruction and "lpad" BB,
+    // and we have to visit the "invoke" instruction first to handle its operands
+    // in "assignMergedInstLabelOperands". The "assignMergedInstLabelOperands" must
+    // visit the "lpad" BB as an operand of "invoke" instruction, then create a new
+    // "lpad.bb" basic block and its "lpad" instruction. All "lpad" instructions
+    // are ignored at alignment time, so we have to handle them differently.
+    for (auto It = BlockAlignments.rbegin(), E = BlockAlignments.rend();
+         It != E; ++It) {
+      BlockAlignment &BA = *It;
+      appendAlignmentEntries(BA, Alignment);
+    }
   }
 
   LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); });
