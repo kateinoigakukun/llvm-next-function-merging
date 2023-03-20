@@ -3,8 +3,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 
-#define DEBUG_TYPE "multiple-func-merging"
-#define MSA_VERBOSE(X) DEBUG_WITH_TYPE("multiple-func-merging-verbose", X)
+#define DEBUG_TYPE "msa-nw"
 
 using namespace llvm;
 
@@ -239,7 +238,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::buildAlignment(
   }
 
   while (true) {
-    MSA_VERBOSE(
+    LLVM_DEBUG(
         dbgs() << "BackCursor: "; for (size_t dim = 0; dim < MaxDim; dim++) {
           dbgs() << Cursor[dim] << " ";
         } dbgs() << "\n");
@@ -250,7 +249,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::buildAlignment(
     }
 
     auto &Entry = BestTransTable[Cursor];
-    MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
+    LLVM_DEBUG(dbgs() << "Entry: " << Entry << "\n");
     auto &Offset = Entry.Offset;
     auto alignEntry = BuildAlignmentEntry(Entry, Cursor);
     Alignment.emplace_back(alignEntry);
@@ -267,8 +266,8 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::align(
   /* ===== Needleman–Wunsch algorithm ======= */
 
   buildScoreTable();
-  MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
-              BestTransTable.print(llvm::dbgs()));
+  LLVM_DEBUG(llvm::dbgs() << "BestTransTable:\n";
+             BestTransTable.print(llvm::dbgs()));
 
   buildAlignment(Alignment);
 

@@ -379,6 +379,8 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
     return None;
   }
 
+  LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); };);
+
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
   MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
