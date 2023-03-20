@@ -204,8 +204,7 @@ bool HyFMMultipleSequenceAlignerImpl::align(
     appendAlignmentEntries(BA, Alignment);
   }
 
-  // 4. Reverse the alignment order to follow the order of the NW aligner.
-  std::reverse(Alignment.begin(), Alignment.end());
+  LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); });
   return true;
 }
 
@@ -219,12 +218,18 @@ void HyFMMultipleSequenceAlignerImpl::appendAlignmentEntries(
       if (!BB) {
         continue;
       }
-      size_t AlignmentSize = BA.size();
-      // Append non-matched BBs as a single entry.
+      // Append non-matched BBs as a single entry **in the reverse order** to
+      // follow the order of NW aligner.
+      std::vector<Value *> Values;
       NeedlemanWunschMultipleSequenceAligner::linearizeBasicBlock(
-          BB, [&Alignment, AlignmentSize, FuncId](Value *V) {
-            Alignment.emplace_back(V, AlignmentSize, FuncId);
-          });
+          BB, [&Values](Value *V) { Values.push_back(V); });
+
+      size_t FuncSize = BA.size();
+      for (auto I = Values.rbegin(), E = Values.rend(); I != E; ++I) {
+        Value *V = *I;
+        MSAAlignmentEntry AE(V, FuncSize, FuncId);
+        Alignment.push_back(std::move(AE));
+      }
     }
   }
 }

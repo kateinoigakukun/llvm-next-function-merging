@@ -5,6 +5,7 @@
 #include "llvm/ADT/FixedBitVector.h"
 #include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Debug.h"
