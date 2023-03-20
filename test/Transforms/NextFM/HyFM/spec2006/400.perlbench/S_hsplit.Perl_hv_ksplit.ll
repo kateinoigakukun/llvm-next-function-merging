@@ -4,7 +4,7 @@
 ; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
 ; RUN: %strip %t.mfm.o
 ; RUN: %strip %t.mfm-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.mfm.o)
+; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -le $(stat -c%%s %t.mfm.o)
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/HyFM/spec2006_400.perlbench_main_._all_._files_._linked.ll'
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"

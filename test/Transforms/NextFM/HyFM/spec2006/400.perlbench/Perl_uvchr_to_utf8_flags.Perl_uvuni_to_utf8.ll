@@ -4,7 +4,7 @@
 ; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
 ; RUN: %strip %t.mfm.o
 ; RUN: %strip %t.mfm-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.mfm.o)
+; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -le $(stat -c%%s %t.mfm.o)
 
 ; ModuleID = '.x/bench-suite/f3m/f3m-cgo22-artifact.v4/benchmarks/spec2006/400.perlbench/_main_._all_._files_._linked_.bc'
 source_filename = "llvm-link"
