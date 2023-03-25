@@ -307,7 +307,10 @@ class MergedFunctionsDataSource(DataSource):
                 variant_width = len(variant)
 
         for variant in self.default_variants():
-            sizes = [self.data[bmark][variant]["count"] for bmark in self.default_bmarks()]
+            sizes = []
+            for bmark in self.default_bmarks():
+                if variant in self.data[bmark]:
+                    sizes.append(self.data[bmark][variant]["count"])
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {(float(sum(sizes)) / sum(baseline_sizes)) * 100:.2f}%")
