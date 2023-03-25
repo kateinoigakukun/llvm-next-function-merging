@@ -74,6 +74,7 @@ class DataSource:
             'TECHNIQUE=mfm3': 'Multiple Function Merging N=3',
             'TECHNIQUE=mfm3 ALIGNER=hyfm': 'Multiple Function Merging N=3 (HyFM)',
             'TECHNIQUE=mfm2': 'Multiple Function Merging N=2',
+            'TECHNIQUE=mfm2 ALIGNER=hyfm': 'Multiple Function Merging N=2 (HyFM)',
             'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': 'Multiple Function Merging N=2 (identical types only)',
             'TECHNIQUE=f3m': 'F3M (Patched)',
             'TECHNIQUE=hyfm': 'HyFM',
@@ -170,12 +171,14 @@ class PlottingOptions:
                 'TECHNIQUE=mfm4',
                 'TECHNIQUE=mfm3 ALIGNER=hyfm',
                 'TECHNIQUE=mfm3',
+                'TECHNIQUE=mfm2 ALIGNER=hyfm',
+                'TECHNIQUE=mfm2',
                 'TECHNIQUE=f3m',
                 'TECHNIQUE=hyfm',
             ],
             'figsize': (20, 20),
             'fontsize': 11,
-            'has_legend': lambda ds: isinstance(ds, ObjSizeDataSource),
+            'has_legend': lambda ds: True,
         }
     }
 
