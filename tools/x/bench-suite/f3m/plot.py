@@ -67,20 +67,24 @@ class DataSource:
             # 'TECHNIQUE=f3m-legacy'
         ]
 
+    VARIANT_TO_LEGEND = {
+        'TECHNIQUE=mfm4': {'title': 'Multiple Function Merging N=4', 'color': 'Blues'},
+        'TECHNIQUE=mfm4 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=4 (HyFM)', 'color': 'Greens'},
+        'TECHNIQUE=mfm3': {'title': 'Multiple Function Merging N=3', 'color': 'Blues'},
+        'TECHNIQUE=mfm3 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=3 (HyFM)', 'color': 'Greens'},
+        'TECHNIQUE=mfm2': {'title': 'Multiple Function Merging N=2', 'color': 'Blues'},
+        'TECHNIQUE=mfm2 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=2 (HyFM)', 'color': 'Greens'},
+        'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': {'title': 'Multiple Function Merging N=2 (identical types only)', 'color': 'Blues'},
+        'TECHNIQUE=f3m': {'title': 'F3M (Patched)', 'color': 'Greys'},
+        'TECHNIQUE=hyfm': {'title': 'HyFM', 'color': 'Greys'},
+        'TECHNIQUE=f3m-legacy': {'title': 'F3M (Original)', 'color': 'Greys'},
+    }
+
     def legend(self, variant):
-        variant_to_legend = {
-            'TECHNIQUE=mfm4': 'Multiple Function Merging N=4',
-            'TECHNIQUE=mfm4 ALIGNER=hyfm': 'Multiple Function Merging N=4 (HyFM)',
-            'TECHNIQUE=mfm3': 'Multiple Function Merging N=3',
-            'TECHNIQUE=mfm3 ALIGNER=hyfm': 'Multiple Function Merging N=3 (HyFM)',
-            'TECHNIQUE=mfm2': 'Multiple Function Merging N=2',
-            'TECHNIQUE=mfm2 ALIGNER=hyfm': 'Multiple Function Merging N=2 (HyFM)',
-            'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': 'Multiple Function Merging N=2 (identical types only)',
-            'TECHNIQUE=f3m': 'F3M (Patched)',
-            'TECHNIQUE=hyfm': 'HyFM',
-            'TECHNIQUE=f3m-legacy': 'F3M (Original)'
-        }
-        return variant_to_legend[variant]
+        return self.__class__.VARIANT_TO_LEGEND[variant]['title']
+
+    def colormap(self, variant):
+        return self.__class__.VARIANT_TO_LEGEND[variant]['color']
 
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
@@ -353,13 +357,31 @@ class CompileTimeDataSource(DataSource):
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {-(1 - mean / baseline_mean) * 100:.2f}%")
 
+class ColorPool:
+    def __init__(self):
+        self.cmaps = {}
+        self.assigned = {}
+
+    def get(self, key, cmap_name):
+        import matplotlib.pyplot as plt
+        if key in self.assigned:
+            return self.assigned[key]
+        if not cmap_name in self.cmaps:
+            cmap = plt.get_cmap(cmap_name)
+            self.cmaps[cmap_name] = { "cmap": cmap, "next_idx": 0.4 }
+        cmap = self.cmaps[cmap_name]["cmap"]
+        next_idx = self.cmaps[cmap_name]["next_idx"]
+        self.cmaps[cmap_name]["next_idx"] += 0.2
+        color = cmap(next_idx)
+        self.assigned[key] = color
+        return color
 
 class Plotter:
 
     def __init__(self, options: PlottingOptions):
         self.options = options
 
-    def plot(self, data_source: DataSource, colors, ax):
+    def plot(self, data_source: DataSource, colors: ColorPool, ax):
         fontsize = self.options.fontsize
         bmarks = self.options.benchmarks
         variants = self.options.variants
@@ -382,7 +404,8 @@ class Plotter:
                     bar_labels.append("no data")
 
             label = data_source.legend(variant)
-            rect = ax.barh(y_pos, values, bar_width, label=label, color=colors[idx])
+            color = colors.get(variant, data_source.colormap(variant))
+            rect = ax.barh(y_pos, values, bar_width, label=label, color=color)
             ax.bar_label(rect, padding=3, labels=bar_labels, fontsize=fontsize)
 
         hans, labs = ax.get_legend_handles_labels()
@@ -401,8 +424,7 @@ def plot(data_source, options, output):
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=options.figsize)
     plotter = Plotter(options)
-    colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
-    plotter.plot(data_source, colors, ax)
+    plotter.plot(data_source, ColorPool(), ax)
     fig.tight_layout()
 
     plt.savefig(output)
