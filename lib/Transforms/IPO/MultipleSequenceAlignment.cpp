@@ -909,6 +909,44 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
         FV = I->getOperand(OperandIdx);
         // FIXME(katei): `VMap[FV]` is enough?
         V = MapValue(FV, VMap);
+        if (V == nullptr && isa<LandingPadInst>(FV)) {
+          // FIXME(katei): SalSSA unsoundness?
+          // SalSSA depends on the order of "invoke" and "landingpad"
+          // instructions. In most cases, "invoke" is processed before
+          // "landingpad", thanks to the order of the invoker BB and the
+          // landingpad BB **in linearized aligned instruction sequence**.
+          // e.g. SalSSA works well for the following code:
+          //   entry:
+          //   invoke void @foo() to label %invoke.cont unwind label %lpad
+          //   lpad:
+          //   (%l = landingpad { i8*, i32 })
+          //   %e = extractvalue { i8*, i32 } %l, 0
+          //
+          // In this case, SalSSA's label operand assignment phase visits the
+          // top BB first and then the bottom BB at last. So "invoke" is visited
+          // at first, then its landingpad label is recognized and a new
+          // landingpad BB is created. "landingpad" instruction itself is
+          // ignored at alignment phase, so it's skipped. (see Section "4.2.2
+          // Landing Blocks" in the SalSSA paper). Finally, the use of the
+          // landingpad instruction "%e" is visited and the label operand is
+          // already in VMap, so it works well.
+          //
+          // However, the linear order of the BBs is not guaranteed and can have
+          // different orders for the same CFG like:
+          //   lpad:
+          //   (%l = landingpad { i8*, i32 })
+          //   %e = extractvalue { i8*, i32 } %l, 0
+          //   entry:
+          //   invoke void @foo() to label %invoke.cont unwind label %lpad
+          //
+          // In this case, the use of the landingpad instruction "%e" is visited
+          // before "landingpad" is assigned in VMap. So the below assertion can
+          // fails.
+          //
+          // We leave this as a known issue for now to follow the baseline
+          // codegen behavior.
+          return false;
+        }
         assert(V && "Operand not found in VMap!");
       } else {
         V = UndefValue::get(
