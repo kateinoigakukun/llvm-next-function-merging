@@ -158,12 +158,12 @@ class PlottingOptions:
                 '483.xalancbmk'
             ],
             'variants': [
-                'TECHNIQUE=mfm4',
-                'TECHNIQUE=mfm3',
-                'TECHNIQUE=mfm2',
-                'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
+                'TECHNIQUE=f3m-legacy',
                 'TECHNIQUE=f3m',
-                'TECHNIQUE=f3m-legacy'
+                'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
+                'TECHNIQUE=mfm2',
+                'TECHNIQUE=mfm3',
+                'TECHNIQUE=mfm4',
             ],
             'figsize': (10, 8),
             'fontsize': 11,
@@ -171,14 +171,14 @@ class PlottingOptions:
         },
         'next': {
             'variants': [
-                'TECHNIQUE=mfm4 ALIGNER=hyfm',
-                'TECHNIQUE=mfm4',
-                'TECHNIQUE=mfm3 ALIGNER=hyfm',
-                'TECHNIQUE=mfm3',
-                'TECHNIQUE=mfm2 ALIGNER=hyfm',
-                'TECHNIQUE=mfm2',
-                'TECHNIQUE=f3m',
                 'TECHNIQUE=hyfm',
+                'TECHNIQUE=f3m',
+                'TECHNIQUE=mfm2',
+                'TECHNIQUE=mfm2 ALIGNER=hyfm',
+                'TECHNIQUE=mfm3',
+                'TECHNIQUE=mfm3 ALIGNER=hyfm',
+                'TECHNIQUE=mfm4',
+                'TECHNIQUE=mfm4 ALIGNER=hyfm',
             ],
             'figsize': (20, 20),
             'fontsize': 11,
@@ -391,7 +391,7 @@ class Plotter:
         y = np.arange(len(bmarks))
 
         for idx, variant in enumerate(variants):
-            y_pos = y + idx * bar_width + bar_width/2 - bar_width * len(variants)/2
+            y_pos = y - idx * bar_width - bar_width/2 + bar_width * len(variants)/2
             values = []
             bar_labels = []
             for bmark in bmarks:
@@ -411,7 +411,7 @@ class Plotter:
         hans, labs = ax.get_legend_handles_labels()
         has_legend = self.options.has_legend
         if has_legend is not None and has_legend(data_source):
-            ax.legend(handles=hans[::-1], labels=labs[::-1], fontsize=fontsize-2)
+            ax.legend(handles=hans, labels=labs, fontsize=fontsize-2)
 
         ax.axvline(0, color="black", linewidth=0.5)
         ax.set_title(data_source.title(), fontsize=fontsize + 6)
