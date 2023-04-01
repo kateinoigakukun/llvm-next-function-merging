@@ -142,214 +142,6 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
   return Aligner->align(Functions, Alignment, isProfitable, &ORE);
 }
 
-MSAThunkFunction
-MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
-                         unsigned int FuncId,
-                         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
-  auto *M = MergedFunction->getParent();
-  auto *thunk = Function::Create(SrcFunction->getFunctionType(),
-                                 SrcFunction->getLinkage(), "");
-  M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
-  // In order to preserve function order, we move Clone after old Function
-  thunk->setCallingConv(SrcFunction->getCallingConv());
-  thunk->copyAttributesFrom(SrcFunction);
-  auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
-  IRBuilder<> Builder(BB);
-
-  SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
-
-  Args[0] = ConstantInt::get(MergedFunction->getFunctionType()->getParamType(0),
-                             FuncId);
-
-  for (auto &srcArg : SrcFunction->args()) {
-    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
-    Args[newArgNo] = thunk->getArg(srcArg.getArgNo());
-  }
-  for (size_t i = 0; i < Args.size(); i++) {
-    if (!Args[i]) {
-      Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
-    }
-  }
-
-  auto *Call = Builder.CreateCall(MergedFunction, Args);
-  Call->setTailCall();
-  Call->setIsNoInline();
-
-  if (SrcFunction->getReturnType()->isVoidTy()) {
-    Builder.CreateRetVoid();
-  } else {
-    Builder.CreateRet(Call);
-  }
-  return MSAThunkFunction(SrcFunction, thunk);
-}
-
-void MSAThunkFunction::applyReplacements() {
-  SrcFunction->replaceAllUsesWith(Thunk);
-  Thunk->takeName(SrcFunction);
-  SrcFunction->eraseFromParent();
-}
-
-void MSAThunkFunction::discard() { Thunk->eraseFromParent(); }
-
-Optional<MSACallReplacement> MSACallReplacement::create(
-    size_t FuncId, Function *SrcFunction,
-    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
-  std::vector<WeakTrackingVH> Calls;
-  for (User *U : SrcFunction->users()) {
-    if (auto *Call = dyn_cast<CallBase>(U)) {
-      if (Call->getCalledFunction() != SrcFunction) {
-        return None;
-      }
-      Calls.emplace_back(Call);
-    } else {
-      return None;
-    }
-  }
-
-  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
-  for (auto &srcArg : SrcFunction->args()) {
-    unsigned srcArgNo = srcArg.getArgNo();
-    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
-    SrcArgNoToMergedArgNo[srcArgNo] = newArgNo;
-  }
-
-  return MSACallReplacement(FuncId, SrcFunction, std::move(Calls),
-                            std::move(SrcArgNoToMergedArgNo));
-}
-
-void MSACallReplacement::applyReplacements(Function *MergedFunction) {
-
-  for (auto V : Calls) {
-    if (!V) {
-      continue;
-    }
-
-    auto *CI = cast<CallBase>(V);
-    IRBuilder<> Builder(CI);
-
-    SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
-
-    Args[0] = ConstantInt::get(
-        MergedFunction->getFunctionType()->getParamType(0), FuncId);
-
-    for (auto &srcArg : SrcFunction->args()) {
-      unsigned srcArgNo = srcArg.getArgNo();
-      unsigned newArgNo = SrcArgNoToMergedArgNo[srcArgNo];
-      Args[newArgNo] = CI->getArgOperand(srcArgNo);
-    }
-    for (size_t i = 0; i < Args.size(); i++) {
-      if (!Args[i]) {
-        Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
-      }
-    }
-
-    CallBase *NewCB = nullptr;
-    if (auto *Call = dyn_cast<CallInst>(CI)) {
-      NewCB = Builder.CreateCall(MergedFunction, Args);
-    } else if (auto *Invoke = dyn_cast<InvokeInst>(CI)) {
-      NewCB = Builder.CreateInvoke(MergedFunction, Invoke->getNormalDest(),
-                                   Invoke->getUnwindDest(), Args);
-    } else {
-      llvm_unreachable("unsupported call instruction");
-    }
-    NewCB->setCallingConv(MergedFunction->getCallingConv());
-    NewCB->setIsNoInline();
-
-    CI->replaceAllUsesWith(NewCB);
-    CI->eraseFromParent();
-  }
-  SrcFunction->eraseFromParent();
-}
-
-size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
-
-MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
-  size_t MergedSize =
-      EstimateFunctionSize(&Merged, &FAM.getResult<TargetIRAnalysis>(Merged));
-  size_t OriginalTotalSize = 0;
-  for (auto *F : Functions) {
-    OriginalTotalSize +=
-        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
-  }
-  // This magic number respects `EstimateThunkOverhead`
-  size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
-
-  for (auto &thunk : Thunks) {
-    ThunkOverhead += Merged.getFunctionType()->getNumParams();
-  }
-  return Score{
-      .MergedSize = MergedSize,
-      .ThunkOverhead = ThunkOverhead,
-      .OriginalTotalSize = OriginalTotalSize,
-      .Options = Options,
-      .Stats = Stats,
-  };
-}
-
-bool MSAMergePlan::Score::isProfitableMerge() const {
-  if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
-    return true;
-  }
-  if (Stats.NumSelection > MaxNumSelection) {
-    return false;
-  }
-  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
-    return true;
-  }
-  return false;
-}
-
-void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
-                                           OptimizationRemarkEmitter &ORE) {
-  auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
-                << ore::NV("MergedSize", MergedSize)
-                << ore::NV("ThunkOverhead", ThunkOverhead)
-                << ore::NV("OriginalTotalSize", OriginalTotalSize)
-                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
-                << ore::NV("NumSelection", Stats.NumSelection);
-  ORE.emit(remark);
-}
-
-void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
-                                           OptimizationRemarkEmitter &ORE) {
-  ORE.emit([&] {
-    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", &plan.getMerged());
-    for (auto *F : plan.getFunctions()) {
-      remark << ore::NV("Function", F->getName());
-    }
-    remark << ore::NV("MergedSize", MergedSize)
-           << ore::NV("ThunkOverhead", ThunkOverhead)
-           << ore::NV("OriginalTotalSize", OriginalTotalSize)
-           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
-    return remark;
-  });
-}
-
-bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
-  return (MergedSize + ThunkOverhead + Other.OriginalTotalSize) <
-         (Other.MergedSize + Other.ThunkOverhead + OriginalTotalSize);
-}
-
-Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
-                                   OptimizationRemarkEmitter &ORE) {
-  TimeTraceScope TimeScope("ApplyMerge");
-  for (auto replacement : CallReplacements) {
-    replacement.applyReplacements(&Merged);
-  }
-
-  for (auto &thunk : Thunks) {
-    thunk.applyReplacements();
-  }
-  return Merged;
-}
-
-void MSAMergePlan::discard() {
-  for (auto &thunk : Thunks) {
-    thunk.discard();
-  }
-  Merged.eraseFromParent();
-}
-
 MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
                                      FunctionMerger &PM,
                                      OptimizationRemarkEmitter &ORE,
@@ -1966,6 +1758,214 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   }
 
   return MergedF;
+}
+
+MSAThunkFunction
+MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
+                         unsigned int FuncId,
+                         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
+  auto *M = MergedFunction->getParent();
+  auto *thunk = Function::Create(SrcFunction->getFunctionType(),
+                                 SrcFunction->getLinkage(), "");
+  M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
+  // In order to preserve function order, we move Clone after old Function
+  thunk->setCallingConv(SrcFunction->getCallingConv());
+  thunk->copyAttributesFrom(SrcFunction);
+  auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
+  IRBuilder<> Builder(BB);
+
+  SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
+
+  Args[0] = ConstantInt::get(MergedFunction->getFunctionType()->getParamType(0),
+                             FuncId);
+
+  for (auto &srcArg : SrcFunction->args()) {
+    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+    Args[newArgNo] = thunk->getArg(srcArg.getArgNo());
+  }
+  for (size_t i = 0; i < Args.size(); i++) {
+    if (!Args[i]) {
+      Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
+    }
+  }
+
+  auto *Call = Builder.CreateCall(MergedFunction, Args);
+  Call->setTailCall();
+  Call->setIsNoInline();
+
+  if (SrcFunction->getReturnType()->isVoidTy()) {
+    Builder.CreateRetVoid();
+  } else {
+    Builder.CreateRet(Call);
+  }
+  return MSAThunkFunction(SrcFunction, thunk);
+}
+
+void MSAThunkFunction::applyReplacements() {
+  SrcFunction->replaceAllUsesWith(Thunk);
+  Thunk->takeName(SrcFunction);
+  SrcFunction->eraseFromParent();
+}
+
+void MSAThunkFunction::discard() { Thunk->eraseFromParent(); }
+
+Optional<MSACallReplacement> MSACallReplacement::create(
+    size_t FuncId, Function *SrcFunction,
+    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
+  std::vector<WeakTrackingVH> Calls;
+  for (User *U : SrcFunction->users()) {
+    if (auto *Call = dyn_cast<CallBase>(U)) {
+      if (Call->getCalledFunction() != SrcFunction) {
+        return None;
+      }
+      Calls.emplace_back(Call);
+    } else {
+      return None;
+    }
+  }
+
+  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
+  for (auto &srcArg : SrcFunction->args()) {
+    unsigned srcArgNo = srcArg.getArgNo();
+    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+    SrcArgNoToMergedArgNo[srcArgNo] = newArgNo;
+  }
+
+  return MSACallReplacement(FuncId, SrcFunction, std::move(Calls),
+                            std::move(SrcArgNoToMergedArgNo));
+}
+
+void MSACallReplacement::applyReplacements(Function *MergedFunction) {
+
+  for (auto V : Calls) {
+    if (!V) {
+      continue;
+    }
+
+    auto *CI = cast<CallBase>(V);
+    IRBuilder<> Builder(CI);
+
+    SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
+
+    Args[0] = ConstantInt::get(
+        MergedFunction->getFunctionType()->getParamType(0), FuncId);
+
+    for (auto &srcArg : SrcFunction->args()) {
+      unsigned srcArgNo = srcArg.getArgNo();
+      unsigned newArgNo = SrcArgNoToMergedArgNo[srcArgNo];
+      Args[newArgNo] = CI->getArgOperand(srcArgNo);
+    }
+    for (size_t i = 0; i < Args.size(); i++) {
+      if (!Args[i]) {
+        Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
+      }
+    }
+
+    CallBase *NewCB = nullptr;
+    if (auto *Call = dyn_cast<CallInst>(CI)) {
+      NewCB = Builder.CreateCall(MergedFunction, Args);
+    } else if (auto *Invoke = dyn_cast<InvokeInst>(CI)) {
+      NewCB = Builder.CreateInvoke(MergedFunction, Invoke->getNormalDest(),
+                                   Invoke->getUnwindDest(), Args);
+    } else {
+      llvm_unreachable("unsupported call instruction");
+    }
+    NewCB->setCallingConv(MergedFunction->getCallingConv());
+    NewCB->setIsNoInline();
+
+    CI->replaceAllUsesWith(NewCB);
+    CI->eraseFromParent();
+  }
+  SrcFunction->eraseFromParent();
+}
+
+size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
+
+MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
+  size_t MergedSize =
+      EstimateFunctionSize(&Merged, &FAM.getResult<TargetIRAnalysis>(Merged));
+  size_t OriginalTotalSize = 0;
+  for (auto *F : Functions) {
+    OriginalTotalSize +=
+        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
+  }
+  // This magic number respects `EstimateThunkOverhead`
+  size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
+
+  for (auto &thunk : Thunks) {
+    ThunkOverhead += Merged.getFunctionType()->getNumParams();
+  }
+  return Score{
+      .MergedSize = MergedSize,
+      .ThunkOverhead = ThunkOverhead,
+      .OriginalTotalSize = OriginalTotalSize,
+      .Options = Options,
+      .Stats = Stats,
+  };
+}
+
+bool MSAMergePlan::Score::isProfitableMerge() const {
+  if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
+    return true;
+  }
+  if (Stats.NumSelection > MaxNumSelection) {
+    return false;
+  }
+  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
+    return true;
+  }
+  return false;
+}
+
+void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
+                                           OptimizationRemarkEmitter &ORE) {
+  auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
+                << ore::NV("MergedSize", MergedSize)
+                << ore::NV("ThunkOverhead", ThunkOverhead)
+                << ore::NV("OriginalTotalSize", OriginalTotalSize)
+                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
+                << ore::NV("NumSelection", Stats.NumSelection);
+  ORE.emit(remark);
+}
+
+void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
+                                           OptimizationRemarkEmitter &ORE) {
+  ORE.emit([&] {
+    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", &plan.getMerged());
+    for (auto *F : plan.getFunctions()) {
+      remark << ore::NV("Function", F->getName());
+    }
+    remark << ore::NV("MergedSize", MergedSize)
+           << ore::NV("ThunkOverhead", ThunkOverhead)
+           << ore::NV("OriginalTotalSize", OriginalTotalSize)
+           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
+    return remark;
+  });
+}
+
+bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
+  return (MergedSize + ThunkOverhead + Other.OriginalTotalSize) <
+         (Other.MergedSize + Other.ThunkOverhead + OriginalTotalSize);
+}
+
+Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
+                                   OptimizationRemarkEmitter &ORE) {
+  TimeTraceScope TimeScope("ApplyMerge");
+  for (auto replacement : CallReplacements) {
+    replacement.applyReplacements(&Merged);
+  }
+
+  for (auto &thunk : Thunks) {
+    thunk.applyReplacements();
+  }
+  return Merged;
+}
+
+void MSAMergePlan::discard() {
+  for (auto &thunk : Thunks) {
+    thunk.discard();
+  }
+  Merged.eraseFromParent();
 }
 
 /// Check whether \p F is eligible to be a function merging candidate.
