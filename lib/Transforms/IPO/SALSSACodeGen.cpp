@@ -68,48 +68,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
 
   auto CloneInst = [](IRBuilder<> &Builder, Function *MF,
                       Instruction *I) -> Instruction * {
-    Instruction *NewI = nullptr;
-    if (I->getOpcode() == Instruction::Ret) {
-      if (MF->getReturnType()->isVoidTy()) {
-        NewI = Builder.CreateRetVoid();
-      } else {
-        NewI = Builder.CreateRet(UndefValue::get(MF->getReturnType()));
-      }
-    } else {
-      // assert(I1->getNumOperands() == I2->getNumOperands() &&
-      //      "Num of Operands SHOULD be EQUAL!");
-      NewI = I->clone();
-      for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
-        if (!isa<Constant>(I->getOperand(i)))
-          NewI->setOperand(i, nullptr);
-      }
-      Builder.Insert(NewI);
-    }
-
-    // NewI->dropPoisonGeneratingFlags(); //TODO: NOT SURE IF THIS IS VALID
-
-    // TODO: temporarily removing metadata
-
-    SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
-    NewI->getAllMetadata(MDs);
-    for (std::pair<unsigned, MDNode *> MDPair : MDs) {
-      NewI->setMetadata(MDPair.first, nullptr);
-    }
-
-    // if (isa<GetElementPtrInst>(NewI)) {
-    // GetElementPtrInst * GEP = dyn_cast<GetElementPtrInst>(I);
-    // GetElementPtrInst * GEP2 = dyn_cast<GetElementPtrInst>(I2);
-    // dyn_cast<GetElementPtrInst>(NewI)->setIsInBounds(GEP->isInBounds());
-    //}
-
-    /*
-    if (auto *CB = dyn_cast<CallBase>(I)) {
-      auto *NewCB = dyn_cast<CallBase>(NewI);
-      auto AttrList = CB->getAttributes();
-      NewCB->setAttributes(AttrList);
-    }*/
-
-    return NewI;
+    return fmutils::InstructionCloner::clone(Builder, I);
   };
 
   for (auto &Entry : AlignedSeq) {
