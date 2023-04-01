@@ -1,4 +1,4 @@
-; RUN: %opt -S --passes="mergefunc,func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true -o %t.hyfm.ll %s | FileCheck %s --check-prefix=CHECK-HYFM
+; RUN: %opt -S --passes="mergefunc,func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=func-merging --func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true -o %t.hyfm.ll %s | FileCheck %s --check-prefix=CHECK-HYFM
 ; RUN: %opt -S --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.ll %s | FileCheck %s --check-prefix=CHECK-MFM
 ; CHECK-HYFM:      --- !Passed
 ; CHECK-HYFM-NEXT: Pass:            func-merging
