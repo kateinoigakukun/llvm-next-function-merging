@@ -21,6 +21,14 @@ module Analysis
           s.name.start_with?('.debug')
       end
     end
+
+    def dump_heavy_syms(top = 100)
+      @func_syms.sort_by{ _1.header.st_size }.reverse[..top].map do |sym|
+        sym_size = sym.header.st_size
+        percent = 100 * sym_size.to_f / @text_sec_size
+        sprintf "%4f\t%d\t%s", percent, sym_size, sym.name
+      end.join("\n")
+    end
   end
 
   class Rust < Core
@@ -31,14 +39,6 @@ module Analysis
         @mono_syms[demangle(sym.name)] ||= []
         @mono_syms[demangle(sym.name)].push sym
       end
-    end
-
-    def dump_heavy_syms(top = 100)
-      @func_syms.sort_by{ _1.header.st_size }.reverse[..top].map do |sym|
-        sym_size = sym.header.st_size
-        percent = 100 * sym_size.to_f / @text_sec_size
-        sprintf "%4f\t%d\t%s", percent, sym_size, demangle(sym.name)
-      end.join("\n")
     end
 
     def demangle(name)
@@ -55,8 +55,26 @@ module Analysis
   end
 end
 
-if $0 == __FILE__
+def main
+  require "optparse"
+  options = {}
+  opts = OptionParser.new do |opts|
+    opts.banner = "Usage: elf-inspect.rb [options] <input.elf>"
+    opts.on("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+    opts.on("--lang LANG", "Source language")
+  end
+  opts.parse!(into: options)
+  raise "No input file" if ARGV.empty?
   elf = ELFTools::ELFFile.new(File.open(ARGV[0]))
-  analysis = Analysis::Rust.new(elf)
+  if options[:lang] == "rust"
+    analysis = Analysis::Rust.new(elf)
+  else
+    analysis = Analysis::Core.new(elf)
+  end
   binding.irb
 end
+
+main if $0 == __FILE__
