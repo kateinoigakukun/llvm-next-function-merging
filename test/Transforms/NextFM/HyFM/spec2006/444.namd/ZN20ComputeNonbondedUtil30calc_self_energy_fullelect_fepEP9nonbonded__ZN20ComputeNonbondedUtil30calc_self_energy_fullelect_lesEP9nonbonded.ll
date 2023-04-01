@@ -1,14 +1,17 @@
-; RUN: %opt --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false -o %t.mfm.bc %s | FileCheck %s
-; RUN: %opt --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.bc %s | FileCheck %s
-; CHECK:      --- !Passed
-; CHECK-NEXT: Pass:            multiple-func-merging
-; CHECK-NEXT: Name:            Merge
+; RUN: %opt --passes="mergefunc,func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true -o %t.hyfm.bc %s | FileCheck %s --check-prefix=CHECK-HYFM
+; RUN: %opt --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.bc %s | FileCheck %s --check-prefix=CHECK-MFM
+; CHECK-HYFM:      --- !Passed
+; CHECK-HYFM-NEXT: Pass:            func-merging
+; CHECK-HYFM-NEXT: Name:            Merge
+; CHECK-MFM:      --- !Passed
+; CHECK-MFM-NEXT: Pass:            multiple-func-merging
+; CHECK-MFM-NEXT: Name:            Merge
 
-; RUN: %llc --filetype=obj %t.mfm.bc -o %t.mfm.o
+; RUN: %llc --filetype=obj %t.hyfm.bc -o %t.hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
-; RUN: %strip %t.mfm.o
+; RUN: %strip %t.hyfm.o
 ; RUN: %strip %t.mfm-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.mfm.o)
+; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.hyfm.o)
 
 ; ModuleID = '_main_._all_._files_._linked_.bc'
 source_filename = "llvm-link"
