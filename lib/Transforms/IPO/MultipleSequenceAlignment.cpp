@@ -495,7 +495,8 @@ public:
     return BlackholeBBCache;
   }
 
-  Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
+  static Instruction *cloneInstruction(IRBuilder<> &Builder,
+                                       const Instruction *I);
   Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty,
                     const Twine &Name = "");
 
@@ -559,14 +560,14 @@ static bool isLocalValue(Value *V) {
 }
 
 Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
-                                                  Instruction *I) {
+                                                  const Instruction *I) {
   Instruction *NewI = nullptr;
-  auto *MF = MergedFunc;
   if (I->getOpcode() == Instruction::Ret) {
-    if (MF->getReturnType()->isVoidTy()) {
+    Type *RetTy = Builder.getCurrentFunctionReturnType();
+    if (RetTy->isVoidTy()) {
       NewI = Builder.CreateRetVoid();
     } else {
-      NewI = Builder.CreateRet(UndefValue::get(MF->getReturnType()));
+      NewI = Builder.CreateRet(UndefValue::get(RetTy));
     }
   } else {
     NewI = I->clone();
