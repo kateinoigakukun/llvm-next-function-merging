@@ -531,59 +531,9 @@ public:
 
 }; // namespace llvm
 
-static bool hasLocalValueInMetadata(Metadata *MD) {
-  if (auto *LMD = dyn_cast<LocalAsMetadata>(MD)) {
-    auto *V = LMD->getValue();
-    if (auto *MDV = dyn_cast<MetadataAsValue>(V)) {
-      return hasLocalValueInMetadata(MDV->getMetadata());
-    }
-    return true;
-  } else {
-    return false;
-  }
-}
-
-/// Return true if the value can be updated after merging operands.
-/// Otherwise, the value is a constant or a global value.
-static bool isLocalValue(Value *V) {
-  if (isa<Constant>(V)) {
-    return false;
-  }
-  // TODO(katei): Should we merge metadata as well?
-  if (auto *MDV = dyn_cast<MetadataAsValue>(V)) {
-    // if metadata holds an inner value, clear it.
-    if (!hasLocalValueInMetadata(MDV->getMetadata())) {
-      return false;
-    }
-  }
-  return true;
-}
-
 Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
                                                   const Instruction *I) {
-  Instruction *NewI = nullptr;
-  if (I->getOpcode() == Instruction::Ret) {
-    Type *RetTy = Builder.getCurrentFunctionReturnType();
-    if (RetTy->isVoidTy()) {
-      NewI = Builder.CreateRetVoid();
-    } else {
-      NewI = Builder.CreateRet(UndefValue::get(RetTy));
-    }
-  } else {
-    NewI = I->clone();
-    Builder.Insert(NewI);
-    for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
-      auto Op = I->getOperand(i);
-      if (isLocalValue(Op)) {
-        NewI->setOperand(i, nullptr);
-      }
-    }
-  }
-
-  NewI->copyMetadata(*I);
-
-  NewI->setName(I->getName());
-  return NewI;
+  return fmutils::InstructionCloner::clone(Builder, I);
 }
 
 Value *MSAGenFunctionBody::tryBitcast(IRBuilder<> &Builder, Value *V,
@@ -1252,7 +1202,7 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
         continue;
       // Metadata or constant operands should be cloned correctly by
       // cloneInstruction
-      if (!isLocalValue(Op))
+      if (!fmutils::InstructionCloner::isLocalValue(Op))
         continue;
 
       Value *V = MapValue(Op, VMap);

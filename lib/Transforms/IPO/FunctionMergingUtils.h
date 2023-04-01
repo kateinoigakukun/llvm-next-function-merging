@@ -2,6 +2,7 @@
 #define LLVM_TRANSFORMS_IPO_FUNCTION_MERGING_UTILS_H
 
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <functional>
@@ -29,6 +30,12 @@ public:
 
 private:
   void finalizeChain(BasicBlock *SrcBB, SwitchChain &Chain);
+};
+
+class InstructionCloner {
+public:
+  static bool isLocalValue(const Value *V);
+  static Instruction *clone(IRBuilder<> &Builder, const Instruction *I);
 };
 
 // Decrement bit vector as a unsigned integer
