@@ -1,5 +1,5 @@
-; RUN: %opt --passes="mergefunc,func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true -o %t.hyfm.bc %s | FileCheck %s --check-prefix=CHECK-HYFM
-; RUN: %opt --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.bc %s | FileCheck %s --check-prefix=CHECK-MFM
+; RUN: %opt -S --passes="mergefunc,func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true -o %t.hyfm.ll %s | FileCheck %s --check-prefix=CHECK-HYFM
+; RUN: %opt -S --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.ll %s | FileCheck %s --check-prefix=CHECK-MFM
 ; CHECK-HYFM:      --- !Passed
 ; CHECK-HYFM-NEXT: Pass:            func-merging
 ; CHECK-HYFM-NEXT: Name:            Merge
@@ -7,13 +7,13 @@
 ; CHECK-MFM-NEXT: Pass:            multiple-func-merging
 ; CHECK-MFM-NEXT: Name:            Merge
 
-; RUN: %llc --filetype=obj %t.hyfm.bc -o %t.hyfm.o
-; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
+; RUN: %llc --filetype=obj %t.hyfm.ll -o %t.hyfm.o
+; RUN: %llc --filetype=obj %t.mfm-hyfm.ll -o %t.mfm-hyfm.o
 ; RUN: %strip %t.hyfm.o
 ; RUN: %strip %t.mfm-hyfm.o
 ; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.hyfm.o)
 
-; ModuleID = '_main_._all_._files_._linked_.bc'
+; ModuleID = '_main_._all_._files_._linked_.ll'
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
