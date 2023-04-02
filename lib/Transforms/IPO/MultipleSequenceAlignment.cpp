@@ -167,6 +167,9 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   std::vector<MSAAlignmentEntry<>> Alignment;
   bool isProfitable = true;
   if (!align(Alignment, isProfitable, Options)) {
+    ORE.emit([&] {
+      return createMissedRemark("Align", "Failed to align functions", Functions);
+    });
     return None;
   }
   if (!isProfitable && !AllowUnprofitableMerge) {
