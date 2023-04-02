@@ -2526,17 +2526,20 @@ class HyFMNWAligner : public Aligner {
         if (!HyFMProfitability ||
             FunctionMerger::isSAProfitable(AlignedBlocks)) {
           extendAlignedSeq(AlignedSeq, AlignedBlocks, TotalAlignmentStats);
+          LLVM_DEBUG(dumpBlockAlignment(BB1, BB2));
           B1Blocks.erase(BestIt);
           MergedBlock = true;
         }
       }
 
       if (!MergedBlock) {
+        LLVM_DEBUG(dumpBlockAlignment(nullptr, BB2));
         extendAlignedSeq(AlignedSeq, nullptr, BB2, TotalAlignmentStats);
       }
     }
 
     for (auto &BD1 : B1Blocks) {
+      LLVM_DEBUG(dumpBlockAlignment(BD1.BB, nullptr));
       extendAlignedSeq(AlignedSeq, BD1.BB, nullptr, TotalAlignmentStats);
     }
 
