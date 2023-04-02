@@ -36,10 +36,10 @@ public:
 
     BasicBlock *operator[](size_t Idx) const { return Blocks[Idx]; }
     BasicBlock *&operator[](size_t Idx) { return Blocks[Idx]; }
-    decltype(Blocks)::iterator begin() { return Blocks.begin(); }
-    decltype(Blocks)::iterator end() { return Blocks.end(); }
-    decltype(Blocks)::const_iterator begin() const { return Blocks.begin(); }
-    decltype(Blocks)::const_iterator end() const { return Blocks.end(); }
+    typename decltype(Blocks)::iterator begin() { return Blocks.begin(); }
+    typename decltype(Blocks)::iterator end() { return Blocks.end(); }
+    typename decltype(Blocks)::const_iterator begin() const { return Blocks.begin(); }
+    typename decltype(Blocks)::const_iterator end() const { return Blocks.end(); }
     size_t size() const { return Blocks.size(); }
 
     bool isMatched() const {
