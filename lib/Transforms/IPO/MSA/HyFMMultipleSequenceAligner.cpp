@@ -107,6 +107,7 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
   bool HasProfitableBBMerge = false;
 
   // 1. Fix the base function and basic block.
+  LLVM_DEBUG(dbgs() << "Aligning basic blocks:\n");
   for (size_t BaseFuncId = 0; BaseFuncId < Functions.size(); BaseFuncId++) {
     auto &Fingerprints = FingerprintsByFunction[BaseFuncId];
     for (auto &BaseBF : Fingerprints) {
@@ -123,11 +124,18 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
         // Don't compare a function to itself.
         if (OtherFuncId == BaseFuncId)
           continue;
+        LLVM_DEBUG(
+            dbgs() << "Comparing Base=" << Functions[BaseFuncId]->getName()
+                   << ", Other=" << Functions[OtherFuncId]->getName() << "\n");
         auto &OtherFingerprints = FingerprintsByFunction[OtherFuncId];
         for (auto &OtherBF : OtherFingerprints) {
           if (Used.count(OtherBF.BB))
             continue;
 
+          LLVM_DEBUG(dbgs()
+                     << "  Comparing BBs: Base=" << BaseBF.BB->getName()
+                     << ", Other=" << OtherBF.BB->getName() << "\n"
+                     << "    Distance: " << BaseBF.distance(OtherBF) << "\n");
           double Distance = BaseBF.distance(OtherBF);
           if (Distance < MinDistance) {
             MinDistance = Distance;
@@ -135,6 +143,9 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
           }
         }
       }
+
+      LLVM_DEBUG(dbgs() << "  BestAlignment:\n"; BestAlignment.print(dbgs()));
+      LLVM_DEBUG(dbgs() << "  Checking if the alignment is profitable..\n");
 
       // 3. Okay, we have the best match for the base basic block.
       // Then, estimate the BB merge is profitable or not.
@@ -145,6 +156,7 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
           BestAlignment.isMatched() &&
           isBlockAlignmentProfitable(BestAlignment, InstAlignment);
       if (!ShouldMerge) {
+        LLVM_DEBUG(dbgs() << "The alignment is not profitable.\n");
         for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
           BasicBlock *BB = BestAlignment[FuncId];
           if (!BB) {
@@ -158,6 +170,7 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
         }
         continue;
       }
+      LLVM_DEBUG(dbgs() << "The alignment is profitable.\n");
 
       // 4. We can assume that the BB merge is profitable.
       BestAlignment.setInstAlignment(std::move(InstAlignment));

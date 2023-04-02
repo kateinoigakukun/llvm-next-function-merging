@@ -2455,6 +2455,8 @@ class HyFMNWAligner : public Aligner {
 #ifdef TIME_STEPS_DEBUG
     TimeAlignRank.startTimer();
 #endif
+    LLVM_DEBUG(dbgs() << "Comparing Base=" << F1->getName()
+                      << ", Other=" << F2->getName() << "\n");
     std::vector<BlockFingerprint> B1Blocks;
     for (BasicBlock &BB1 : *F1) {
       BlockFingerprint BD1(&BB1);
@@ -2478,6 +2480,9 @@ class HyFMNWAligner : public Aligner {
       float BestDist = std::numeric_limits<float>::max();
       for (auto B1BDIt = B1Blocks.begin(), E = B1Blocks.end(); B1BDIt != E; B1BDIt++) {
         auto D = BD2.distance(*B1BDIt);
+        LLVM_DEBUG(dbgs() << "  Comparing BBs: Base=" << B1BDIt->BB->getName()
+                          << ", Other=" << BD2.BB->getName() << "\n"
+                          << "    Distance: " << D << "\n");
         if (D < BestDist) {
           BestDist = D;
           BestIt = B1BDIt;
@@ -2486,6 +2491,8 @@ class HyFMNWAligner : public Aligner {
 #ifdef TIME_STEPS_DEBUG
       TimeAlignRank.stopTimer();
 #endif
+
+      LLVM_DEBUG(dbgs() << "  Checking if the alignment is profitable..\n");
 
       bool MergedBlock = false;
       if (BestIt != B1Blocks.end()) {
@@ -2525,10 +2532,13 @@ class HyFMNWAligner : public Aligner {
 
         if (!HyFMProfitability ||
             FunctionMerger::isSAProfitable(AlignedBlocks)) {
+          LLVM_DEBUG(dbgs() << "The alignment is profitable.\n");
           extendAlignedSeq(AlignedSeq, AlignedBlocks, TotalAlignmentStats);
           LLVM_DEBUG(dumpBlockAlignment(BB1, BB2));
           B1Blocks.erase(BestIt);
           MergedBlock = true;
+        } else {
+          LLVM_DEBUG(dbgs() << "The alignment is not profitable.\n");
         }
       }
 
@@ -2678,6 +2688,7 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
   }
   AlignedSequence<Value *> AlignedSeq;
   AlignedSeq = Aligner->align(F1, F2, ProfitableFn);
+  LLVM_DEBUG(AlignedSeq.dump());
 
 #ifdef TIME_STEPS_DEBUG
   TimeAlign.stopTimer();
