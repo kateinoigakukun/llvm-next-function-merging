@@ -329,7 +329,7 @@ bool NeedlemanWunschMultipleSequenceAligner<Type>::align(
     TimeTraceScope TimeScope("Linearize");
     for (size_t i = 0; i < Functions.size(); i++) {
       auto &F = *Functions[i];
-      PairMerger.linearize(&F, InstrVecList[i]);
+      FunctionMerger::linearize(&F, InstrVecList[i]);
       Shape.push_back(InstrVecList[i].size() + 1);
       ShapeSize *= Shape[i];
     }

@@ -136,12 +136,12 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                         /*Mismatch*/ fmutils::OptionalScore::min());
   if (Options.EnableHyFMAlignment) {
     NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-        PairMerger, Scoring, DefaultShapeSizeLimit, Options);
+        Scoring, DefaultShapeSizeLimit, Options);
     Aligner = std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
         *NWAligner.get(), Options);
   } else {
     Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-        PairMerger, Scoring, DefaultShapeSizeLimit, Options);
+        Scoring, DefaultShapeSizeLimit, Options);
   }
   return Aligner->align(Functions, Alignment, isProfitable, &ORE);
 }

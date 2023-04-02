@@ -70,7 +70,6 @@ public:
 template <MSAAlignmentEntryType Type>
 class NeedlemanWunschMultipleSequenceAligner
     : public MultipleSequenceAligner<Type> {
-  FunctionMerger &PairMerger;
   ScoringSystem &Scoring;
   size_t ShapeSizeLimit;
   const FunctionMergingOptions &Options;
@@ -104,10 +103,9 @@ public:
                         OptimizationRemarkEmitter *ORE) const;
 
   NeedlemanWunschMultipleSequenceAligner(
-      FunctionMerger &PairMerger, ScoringSystem &Scoring, size_t ShapeSizeLimit,
+      ScoringSystem &Scoring, size_t ShapeSizeLimit,
       const FunctionMergingOptions &Options = {})
-      : PairMerger(PairMerger), Scoring(Scoring),
-        ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
+      : Scoring(Scoring), ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
 };
 
 template <MSAAlignmentEntryType Type>
