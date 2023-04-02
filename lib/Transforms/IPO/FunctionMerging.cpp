@@ -2425,7 +2425,7 @@ public:
 class HyFMNWAligner : public Aligner {
 
   static void dumpBlockAlignment(BasicBlock *BB1, BasicBlock *BB2) {
-    dbgs() << "Alignment:\n";
+    dbgs() << "BlockAlignment:\n";
     auto printBB = [](BasicBlock *BB) {
       dbgs() << "- ";
       if (BB) {
