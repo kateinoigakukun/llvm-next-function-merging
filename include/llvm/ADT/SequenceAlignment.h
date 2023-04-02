@@ -21,6 +21,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 
 #include <cassert>
 #include <list>
@@ -35,56 +36,7 @@ template<typename Ty, Ty Blank=Ty(0)>
 class AlignedSequence {
 public:
 
-  class Entry {
-  private:
-    //TODO: change it for a vector<Ty> for Multi-Sequence Alignment
-    std::pair<Ty,Ty> Pair;
-    bool IsMatchingPair;
-  public:
-    Entry() { IsMatchingPair = false; }
-
-    Entry(Ty V1, Ty V2) : Pair(V1,V2) { IsMatchingPair = !hasBlank(); }
-
-    Entry(Ty V1, Ty V2, bool Matching) : Pair(V1,V2), IsMatchingPair(Matching) {}
-
-    Ty get(size_t index) {
-      assert((index==0 || index==1) && "Index out of bounds!");
-      if (index==0) return Pair.first;
-      else return Pair.second;
-    }
-
-    bool empty() { return (Pair.first==Blank && Pair.second==Blank); }
-    bool hasBlank() { return (Pair.first==Blank || Pair.second==Blank); }
-
-    bool match() { return IsMatchingPair; }
-    bool mismatch() { return (!IsMatchingPair); }
-
-    Ty getNonBlank() {
-      if (Pair.first != Blank)
-        return Pair.first;
-      else
-        return Pair.second;
-    }
-
-    void print(llvm::raw_ostream &OS) {
-      OS << "AlignmentEntry:\n";
-      auto dumpEntry = [&](llvm::Value *V) {
-        if (V) {
-          if (auto *BB = llvm::dyn_cast<llvm::BasicBlock>(V)) {
-            OS << "- bb" << BB->getName() << "\n";
-          } else {
-            OS << "- " << *V << "\n";
-          }
-        } else {
-          OS << "-   nullptr\n";
-        }
-      };
-      dumpEntry(Pair.first);
-      dumpEntry(Pair.second);
-    }
-
-    void dump() { print(llvm::dbgs()); }
-  };
+  using Entry = llvm::MSAAlignmentEntry<llvm::MSAAlignmentEntryType::Fixed2>;
 
   std::list< Entry > Data;
   size_t LargestMatch;

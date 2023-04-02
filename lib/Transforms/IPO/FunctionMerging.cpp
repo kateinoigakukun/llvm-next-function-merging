@@ -54,6 +54,7 @@
 
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -2304,7 +2305,7 @@ public:
 
       bool IsInstruction = I1 != nullptr || I2 != nullptr;
 
-      AlignedSeq.Data.emplace_back(Entry.get(0), Entry.get(1), Entry.match());
+      AlignedSeq.Data.emplace_back(Entry.getValues(), Entry.match());
 
       if (IsInstruction) {
         stats.Insts++;
@@ -2320,24 +2321,25 @@ public:
   static void extendAlignedSeq(AlignedSequence<Value *> &AlignedSeq,
                                BasicBlock *BB1, BasicBlock *BB2,
                                AlignmentStats &stats) {
+    using ValuesTy = AlignedSequence<Value *>::Entry::ValuesTy;
     if (BB1 != nullptr && BB2 == nullptr) {
-      AlignedSeq.Data.emplace_back(BB1, nullptr, false);
+      AlignedSeq.Data.emplace_back((ValuesTy){BB1, nullptr}, false);
       for (Instruction &I : *BB1) {
         if (isa<PHINode>(&I) || isa<LandingPadInst>(&I))
           continue;
         stats.Insts++;
-        AlignedSeq.Data.emplace_back(&I, nullptr, false);
+        AlignedSeq.Data.emplace_back((ValuesTy){&I, nullptr}, false);
       }
     } else if (BB1 == nullptr && BB2 != nullptr) {
-      AlignedSeq.Data.emplace_back(nullptr, BB2, false);
+      AlignedSeq.Data.emplace_back((ValuesTy){nullptr, BB2}, false);
       for (Instruction &I : *BB2) {
         if (isa<PHINode>(&I) || isa<LandingPadInst>(&I))
           continue;
         stats.Insts++;
-        AlignedSeq.Data.emplace_back(nullptr, &I, false);
+        AlignedSeq.Data.emplace_back((ValuesTy){nullptr, &I}, false);
       }
     } else {
-      AlignedSeq.Data.emplace_back(BB1, BB2, FunctionMerger::match(BB1, BB2));
+      AlignedSeq.Data.emplace_back((ValuesTy){BB1, BB2}, FunctionMerger::match(BB1, BB2));
 
       auto It1 = BB1->begin();
       while (isa<PHINode>(*It1) || isa<LandingPadInst>(*It1))
@@ -2353,13 +2355,13 @@ public:
 
         stats.Insts++;
         if (FunctionMerger::matchInstructions(I1, I2)) {
-          AlignedSeq.Data.emplace_back(I1, I2, true);
+          AlignedSeq.Data.emplace_back((ValuesTy){I1, I2}, true);
           stats.Matches++;
           if (!I1->isTerminator())
             stats.CoreMatches++;
         } else {
-          AlignedSeq.Data.emplace_back(I1, nullptr, false);
-          AlignedSeq.Data.emplace_back(nullptr, I2, false);
+          AlignedSeq.Data.emplace_back((ValuesTy){I1, nullptr}, false);
+          AlignedSeq.Data.emplace_back((ValuesTy){nullptr, I2}, false);
         }
 
         It1++;

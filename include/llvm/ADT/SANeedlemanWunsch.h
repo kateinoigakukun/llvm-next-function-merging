@@ -5,7 +5,7 @@
 #include <functional>
 
 template <typename ContainerType,
-          typename Ty = typename ContainerType::value_type, Ty Blank = Ty(0),
+          typename Ty = typename ContainerType::value_type, Ty Blank = Ty(nullptr),
           typename MatchFnTy = std::function<bool(Ty, Ty)>>
 class NeedlemanWunschSA
     : public SequenceAligner<ContainerType, Ty, Blank, MatchFnTy> {
@@ -85,6 +85,7 @@ private:
 
   void buildResult(ContainerType &Seq1, ContainerType &Seq2,
                    AlignedSequence<Ty, Blank> &Result) {
+    using ValuesTy = typename AlignedSequence<Ty, Blank>::Entry::ValuesTy;
     auto &Data = Result.Data;
 
     ScoringSystem &Scoring = BaseType::getScoring();
@@ -111,10 +112,10 @@ private:
         if (Matrix[rowCursor * MatrixCols + columnCursor] == Score) {
           if (IsValidMatch) {
             Data.push_front(
-                typename BaseType::EntryType(Left, Right, IsValidMatch));
+                typename BaseType::EntryType((ValuesTy){Left, Right}, IsValidMatch));
           } else {
-            Data.push_front(typename BaseType::EntryType(Left, Blank, false));
-            Data.push_front(typename BaseType::EntryType(Blank, Right, false));
+            Data.push_front(typename BaseType::EntryType((ValuesTy){Left, Blank}, false));
+            Data.push_front(typename BaseType::EntryType((ValuesTy){Blank, Right}, false));
           }
 
           rowCursor--;
@@ -126,14 +127,14 @@ private:
           Matrix[rowCursor * MatrixCols + columnCursor] ==
               (Matrix[(rowCursor - 1) * MatrixCols + columnCursor] + Gap)) {
         // Up
-        Data.push_front(typename BaseType::EntryType(Left, Blank, false));
+        Data.push_front(typename BaseType::EntryType((ValuesTy){Left, Blank}, false));
         rowCursor--;
       } else if (columnCursor > 0 &&
                  Matrix[rowCursor * MatrixCols + columnCursor] ==
                      (Matrix[rowCursor * MatrixCols + (columnCursor - 1)] +
                       Gap)) {
         // Left
-        Data.push_front(typename BaseType::EntryType(Blank, Right, false));
+        Data.push_front(typename BaseType::EntryType((ValuesTy){Blank, Right}, false));
         columnCursor--;
       }
     }
