@@ -32,7 +32,9 @@ public:
     Optional<std::vector<MSAAlignmentEntry<Type>>> InstAlignment;
 
   public:
-    BlockAlignment(size_t Size) : Blocks(Size, nullptr), InstAlignment(None) {}
+    BlockAlignment(size_t Size) : Blocks(Size, nullptr), InstAlignment(None) {
+      assert(Size > 0 && "BlockAlignment must have at least one block");
+    }
 
     BasicBlock *operator[](size_t Idx) const { return Blocks[Idx]; }
     BasicBlock *&operator[](size_t Idx) { return Blocks[Idx]; }
@@ -106,9 +108,21 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
   SmallPtrSet<BasicBlock *, 16> Used;
   bool HasProfitableBBMerge = false;
 
+  auto AddNonMatchingEntry = [&](BasicBlock *BB, size_t FuncId) {
+    BlockAlignment BA(Functions.size());
+    BA[FuncId] = BB;
+    LLVM_DEBUG(BA.print(dbgs()));
+    BlockAlignments.push_back(std::move(BA));
+    Used.insert(BB);
+  };
+
   // 1. Fix the base function and basic block.
   LLVM_DEBUG(dbgs() << "Aligning basic blocks:\n");
-  for (size_t BaseFuncId = 0; BaseFuncId < Functions.size(); BaseFuncId++) {
+  // NOTE: The base function is taken from the back of the list to be consistent
+  // with the original implementation. But the order should not matter in
+  // theory.
+  for (int32_t BaseFuncId = Functions.size() - 1; BaseFuncId > 0;
+       BaseFuncId--) {
     auto &Fingerprints = FingerprintsByFunction[BaseFuncId];
     for (auto &BaseBF : Fingerprints) {
       if (Used.count(BaseBF.BB))
@@ -156,17 +170,8 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
           isBlockAlignmentProfitable(BestAlignment, InstAlignment);
       if (!ShouldMerge) {
         LLVM_DEBUG(dbgs() << "The alignment is not profitable.\n");
-        for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
-          BasicBlock *BB = BestAlignment[FuncId];
-          if (!BB) {
-            continue;
-          }
-          Used.insert(BB);
-          // If we don't merge, append the BB as a non-matched BB.
-          BlockAlignment NonMatchedAlignment(Functions.size());
-          NonMatchedAlignment[FuncId] = BB;
-          BlockAlignments.push_back(std::move(NonMatchedAlignment));
-        }
+        // If we don't merge, append the BB as a non-matched BB.
+        AddNonMatchingEntry(BaseBF.BB, BaseFuncId);
         continue;
       }
       LLVM_DEBUG(dbgs() << "The alignment is profitable.\n");
@@ -185,6 +190,14 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
 
       LLVM_DEBUG(BestAlignment.print(dbgs()));
       BlockAlignments.push_back(std::move(BestAlignment));
+    }
+  }
+  for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
+    auto &Fingerprints = FingerprintsByFunction[FuncId];
+    for (auto &BF : Fingerprints) {
+      if (Used.count(BF.BB))
+        continue;
+      AddNonMatchingEntry(BF.BB, FuncId);
     }
   }
   return HasProfitableBBMerge;
