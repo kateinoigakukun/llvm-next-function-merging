@@ -1,5 +1,5 @@
-; RUN: %opt -S --passes="mergefunc,func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=func-merging --func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true -o %t.hyfm.ll %s | FileCheck %s --check-prefix=CHECK-HYFM
-; RUN: %opt -S --passes="mergefunc,multiple-func-merging,simplifycfg" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.ll %s | FileCheck %s --check-prefix=CHECK-MFM
+; RUN: %opt -S --passes="func-merging" --pass-remarks-output=- --pass-remarks-filter=func-merging --func-merging-whole-program=true --multiple-func-merging-coalescing=false --hyfm-profitability=true --func-merging-hyfm-nw -o %t.hyfm.ll %s 2> %t.hyfm.log | FileCheck %s --check-prefix=CHECK-HYFM
+; RUN: %opt -S --passes="multiple-func-merging" --pass-remarks-output=- --pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw --multiple-func-merging-identical-type=true -o %t.mfm-hyfm.ll %s 2> %t.mfm-hyfm.log | FileCheck %s --check-prefix=CHECK-MFM
 ; CHECK-HYFM:      --- !Passed
 ; CHECK-HYFM-NEXT: Pass:            func-merging
 ; CHECK-HYFM-NEXT: Name:            Merge
