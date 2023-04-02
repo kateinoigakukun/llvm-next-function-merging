@@ -99,7 +99,6 @@ class MSAFunctionMerger {
   ArrayRef<Function *> Functions;
   Module *M;
   FunctionMerger &PairMerger;
-  ScoringSystem Scoring;
   OptimizationRemarkEmitter &ORE;
   FunctionAnalysisManager &FAM;
 

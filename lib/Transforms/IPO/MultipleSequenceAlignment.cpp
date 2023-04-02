@@ -132,6 +132,8 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
   constexpr auto Ty = MSAAlignmentEntryType::Variable;
   std::unique_ptr<MultipleSequenceAligner<Ty>> Aligner;
   std::unique_ptr<NeedlemanWunschMultipleSequenceAligner<Ty>> NWAligner;
+  ScoringSystem Scoring(/*Gap*/ -1, /*Match*/ 2,
+                        /*Mismatch*/ fmutils::OptionalScore::min());
   if (Options.EnableHyFMAlignment) {
     NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
         PairMerger, Scoring, DefaultShapeSizeLimit, Options);
@@ -148,9 +150,7 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
                                      FunctionMerger &PM,
                                      OptimizationRemarkEmitter &ORE,
                                      FunctionAnalysisManager &FAM)
-    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
-      Scoring(/*Gap*/ -1, /*Match*/ 2,
-              /*Mismatch*/ fmutils::OptionalScore::min()) {
+    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM) {
   assert(!Functions.empty() && "No functions to merge");
   M = Functions[0]->getParent();
   size_t noOfBits = std::ceil(std::log2(Functions.size()));
