@@ -2396,8 +2396,10 @@ public:
     std::vector<InnerEntry> Alignment;
     Aligner->align({F1, F2}, Alignment, isProfitable);
     AlignedSequence<Value *> AlignedSeq;
-    AlignedSeq.Data.insert(AlignedSeq.Data.end(), Alignment.begin(),
-                           Alignment.end());
+    // Append the whole entries in reverse order because the MSA aligner returns
+    // the alignment sequence in the opposite order.
+    AlignedSeq.Data.insert(AlignedSeq.Data.end(), Alignment.rbegin(),
+                           Alignment.rend());
     return AlignedSeq;
   }
 };
