@@ -2455,12 +2455,12 @@ class HyFMNWAligner : public Aligner {
 #ifdef TIME_STEPS_DEBUG
     TimeAlignRank.startTimer();
 #endif
-    std::vector<BlockFingerprint> Blocks;
+    std::vector<BlockFingerprint> B1Blocks;
     for (BasicBlock &BB1 : *F1) {
       BlockFingerprint BD1(&BB1);
       MemSize += BD1.footprint();
       NumBB1++;
-      Blocks.push_back(std::move(BD1));
+      B1Blocks.push_back(std::move(BD1));
     }
 #ifdef TIME_STEPS_DEBUG
     TimeAlignRank.stopTimer();
@@ -2474,13 +2474,13 @@ class HyFMNWAligner : public Aligner {
       BasicBlock *BB2 = &BIt;
       BlockFingerprint BD2(BB2);
 
-      auto BestIt = Blocks.end();
+      auto BestIt = B1Blocks.end();
       float BestDist = std::numeric_limits<float>::max();
-      for (auto BDIt = Blocks.begin(), E = Blocks.end(); BDIt != E; BDIt++) {
-        auto D = BD2.distance(*BDIt);
+      for (auto B1BDIt = B1Blocks.begin(), E = B1Blocks.end(); B1BDIt != E; B1BDIt++) {
+        auto D = BD2.distance(*B1BDIt);
         if (D < BestDist) {
           BestDist = D;
-          BestIt = BDIt;
+          BestIt = B1BDIt;
         }
       }
 #ifdef TIME_STEPS_DEBUG
@@ -2488,7 +2488,7 @@ class HyFMNWAligner : public Aligner {
 #endif
 
       bool MergedBlock = false;
-      if (BestIt != Blocks.end()) {
+      if (BestIt != B1Blocks.end()) {
         auto &BD1 = *BestIt;
         BasicBlock *BB1 = BD1.BB;
 
@@ -2526,17 +2526,19 @@ class HyFMNWAligner : public Aligner {
         if (!HyFMProfitability ||
             FunctionMerger::isSAProfitable(AlignedBlocks)) {
           extendAlignedSeq(AlignedSeq, AlignedBlocks, TotalAlignmentStats);
-          Blocks.erase(BestIt);
+          B1Blocks.erase(BestIt);
           MergedBlock = true;
         }
       }
 
-      if (!MergedBlock)
+      if (!MergedBlock) {
         extendAlignedSeq(AlignedSeq, nullptr, BB2, TotalAlignmentStats);
+      }
     }
 
-    for (auto &BD1 : Blocks)
+    for (auto &BD1 : B1Blocks) {
       extendAlignedSeq(AlignedSeq, BD1.BB, nullptr, TotalAlignmentStats);
+    }
 
     if (Verbose) {
       errs() << "Stats: " << B1Max << " , " << B2Max << " , " << MaxMem << "\n";
