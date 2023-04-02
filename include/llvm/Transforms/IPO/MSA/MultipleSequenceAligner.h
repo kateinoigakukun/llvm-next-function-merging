@@ -57,37 +57,6 @@ public:
 
 } // namespace fmutils
 
-using TransitionOffset = FixedBitVector;
-struct TransitionEntry {
-  TransitionOffset Offset;
-  bool Match;
-  bool Invalid;
-  fmutils::OptionalScore Score;
-
-  TransitionEntry(TransitionOffset Offset, bool Match, uint32_t Score)
-      : Offset(Offset), Match(Match), Invalid(false), Score(Score) {}
-  TransitionEntry()
-      : Offset({}), Match(false), Invalid(true),
-        Score(fmutils::OptionalScore::None()) {}
-
-  void print(raw_ostream &OS) const {
-    OS << "(";
-    OS << "{";
-    for (size_t i = 0; i < 32; i++) {
-      if (i != 0)
-        OS << ", ";
-      OS << Offset[i];
-    }
-    OS << "},";
-    if (Match)
-      OS << "T";
-    else
-      OS << "F";
-    OS << ")";
-  }
-  void dump() const { print(llvm::errs()); }
-};
-
 enum class MSAAlignmentEntryType {
   Fixed2,
   Variable,
@@ -132,11 +101,6 @@ public:
   void print(raw_ostream &OS) const;
   void dump() const { print(dbgs()); }
 };
-
-inline raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
-  Entry.print(OS);
-  return OS;
-}
 
 inline raw_ostream &operator<<(raw_ostream &OS,
                                const MSAAlignmentEntry<> &Entry) {
