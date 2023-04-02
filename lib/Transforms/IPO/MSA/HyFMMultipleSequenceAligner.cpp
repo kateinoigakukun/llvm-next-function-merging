@@ -298,11 +298,10 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::isInstructionAlignmentProfitable(
 
   bool InsideSplit = false;
 
-  for (auto &Entry : Alignments) {
-    std::vector<Instruction *> Instructions;
-    Entry.collectInstructions(Instructions);
+  for (auto It = Alignments.rbegin(), E = Alignments.rend(); It != E; ++It) {
+    auto &Entry = *It;
 
-    bool IsInstruction = Instructions.size() > 0;
+    bool IsInstruction = Entry.hasInstruction();
     if (Entry.match()) {
       if (IsInstruction) {
         OriginalCost += 2;

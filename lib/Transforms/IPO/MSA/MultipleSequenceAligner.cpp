@@ -19,6 +19,16 @@ bool MSAAlignmentEntry<Type>::collectInstructions(
 }
 
 template <MSAAlignmentEntryType Type>
+bool MSAAlignmentEntry<Type>::hasInstruction() const {
+  for (auto *V : Values) {
+    if (V && isa<Instruction>(V)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+template <MSAAlignmentEntryType Type>
 void MSAAlignmentEntry<Type>::verify() const {
   if (!match() || Values.empty()) {
     return;
