@@ -2424,6 +2424,21 @@ public:
 
 class HyFMNWAligner : public Aligner {
 
+  static void dumpBlockAlignment(BasicBlock *BB1, BasicBlock *BB2) {
+    dbgs() << "Alignment:\n";
+    auto printBB = [](BasicBlock *BB) {
+      dbgs() << "- ";
+      if (BB) {
+        dbgs() << BB->getName();
+        BB->dump();
+      } else {
+        dbgs() << "null\n";
+      }
+    };
+    printBB(BB1);
+    printBB(BB2);
+  };
+
   AlignedSequence<Value *> align(Function *F1, Function *F2,
                                  bool &isProfitable) override {
     AlignedSequence<Value *> AlignedSeq;

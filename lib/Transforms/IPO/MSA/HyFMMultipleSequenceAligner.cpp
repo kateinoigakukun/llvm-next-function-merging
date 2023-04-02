@@ -59,6 +59,21 @@ public:
              "Cannot append inst alignment for unmatched blocks");
       Dest.insert(Dest.end(), InstAlignment->begin(), InstAlignment->end());
     }
+
+    void print(raw_ostream &OS) const {
+      OS << "BlockAlignment:\n";
+      for (size_t i = 0; i < size(); i++) {
+        OS << "- ";
+        const BasicBlock *BB = Blocks[i];
+        if (BB) {
+          OS << BB->getName();
+          BB->print(OS);
+        } else {
+          OS << "null\n";
+        }
+      }
+      OS << "\n";
+    }
   };
 
   /// Returns true if the given BBs have at least one profitable BB merge.
@@ -256,18 +271,7 @@ template <MSAAlignmentEntryType Type>
 void HyFMMultipleSequenceAlignerImpl<Type>::dumpBlockAlignments(
     ArrayRef<BlockAlignment> Alignments) {
   for (auto &BA : Alignments) {
-    llvm::dbgs() << "Alignment:\n";
-    for (size_t i = 0; i < BA.size(); i++) {
-      dbgs() << "- ";
-      auto BB = BA[i];
-      if (BB) {
-        dbgs() << BB->getName();
-        BB->dump();
-      } else {
-        dbgs() << "null\n";
-      }
-    }
-    dbgs() << "\n";
+    BA.print(dbgs());
   }
 }
 
