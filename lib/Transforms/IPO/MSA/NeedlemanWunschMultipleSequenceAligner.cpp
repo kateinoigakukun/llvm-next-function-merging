@@ -49,7 +49,7 @@ class NeedlemanWunschMultipleSequenceAlignerImpl {
 
   void initScoreTable();
   void buildScoreTable();
-  void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
+  void buildAlignment(std::vector<llvm::MSAAlignmentEntry<>> &Alignment);
   void computeBestTransition(const TensorTableCursor &Cursor,
                              const SmallVector<size_t, 4> &Point);
   inline void updateBestScore(const TensorTableCursor &Point,
@@ -95,7 +95,7 @@ public:
     initScoreTable();
   }
 
-  void align(std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable);
+  void align(std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable);
 };
 
 void NeedlemanWunschMultipleSequenceAlignerImpl::initScoreTable() {
@@ -210,7 +210,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::buildScoreTable() {
 }
 
 void NeedlemanWunschMultipleSequenceAlignerImpl::buildAlignment(
-    std::vector<llvm::MSAAlignmentEntry> &Alignment) {
+    std::vector<llvm::MSAAlignmentEntry<>> &Alignment) {
   TimeTraceScope TimeScope("BuildAlignment");
   size_t MaxDim = BestTransTable.getShape().size();
   std::vector<size_t> Cursor(MaxDim, 0);
@@ -229,7 +229,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::buildAlignment(
         Instrs.push_back(nullptr);
       }
     }
-    return MSAAlignmentEntry(Instrs, Entry.Match);
+    return MSAAlignmentEntry<>(Instrs, Entry.Match);
   };
 
   // Set the first point to the end edge of the table.
@@ -262,7 +262,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::buildAlignment(
 }
 
 void NeedlemanWunschMultipleSequenceAlignerImpl::align(
-    std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable) {
+    std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable) {
   /* ===== Needleman–Wunsch algorithm ======= */
 
   buildScoreTable();
@@ -275,7 +275,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::align(
 }
 
 bool NeedlemanWunschMultipleSequenceAligner::align(
-    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
+    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry<>> &Alignment,
     bool &isProfitable, OptimizationRemarkEmitter *ORE) {
   std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
   std::vector<size_t> Shape;
@@ -314,7 +314,7 @@ bool NeedlemanWunschMultipleSequenceAligner::align(
 }
 
 bool NeedlemanWunschMultipleSequenceAligner::alignBasicBlocks(
-    ArrayRef<BasicBlock *> BBs, std::vector<MSAAlignmentEntry> &Alignment,
+    ArrayRef<BasicBlock *> BBs, std::vector<MSAAlignmentEntry<>> &Alignment,
     bool &isProfitable, OptimizationRemarkEmitter *ORE) const {
   std::vector<SmallVector<Value *, 16>> InstrVecList(BBs.size());
   std::vector<size_t> Shape;

@@ -116,7 +116,7 @@ public:
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
-  bool align(std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+  bool align(std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
              const FunctionMergingOptions &Options = {});
 };
 
@@ -125,7 +125,7 @@ class MSAGenFunctionBody;
 class MSAGenFunction {
   Module *M;
   LLVMContext &C;
-  const std::vector<MSAAlignmentEntry> &Alignment;
+  const std::vector<MSAAlignmentEntry<>> &Alignment;
   const ArrayRef<Function *> &Functions;
   Optional<std::string> NameCache;
   IntegerType *DiscriminatorTy;
@@ -137,7 +137,7 @@ class MSAGenFunction {
   friend class MSAGenFunctionBody;
 
 public:
-  MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
+  MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry<>> &Alignment,
                  const ArrayRef<Function *> &Functions,
                  IntegerType *DiscriminatorTy, OptimizationRemarkEmitter &ORE)
       : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),

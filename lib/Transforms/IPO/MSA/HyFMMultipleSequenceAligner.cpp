@@ -29,7 +29,7 @@ public:
 
   class BlockAlignment {
     SmallVector<BasicBlock *, 4> Blocks;
-    Optional<std::vector<MSAAlignmentEntry>> InstAlignment;
+    Optional<std::vector<MSAAlignmentEntry<>>> InstAlignment;
 
   public:
     BlockAlignment(size_t Size) : Blocks(Size, nullptr), InstAlignment(None) {}
@@ -50,11 +50,11 @@ public:
                          [](BasicBlock *BB) { return BB != nullptr; });
     }
 
-    void setInstAlignment(std::vector<MSAAlignmentEntry> &&Alignment) {
+    void setInstAlignment(std::vector<MSAAlignmentEntry<>> &&Alignment) {
       InstAlignment = std::move(Alignment);
     }
 
-    void appendInstAlignment(std::vector<MSAAlignmentEntry> &Dest) const {
+    void appendInstAlignment(std::vector<MSAAlignmentEntry<>> &Dest) const {
       assert(isMatched() &&
              "Cannot append inst alignment for unmatched blocks");
       Dest.insert(Dest.end(), InstAlignment->begin(), InstAlignment->end());
@@ -66,18 +66,19 @@ public:
                         const SmallVectorImpl<std::vector<BlockFingerprint>>
                             &FingerprintsByFunction,
                         SmallVectorImpl<BlockAlignment> &Alignments);
-  void appendAlignmentEntries(const BlockAlignment &BA,
-                              std::vector<MSAAlignmentEntry> &Alignment) const;
+  void
+  appendAlignmentEntries(const BlockAlignment &BA,
+                         std::vector<MSAAlignmentEntry<>> &Alignment) const;
   bool align(ArrayRef<Function *> Functions,
-             std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+             std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE);
   bool isBlockAlignmentProfitable(
       const BlockAlignment &BA,
-      std::vector<MSAAlignmentEntry> &InstAlignment) const;
+      std::vector<MSAAlignmentEntry<>> &InstAlignment) const;
 
   static void dumpBlockAlignments(ArrayRef<BlockAlignment> Alignments);
   static bool
-  isInstructionAlignmentProfitable(ArrayRef<MSAAlignmentEntry> Alignments);
+  isInstructionAlignmentProfitable(ArrayRef<MSAAlignmentEntry<>> Alignments);
 };
 
 bool HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
@@ -125,7 +126,7 @@ bool HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
       // Then, estimate the BB merge is profitable or not.
       // TODO(katei): For now, we merge only if all BBs are matched. Unlcok
       // partial merge later.
-      std::vector<MSAAlignmentEntry> InstAlignment;
+      std::vector<MSAAlignmentEntry<>> InstAlignment;
       bool ShouldMerge =
           BestAlignment.isMatched() &&
           isBlockAlignmentProfitable(BestAlignment, InstAlignment);
@@ -163,7 +164,7 @@ bool HyFMMultipleSequenceAlignerImpl::alignBasicBlocks(
 }
 
 bool HyFMMultipleSequenceAlignerImpl::align(
-    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
+    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry<>> &Alignment,
     bool &isProfitable, OptimizationRemarkEmitter *ORE) {
 
   // 1. Compute the fingerprints for each basic block in each function.
@@ -219,7 +220,8 @@ bool HyFMMultipleSequenceAlignerImpl::align(
 }
 
 void HyFMMultipleSequenceAlignerImpl::appendAlignmentEntries(
-    const BlockAlignment &BA, std::vector<MSAAlignmentEntry> &Alignment) const {
+    const BlockAlignment &BA,
+    std::vector<MSAAlignmentEntry<>> &Alignment) const {
   if (BA.isMatched()) {
     BA.appendInstAlignment(Alignment);
   } else {
@@ -237,7 +239,7 @@ void HyFMMultipleSequenceAlignerImpl::appendAlignmentEntries(
       size_t FuncSize = BA.size();
       for (auto I = Values.rbegin(), E = Values.rend(); I != E; ++I) {
         Value *V = *I;
-        MSAAlignmentEntry AE(V, FuncSize, FuncId);
+        MSAAlignmentEntry<> AE(V, FuncSize, FuncId);
         Alignment.push_back(std::move(AE));
       }
     }
@@ -264,7 +266,7 @@ void HyFMMultipleSequenceAlignerImpl::dumpBlockAlignments(
 
 bool HyFMMultipleSequenceAlignerImpl::isBlockAlignmentProfitable(
     const BlockAlignment &BA,
-    std::vector<MSAAlignmentEntry> &InstAlignment) const {
+    std::vector<MSAAlignmentEntry<>> &InstAlignment) const {
   // Needleman Wunsch Aligner does not check the profitability, so just ignore
   // it.
   bool _isProfitable = true;
@@ -281,7 +283,7 @@ bool HyFMMultipleSequenceAlignerImpl::isBlockAlignmentProfitable(
 }
 
 bool HyFMMultipleSequenceAlignerImpl::isInstructionAlignmentProfitable(
-    ArrayRef<MSAAlignmentEntry> Alignments) {
+    ArrayRef<MSAAlignmentEntry<>> Alignments) {
   int OriginalCost = 0;
   int MergedCost = 0;
 
@@ -318,7 +320,7 @@ bool HyFMMultipleSequenceAlignerImpl::isInstructionAlignmentProfitable(
 }
 
 bool HyFMMultipleSequenceAligner::align(
-    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry> &Alignment,
+    ArrayRef<Function *> Functions, std::vector<MSAAlignmentEntry<>> &Alignment,
     bool &isProfitable, OptimizationRemarkEmitter *ORE) {
   HyFMMultipleSequenceAlignerImpl Impl(
       NWAligner, ORE, Options.EnableHyFMBlockProfitabilityEstimation);

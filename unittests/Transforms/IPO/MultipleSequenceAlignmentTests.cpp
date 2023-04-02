@@ -25,11 +25,11 @@ using namespace llvm;
 
 class MSAFunctionMergerAlignmentTest : public ::testing::Test {
 protected:
-  void withAlignment(
-      Module &M, const std::vector<std::string> &FuncNames,
-      function_ref<void(std::vector<MSAAlignmentEntry> &, ArrayRef<Function *>)>
-          Test,
-      const FunctionMergingOptions &Options = {}) {
+  void withAlignment(Module &M, const std::vector<std::string> &FuncNames,
+                     function_ref<void(std::vector<MSAAlignmentEntry<>> &,
+                                       ArrayRef<Function *>)>
+                         Test,
+                     const FunctionMergingOptions &Options = {}) {
     ASSERT_GT(M.getFunctionList().size(), 0);
 
     FunctionMerger PairMerger(&M);
@@ -40,7 +40,7 @@ protected:
     OptimizationRemarkEmitter ORE(Functions[0]);
     FunctionAnalysisManager FAM;
     MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM);
-    std::vector<MSAAlignmentEntry> Alignment;
+    std::vector<MSAAlignmentEntry<>> Alignment;
     bool _isProfitable = true;
     Merger.align(Alignment, _isProfitable, Options);
     std::reverse(Alignment.begin(), Alignment.end());

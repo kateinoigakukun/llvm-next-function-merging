@@ -3,7 +3,8 @@
 
 using namespace llvm;
 
-bool MSAAlignmentEntry::collectInstructions(
+template <MSAAlignmentEntryType Type>
+bool MSAAlignmentEntry<Type>::collectInstructions(
     std::vector<Instruction *> &Instructions) const {
   bool allInstructions = true;
   for (auto *V : Values) {
@@ -17,7 +18,8 @@ bool MSAAlignmentEntry::collectInstructions(
   return allInstructions;
 }
 
-void MSAAlignmentEntry::verify() const {
+template <MSAAlignmentEntryType Type>
+void MSAAlignmentEntry<Type>::verify() const {
   if (!match() || Values.empty()) {
     return;
   }
@@ -30,7 +32,8 @@ void MSAAlignmentEntry::verify() const {
   }
 }
 
-void MSAAlignmentEntry::print(raw_ostream &OS) const {
+template <MSAAlignmentEntryType Type>
+void MSAAlignmentEntry<Type>::print(raw_ostream &OS) const {
   OS << "MSAAlignmentEntry:\n";
   for (auto *V : Values) {
     if (V) {
@@ -44,3 +47,5 @@ void MSAAlignmentEntry::print(raw_ostream &OS) const {
     }
   }
 }
+
+template struct llvm::MSAAlignmentEntry<MSAAlignmentEntryType::Variable>;

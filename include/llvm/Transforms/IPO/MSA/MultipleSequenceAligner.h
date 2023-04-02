@@ -88,12 +88,32 @@ struct TransitionEntry {
   void dump() const { print(llvm::errs()); }
 };
 
+enum class MSAAlignmentEntryType {
+  Fixed2,
+  Variable,
+};
+
+template <MSAAlignmentEntryType Type> struct MSAAlignmentEntryTypeTraits {};
+
+template <> struct MSAAlignmentEntryTypeTraits<MSAAlignmentEntryType::Fixed2> {
+  using ValuesTy = Value *[2];
+};
+
+template <>
+struct MSAAlignmentEntryTypeTraits<MSAAlignmentEntryType::Variable> {
+  using ValuesTy = std::vector<Value *>;
+};
+
+template <MSAAlignmentEntryType Type = MSAAlignmentEntryType::Variable>
 class MSAAlignmentEntry {
-  std::vector<Value *> Values;
+  using Trait = MSAAlignmentEntryTypeTraits<Type>;
+  using ValuesTy = typename Trait::ValuesTy;
+
+  ValuesTy Values;
   bool IsMatched;
 
 public:
-  MSAAlignmentEntry(std::vector<Value *> Values, bool IsMatched)
+  MSAAlignmentEntry(ValuesTy Values, bool IsMatched)
       : Values(Values), IsMatched(IsMatched) {}
 
   MSAAlignmentEntry(Value *V, size_t FuncSize, size_t FuncId)
@@ -119,7 +139,7 @@ inline raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
 }
 
 inline raw_ostream &operator<<(raw_ostream &OS,
-                               const MSAAlignmentEntry &Entry) {
+                               const MSAAlignmentEntry<> &Entry) {
   Entry.print(OS);
   return OS;
 }
@@ -128,7 +148,7 @@ class MultipleSequenceAligner {
 public:
   virtual ~MultipleSequenceAligner() = default;
   virtual bool align(ArrayRef<Function *> Functions,
-                     std::vector<MSAAlignmentEntry> &Alignment,
+                     std::vector<MSAAlignmentEntry<>> &Alignment,
                      bool &isProfitable,
                      OptimizationRemarkEmitter *ORE = nullptr) = 0;
 };
@@ -141,7 +161,7 @@ class NeedlemanWunschMultipleSequenceAligner : public MultipleSequenceAligner {
 
 public:
   bool align(ArrayRef<Function *> Functions,
-             std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+             std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE) override;
 
   inline static void linearizeBasicBlock(BasicBlock *B,
@@ -163,7 +183,7 @@ public:
   }
 
   bool alignBasicBlocks(ArrayRef<BasicBlock *> BBs,
-                        std::vector<MSAAlignmentEntry> &Alignment,
+                        std::vector<MSAAlignmentEntry<>> &Alignment,
                         bool &isProfitable,
                         OptimizationRemarkEmitter *ORE) const;
 
@@ -183,7 +203,7 @@ class HyFMMultipleSequenceAligner : public MultipleSequenceAligner {
 
 public:
   bool align(ArrayRef<Function *> Functions,
-             std::vector<MSAAlignmentEntry> &Alignment, bool &isProfitable,
+             std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
              OptimizationRemarkEmitter *ORE) override;
 
   HyFMMultipleSequenceAligner(

@@ -123,7 +123,7 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 
 }; // namespace
 
-bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
+bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                               bool &isProfitable,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
@@ -158,7 +158,7 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
 Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   MSAStats Stats;
-  std::vector<MSAAlignmentEntry> Alignment;
+  std::vector<MSAAlignmentEntry<>> Alignment;
   bool isProfitable = true;
   if (!align(Alignment, isProfitable, Options)) {
     return None;
@@ -825,7 +825,7 @@ bool MSAGenFunctionBody::assignLabelOperands() {
   // to see use of landingpad BB before the actual landingpad inst.
   for (auto it = Parent.Alignment.rbegin(); it != Parent.Alignment.rend();
        ++it) {
-    MSAAlignmentEntry Entry = *it;
+    MSAAlignmentEntry<> Entry = *it;
     std::vector<Instruction *> Instructions;
     bool allInsts = Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
