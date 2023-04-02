@@ -289,8 +289,8 @@ public:
 
   static Instruction *cloneInstruction(IRBuilder<> &Builder,
                                        const Instruction *I);
-  Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty,
-                    const Twine &Name = "");
+  static Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty,
+                           const Twine &Name = "");
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
@@ -1843,6 +1843,8 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
     }
 
     auto *CI = cast<CallBase>(V);
+    // Insert the new call after the old one. The old call will be
+    // replaced/erased
     IRBuilder<> Builder(CI);
 
     SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
@@ -1873,7 +1875,16 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
     NewCB->setCallingConv(MergedFunction->getCallingConv());
     NewCB->setIsNoInline();
 
-    CI->replaceAllUsesWith(NewCB);
+    // If the source return type is void, we can just discard the unified return
+    // value. Otherwise, we need to cast it to the source return type.
+    if (!SrcFunction->getReturnType()->isVoidTy()) {
+      auto Replacement = MSAGenFunctionBody::tryBitcast(
+          Builder, NewCB, SrcFunction->getReturnType());
+      CI->replaceAllUsesWith(Replacement);
+    } else {
+      assert(CI->getNumUses() == 0 && "void function should not have any uses");
+    }
+
     CI->eraseFromParent();
   }
   SrcFunction->eraseFromParent();
