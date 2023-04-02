@@ -108,7 +108,6 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
 
   // 1. Fix the base function and basic block.
   for (size_t BaseFuncId = 0; BaseFuncId < Functions.size(); BaseFuncId++) {
-    Function *F = Functions[BaseFuncId];
     auto &Fingerprints = FingerprintsByFunction[BaseFuncId];
     for (auto &BaseBF : Fingerprints) {
       if (Used.count(BaseBF.BB))
@@ -124,7 +123,6 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
         // Don't compare a function to itself.
         if (OtherFuncId == BaseFuncId)
           continue;
-        Function *OtherF = Functions[OtherFuncId];
         auto &OtherFingerprints = FingerprintsByFunction[OtherFuncId];
         for (auto &OtherBF : OtherFingerprints) {
           if (Used.count(OtherBF.BB))
