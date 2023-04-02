@@ -51,6 +51,12 @@ template <> struct MSAAlignmentEntryTypeTraits<MSAAlignmentEntryType::Fixed2> {
     assert(Size == 2 && "Size must be 2 for Fixed2 type");
     return ValuesTy{V, nullptr};
   }
+
+  template <typename ClaimValueFn>
+  inline static ValuesTy createWithValues(ClaimValueFn ClaimValue,
+                                          size_t Size) {
+    return ValuesTy{ClaimValue(0), ClaimValue(1)};
+  }
 };
 
 template <>
@@ -60,6 +66,17 @@ struct MSAAlignmentEntryTypeTraits<MSAAlignmentEntryType::Variable> {
   static ValuesTy createWithSingleValue(Value *V, size_t Size, size_t FuncId) {
     std::vector<Value *> Values(Size, nullptr);
     Values[FuncId] = V;
+    return Values;
+  }
+
+  template <typename ClaimValueFn>
+  inline static ValuesTy createWithValues(ClaimValueFn ClaimValue,
+                                          size_t Size) {
+    std::vector<Value *> Values;
+    for (int FuncIdx = 0; FuncIdx < Size; FuncIdx++) {
+      Value *V = ClaimValue(FuncIdx);
+      Values.push_back(V);
+    }
     return Values;
   }
 };
@@ -79,8 +96,14 @@ public:
       : Values(Values), IsMatched(IsMatched) {}
 
   MSAAlignmentEntry(Value *V, size_t FuncSize, size_t FuncId)
-      : IsMatched(false) {
-    this->Values = Trait::createWithSingleValue(V, FuncSize, FuncId);
+      : Values(Trait::createWithSingleValue(V, FuncSize, FuncId)),
+        IsMatched(false) {}
+
+  template <typename ClaimValueFn>
+  static inline MSAAlignmentEntry<Type> create(size_t FuncSize, bool IsMatched,
+                                               ClaimValueFn ClaimValue) {
+    return MSAAlignmentEntry<Type>(
+        Trait::createWithValues(ClaimValue, FuncSize), IsMatched);
   }
 
   bool match() const { return IsMatched; }

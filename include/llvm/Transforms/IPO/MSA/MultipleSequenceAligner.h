@@ -58,16 +58,18 @@ public:
 
 } // namespace fmutils
 
-class MultipleSequenceAligner {
+template <MSAAlignmentEntryType Type> class MultipleSequenceAligner {
 public:
   virtual ~MultipleSequenceAligner() = default;
   virtual bool align(ArrayRef<Function *> Functions,
-                     std::vector<MSAAlignmentEntry<>> &Alignment,
+                     std::vector<MSAAlignmentEntry<Type>> &Alignment,
                      bool &isProfitable,
                      OptimizationRemarkEmitter *ORE = nullptr) = 0;
 };
 
-class NeedlemanWunschMultipleSequenceAligner : public MultipleSequenceAligner {
+template <MSAAlignmentEntryType Type>
+class NeedlemanWunschMultipleSequenceAligner
+    : public MultipleSequenceAligner<Type> {
   FunctionMerger &PairMerger;
   ScoringSystem &Scoring;
   size_t ShapeSizeLimit;
@@ -75,8 +77,8 @@ class NeedlemanWunschMultipleSequenceAligner : public MultipleSequenceAligner {
 
 public:
   bool align(ArrayRef<Function *> Functions,
-             std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
-             OptimizationRemarkEmitter *ORE) override;
+             std::vector<MSAAlignmentEntry<Type>> &Alignment,
+             bool &isProfitable, OptimizationRemarkEmitter *ORE) override;
 
   inline static void linearizeBasicBlock(BasicBlock *B,
                                          std::function<void(Value *)> Append) {
@@ -97,7 +99,7 @@ public:
   }
 
   bool alignBasicBlocks(ArrayRef<BasicBlock *> BBs,
-                        std::vector<MSAAlignmentEntry<>> &Alignment,
+                        std::vector<MSAAlignmentEntry<Type>> &Alignment,
                         bool &isProfitable,
                         OptimizationRemarkEmitter *ORE) const;
 
@@ -108,20 +110,21 @@ public:
         ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
 };
 
-class HyFMMultipleSequenceAligner : public MultipleSequenceAligner {
+template <MSAAlignmentEntryType Type>
+class HyFMMultipleSequenceAligner : public MultipleSequenceAligner<Type> {
   const FunctionMergingOptions &Options;
   /// The underlying Needleman-Wunsch aligner used to estimate the profitablity
   /// of the basic block alignment. nullptr if profitablity estimation is
   /// disabled.
-  const NeedlemanWunschMultipleSequenceAligner &NWAligner;
+  const NeedlemanWunschMultipleSequenceAligner<Type> &NWAligner;
 
 public:
   bool align(ArrayRef<Function *> Functions,
-             std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
-             OptimizationRemarkEmitter *ORE) override;
+             std::vector<MSAAlignmentEntry<Type>> &Alignment,
+             bool &isProfitable, OptimizationRemarkEmitter *ORE) override;
 
   HyFMMultipleSequenceAligner(
-      const NeedlemanWunschMultipleSequenceAligner &NWAligner,
+      const NeedlemanWunschMultipleSequenceAligner<Type> &NWAligner,
       const FunctionMergingOptions &Options = {})
       : Options(Options), NWAligner(NWAligner){};
 };

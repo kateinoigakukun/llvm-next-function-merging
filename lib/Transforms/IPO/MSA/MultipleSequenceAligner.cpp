@@ -50,3 +50,5 @@ void MSAAlignmentEntry<Type>::print(raw_ostream &OS) const {
 
 template struct llvm::MSAAlignmentEntry<MSAAlignmentEntryType::Variable>;
 template struct llvm::MSAAlignmentEntry<MSAAlignmentEntryType::Fixed2>;
+template class llvm::MultipleSequenceAligner<MSAAlignmentEntryType::Variable>;
+template class llvm::MultipleSequenceAligner<MSAAlignmentEntryType::Fixed2>;

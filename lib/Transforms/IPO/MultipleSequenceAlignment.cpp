@@ -31,6 +31,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
+#include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "llvm/Transforms/Scalar/InstSimplifyPass.h"
@@ -128,15 +129,16 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
 
-  std::unique_ptr<MultipleSequenceAligner> Aligner;
-  std::unique_ptr<NeedlemanWunschMultipleSequenceAligner> NWAligner;
+  constexpr auto Ty = MSAAlignmentEntryType::Variable;
+  std::unique_ptr<MultipleSequenceAligner<Ty>> Aligner;
+  std::unique_ptr<NeedlemanWunschMultipleSequenceAligner<Ty>> NWAligner;
   if (Options.EnableHyFMAlignment) {
-    NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
+    NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
         PairMerger, Scoring, DefaultShapeSizeLimit, Options);
-    Aligner = std::make_unique<HyFMMultipleSequenceAligner>(*NWAligner.get(),
-                                                            Options);
+    Aligner = std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
+        *NWAligner.get(), Options);
   } else {
-    Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner>(
+    Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
         PairMerger, Scoring, DefaultShapeSizeLimit, Options);
   }
   return Aligner->align(Functions, Alignment, isProfitable, &ORE);
