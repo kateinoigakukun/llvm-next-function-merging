@@ -189,15 +189,17 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::align(
       alignBasicBlocks(Functions, FingerprintsByFunction, BlockAlignments);
   if (!HasAtLeastOneMerge) {
     isProfitable = false;
-    ORE->emit([&]() {
-      auto remark = OptimizationRemarkMissed(DEBUG_TYPE, "UnprofitableMerge",
-                                             Functions[0]);
-      remark << ore::NV("Reason", "No profitable BB merge");
-      for (auto *F : Functions) {
-        remark << ore::NV("Function", F);
-      }
-      return remark;
-    });
+    if (ORE) {
+      ORE->emit([&]() {
+        auto remark = OptimizationRemarkMissed(DEBUG_TYPE, "UnprofitableMerge",
+                                               Functions[0]);
+        remark << ore::NV("Reason", "No profitable BB merge");
+        for (auto *F : Functions) {
+          remark << ore::NV("Function", F);
+        }
+        return remark;
+      });
+    }
     return true;
   }
 
