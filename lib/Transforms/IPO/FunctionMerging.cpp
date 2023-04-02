@@ -114,6 +114,8 @@
 
 #include "llvm/ADT/SANeedlemanWunsch.h"
 #include "llvm/Transforms/IPO/Fingerprint.h"
+#include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 #include <algorithm>
@@ -256,6 +258,10 @@ static cl::opt<bool> Deterministic(
 static cl::opt<unsigned>
     BucketSizeCap("bucket-size-cap", cl::init(1000000000), cl::Hidden,
                   cl::desc("Define a threshold to be used"));
+
+static cl::opt<bool>
+    EnableCodeSharing("func-impl-sharing", cl::init(false), cl::Hidden,
+                      cl::desc("Enable code sharing between MSA and F3M"));
 
 static std::string GetValueName(const Value *V);
 
@@ -2372,6 +2378,30 @@ public:
   }
 };
 
+class MSAAlignerAdapter : public Aligner {
+public:
+  using InnerEntry = MSAAlignmentEntry<MSAAlignmentEntryType::Fixed2>;
+  using InnerAligner = MultipleSequenceAligner<MSAAlignmentEntryType::Fixed2>;
+
+private:
+  std::unique_ptr<InnerAligner> Aligner;
+
+public:
+  MSAAlignerAdapter(std::unique_ptr<InnerAligner> Aligner)
+      : Aligner(std::move(Aligner)) {}
+
+  AlignedSequence<Value *> align(Function *F1, Function *F2,
+                                 bool &isProfitable) override {
+
+    std::vector<InnerEntry> Alignment;
+    Aligner->align({F1, F2}, Alignment, isProfitable);
+    AlignedSequence<Value *> AlignedSeq;
+    AlignedSeq.Data.insert(AlignedSeq.Data.end(), Alignment.begin(),
+                           Alignment.end());
+    return AlignedSeq;
+  }
+};
+
 class SALSSAAligner : public Aligner {
 public:
   AlignedSequence<Value *> align(Function *F1, Function *F2,
@@ -2599,12 +2629,30 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
 #endif
 
   std::unique_ptr<Aligner> Aligner;
+  constexpr auto Ty = MSAAlignmentEntryType::Fixed2;
+  std::unique_ptr<NeedlemanWunschMultipleSequenceAligner<Ty>> NWAligner;
+  ScoringSystem Scoring(/*Gap*/ -1, /*Match*/ 2,
+                        /*Mismatch*/ fmutils::OptionalScore::min());
   if (EnableHyFMNW) {
-    Aligner = std::make_unique<HyFMNWAligner>();
+    if (EnableCodeSharing) {
+      NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
+          *this, Scoring, 24 * 1024 * 1024, Options);
+      Aligner = std::make_unique<MSAAlignerAdapter>(
+          std::make_unique<HyFMMultipleSequenceAligner<Ty>>(*NWAligner.get(),
+                                                            Options));
+    } else {
+      Aligner = std::make_unique<HyFMNWAligner>();
+    }
   } else if (EnableHyFMPA) {
     Aligner = std::make_unique<HyFMPAAligner>();
   } else { // default SALSSA
-    Aligner = std::make_unique<SALSSAAligner>();
+    if (EnableCodeSharing) {
+      Aligner = std::make_unique<MSAAlignerAdapter>(
+          std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
+              *this, Scoring, 24 * 1024 * 1024, Options));
+    } else {
+      Aligner = std::make_unique<SALSSAAligner>();
+    }
   }
   AlignedSequence<Value *> AlignedSeq;
   AlignedSeq = Aligner->align(F1, F2, ProfitableFn);
