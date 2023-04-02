@@ -322,8 +322,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   }
 
   // errs() << "Assigning label operands\n";
-
-  std::set<BranchInst *> XorBrConds;
   // assigning label operands
 
   for (auto &Entry : AlignedSeq) {
