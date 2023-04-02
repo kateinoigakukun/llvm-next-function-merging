@@ -3481,7 +3481,7 @@ bool FunctionMerging::runImpl(
           .maximizeParameterScore(MaxParamScore)
           .matchOnlyIdenticalTypes(IdenticalType)
           .enableUnifiedReturnTypes(EnableUnifiedReturnType);
-
+  Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
   // auto *PSI = &this->getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   // auto LookupBFI = [this](Function &F) {
   //  return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();

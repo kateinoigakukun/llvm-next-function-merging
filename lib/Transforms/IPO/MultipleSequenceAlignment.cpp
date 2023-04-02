@@ -76,6 +76,10 @@ static cl::opt<bool>
     EnableHyFMNW("multiple-func-merging-hyfm-nw", cl::init(false), cl::Hidden,
                  cl::desc("Enable HyFM with the Pairwise Alignment"));
 
+static cl::opt<bool> HyFMProfitability(
+    "multiple-func-merging-hyfm-profitability", cl::init(true), cl::Hidden,
+    cl::desc("Enable profitability check for basic block alignment in HyFM"));
+
 static cl::opt<bool> EnableSALSSACoalescing(
     "multiple-func-merging-coalescing", cl::init(true), cl::Hidden,
     cl::desc("Enable phi-node coalescing during SSA reconstruction"));
@@ -2064,6 +2068,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
   FunctionMerger PairMerger(&M);
   auto Options = MSAOptions();
+  Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
 
   std::unique_ptr<Matcher<Function *>> MatchFinder;
   {
