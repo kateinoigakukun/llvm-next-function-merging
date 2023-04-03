@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+
+require "fileutils"
+require "tmpdir"
+require "optparse"
+
+def main
+  outdir ||= Dir.pwd
+  format = nil
+  opts = OptionParser.new do |opts|
+    opts.banner = "Usage: ll2dot.rb [options] <input.ll>"
+    opts.on("-o", "--output-dir DIR", "Output directory") do |dir|
+      outdir = dir
+    end
+    opts.on("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+    opts.on("--format FORMAT", "Output format") do |f|
+      format = f
+    end
+  end
+  opts.parse!
+  if ARGV.empty?
+    puts opts
+    exit
+  end
+
+  ll = File.expand_path(ARGV[0])
+  prefix = File.basename(ll, ".ll")
+  Dir.mktmpdir do |tmpdir|
+    Kernel.system "opt-13", "--passes=dot-cfg", ll, "-o", "/dev/null", chdir: tmpdir
+    puts File.join(tmpdir, "*.dot")
+    Dir.glob(File.join(tmpdir, "*.dot"), File::FNM_DOTMATCH).each do |dot|
+      if format
+        Kernel.system "dot", "-T#{format}", dot, "-o", File.join(outdir, "#{prefix}-#{File.basename(dot, ".dot")}.#{format}"), chdir: tmpdir
+      else
+        puts "Copying #{dot} to #{outdir}"
+        FileUtils.cp dot, File.join(outdir, "#{prefix}-#{File.basename(dot)}")
+      end
+    end
+  end
+end
+
+main if __FILE__ == $0

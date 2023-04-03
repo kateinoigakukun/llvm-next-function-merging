@@ -11,7 +11,7 @@
 ; CHECK-F3M-NEXT: Args:
 ; CHECK-F3M-NEXT:   - Function:        __ckd_realloc__
 ; CHECK-F3M-NEXT:   - Function:        __ckd_malloc__
-; CHECK-F3M-NEXT:   - MergedSize:      '23'
+; CHECK-F3M-NEXT:   - MergedSize:      '22'
 ; CHECK-F3M-NEXT:   - ThunkOverhead:   '0'
 ; CHECK-F3M-NEXT:   - OriginalTotalSize: '25'
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/CodeGen/spec2006/482.sphinx3/_main_._all_._files_._linked_.ll'

@@ -14,6 +14,7 @@ _DEFAULTS = {
     'MATCHER_REPORT': 'false',  # Produce a report on the occupancy of LSH Buckets
     'REPORT': 'false',          # Produce a report on the fingerprint distances and alignment ratios of all valid function pairs
     'IDENTICAL_TYPE_ONLY': 'false',
+    'ALIGNER': 'nw',
 }
 
 _TECHNIQUES = {
@@ -26,6 +27,10 @@ _TECHNIQUES = {
     'mfm3-ito': {'TECHNIQUE': 'mfm3', 'IDENTICAL_TYPE_ONLY': 'true'},
     'mfm3': {'TECHNIQUE': 'mfm3'},
     'mfm4': {'TECHNIQUE': 'mfm4'},
+
+    'mfm2-hyfm': {'TECHNIQUE': 'mfm2', 'ALIGNER': 'hyfm'},
+    'mfm3-hyfm': {'TECHNIQUE': 'mfm3', 'ALIGNER': 'hyfm'},
+    'mfm4-hyfm': {'TECHNIQUE': 'mfm4', 'ALIGNER': 'hyfm'},
 }
 
 class Flags(object):

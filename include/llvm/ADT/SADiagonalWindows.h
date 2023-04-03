@@ -1,3 +1,10 @@
+#ifndef LLVM_ADT_SEQUENCE_ALIGNMENT_DIAGONALWINDOWS_H
+#define LLVM_ADT_SEQUENCE_ALIGNMENT_DIAGONALWINDOWS_H
+
+#include "llvm/ADT/SANeedlemanWunsch.h"
+#include "llvm/ADT/SequenceAlignment.h"
+#include <functional>
+
 template<typename ContainerType, typename Ty=typename ContainerType::value_type, Ty Blank=Ty(0), typename MatchFnTy=std::function<bool(Ty,Ty)>>
 class DiagonalWindowsSA : public SequenceAligner<ContainerType,Ty,Blank,MatchFnTy> {
 private:
@@ -72,3 +79,4 @@ public:
 
 };
 
+#endif

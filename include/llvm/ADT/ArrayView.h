@@ -1,6 +1,8 @@
 #ifndef LLVM_ADT_ARRAY_VIEW
 #define LLVM_ADT_ARRAY_VIEW
 
+#include <cstddef>
+
 template<typename ArrayBaseType>
 class ArrayView {
 public:

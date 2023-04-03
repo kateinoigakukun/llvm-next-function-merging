@@ -48,53 +48,43 @@ class Missed(yaml.YAMLObject):
         self.Name = Name
 
 class DataSource:
-    def y_labels(self):
-        # return sorted(self.data.keys())
-        return [
-            '400.perlbench',
-            '401.bzip2',
-            # '403.gcc',
-            # '429.mcf',
-            # '433.milc',
-            '444.namd',
-            '445.gobmk',
-            # '447.dealII',
-            # '450.soplex',
-            # '453.povray',
-            '456.hmmer',
-            # '458.sjeng',
-            '462.libquantum',
-            # '464.h264ref',
-            # '470.lbm',
-            '471.omnetpp',
-            # '473.astar',
-            # '482.sphinx3',
-            '483.xalancbmk'
-        ]
+    def default_bmarks(self):
+        return sorted(self.data.keys())
 
     def baseline_case_name(self):
         return "TECHNIQUE=baseline"
 
-    def variants(self):
+    def default_variants(self):
         return [
+            'TECHNIQUE=mfm4 ALIGNER=hyfm',
             'TECHNIQUE=mfm4',
+            'TECHNIQUE=mfm3 ALIGNER=hyfm',
             'TECHNIQUE=mfm3',
             # 'TECHNIQUE=mfm2',
             # 'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
             'TECHNIQUE=f3m',
+            'TECHNIQUE=hyfm',
             # 'TECHNIQUE=f3m-legacy'
         ]
 
+    VARIANT_TO_LEGEND = {
+        'TECHNIQUE=mfm4': {'title': 'Multiple Function Merging N=4', 'color': 'Blues'},
+        'TECHNIQUE=mfm4 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=4 (HyFM)', 'color': 'Greens'},
+        'TECHNIQUE=mfm3': {'title': 'Multiple Function Merging N=3', 'color': 'Blues'},
+        'TECHNIQUE=mfm3 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=3 (HyFM)', 'color': 'Greens'},
+        'TECHNIQUE=mfm2': {'title': 'Multiple Function Merging N=2', 'color': 'Blues'},
+        'TECHNIQUE=mfm2 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=2 (HyFM)', 'color': 'Greens'},
+        'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': {'title': 'Multiple Function Merging N=2 (identical types only)', 'color': 'Blues'},
+        'TECHNIQUE=f3m': {'title': 'F3M (Patched)', 'color': 'Greys'},
+        'TECHNIQUE=hyfm': {'title': 'HyFM', 'color': 'Greys'},
+        'TECHNIQUE=f3m-legacy': {'title': 'F3M (Original)', 'color': 'Greys'},
+    }
+
     def legend(self, variant):
-        variant_to_legend = {
-            'TECHNIQUE=mfm4': 'Multiple Function Merging N=4',
-            'TECHNIQUE=mfm3': 'Multiple Function Merging N=3',
-            'TECHNIQUE=mfm2': 'Multiple Function Merging N=2',
-            'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': 'Multiple Function Merging N=2 (identical types only)',
-            'TECHNIQUE=f3m': 'F3M (Patched)',
-            'TECHNIQUE=f3m-legacy': 'F3M (Original)'
-        }
-        return variant_to_legend[variant]
+        return self.__class__.VARIANT_TO_LEGEND[variant]['title']
+
+    def colormap(self, variant):
+        return self.__class__.VARIANT_TO_LEGEND[variant]['color']
 
     def plotting_value(self, bmark, case_name):
         if not case_name in self.data[bmark]:
@@ -110,31 +100,34 @@ class DataSource:
     def xlabel(self):
         raise NotImplementedError()
 
-    def has_legend(self):
-        return False
-
     def stats(self):
         baseline = self.baseline_case_name()
-        baseline_sizes = [self.data[bmark][baseline] for bmark in self.y_labels()]
+        baseline_sizes = [self.data[bmark][baseline] for bmark in self.default_bmarks()]
         baseline_mean = np.mean(baseline_sizes)
 
         variant_width = 20
-        for variant in self.variants():
+        for variant in self.default_variants():
             if len(variant) > variant_width:
                 variant_width = len(variant)
 
-        for variant in self.variants():
-            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+        for variant in self.default_variants():
+            sizes = []
+            for bmark in self.default_bmarks():
+                if not variant in self.data[bmark]:
+                    continue
+                sizes.append(self.data[bmark][variant])
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {(1 - sum(sizes) / sum(baseline_sizes)) * 100:.2f}%")
         print("\n\nMax reduction:")
         max_reduction = 0
         max_reduction_bmark = None
-        for bmark in self.y_labels():
+        for bmark in self.default_bmarks():
             f3m = 'TECHNIQUE=f3m'
-            for variant in self.variants():
+            for variant in self.default_variants():
                 if variant == f3m:
+                    continue
+                if not variant in self.data[bmark]:
                     continue
                 baseline = self.data[bmark][self.baseline_case_name()]
                 reduction = (self.data[bmark][f3m] - self.data[bmark][variant]) / baseline
@@ -144,6 +137,71 @@ class DataSource:
                     max_reduction_bmark = bmark
         print(f"{max_reduction_bmark}: {max_reduction}%")
 
+class PlottingOptions:
+    def __init__(self):
+        self.benchmarks = None
+        self.variants = None
+        self.figsize = (10, 8)
+        self.fontsize = 11
+        self.has_legend = lambda ds: True
+
+    PRESETS = {
+        'cgo2023-src': {
+            'benchmarks': [
+                '400.perlbench',
+                '401.bzip2',
+                '444.namd',
+                '445.gobmk',
+                '456.hmmer',
+                '462.libquantum',
+                '471.omnetpp',
+                '483.xalancbmk'
+            ],
+            'variants': [
+                'TECHNIQUE=f3m-legacy',
+                'TECHNIQUE=f3m',
+                'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
+                'TECHNIQUE=mfm2',
+                'TECHNIQUE=mfm3',
+                'TECHNIQUE=mfm4',
+            ],
+            'figsize': (10, 8),
+            'fontsize': 11,
+            'has_legend': lambda ds: isinstance(ds, ObjSizeDataSource),
+        },
+        'next': {
+            'variants': [
+                'TECHNIQUE=hyfm',
+                'TECHNIQUE=f3m',
+                'TECHNIQUE=mfm2',
+                'TECHNIQUE=mfm2 ALIGNER=hyfm',
+                'TECHNIQUE=mfm3',
+                'TECHNIQUE=mfm3 ALIGNER=hyfm',
+                'TECHNIQUE=mfm4',
+                'TECHNIQUE=mfm4 ALIGNER=hyfm',
+            ],
+            'figsize': (20, 20),
+            'fontsize': 11,
+            'has_legend': lambda ds: True,
+        }
+    }
+
+    @staticmethod
+    def from_args(args, data_source: DataSource):
+        opts = PlottingOptions()
+        if args.preset:
+            if not args.preset in PlottingOptions.PRESETS:
+                print(
+                    f"Unknown preset {args.preset}. Available presets: {', '.join(PlottingOptions.PRESETS.keys())}")
+                sys.exit(1)
+            opts.__dict__.update(PlottingOptions.PRESETS[args.preset])
+        else:
+            opts.__dict__.update(args.__dict__)
+        if not opts.benchmarks:
+            opts.benchmarks = data_source.default_bmarks()
+        if not opts.variants:
+            opts.variants = data_source.default_variants()
+        return opts
 
 class ObjSizeDataSource(DataSource):
     def __init__(self, conn):
@@ -160,9 +218,6 @@ class ObjSizeDataSource(DataSource):
         return "Object size reduction rate compared to baseline"
     def xlabel(self):
         return "Object size reduction (%)"
-
-    def has_legend(self):
-        return True
 
 class MergedFunctionsDataSource(DataSource):
     def __init__(self, conn):
@@ -243,16 +298,19 @@ class MergedFunctionsDataSource(DataSource):
 
     def stats(self):
         baseline = self.baseline_case_name()
-        baseline_sizes = [self.data[bmark][baseline]["all_funcs"] for bmark in self.y_labels()]
+        baseline_sizes = [self.data[bmark][baseline]["all_funcs"] for bmark in self.default_bmarks()]
         baseline_mean = np.mean(baseline_sizes)
 
         variant_width = 20
-        for variant in self.variants():
+        for variant in self.default_variants():
             if len(variant) > variant_width:
                 variant_width = len(variant)
 
-        for variant in self.variants():
-            sizes = [self.data[bmark][variant]["count"] for bmark in self.y_labels()]
+        for variant in self.default_variants():
+            sizes = []
+            for bmark in self.default_bmarks():
+                if variant in self.data[bmark]:
+                    sizes.append(self.data[bmark][variant]["count"])
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {(float(sum(sizes)) / sum(baseline_sizes)) * 100:.2f}%")
@@ -261,10 +319,6 @@ class MergedFunctionsDataSource(DataSource):
         return "Percentage of merged functions in total functions"
     def xlabel(self):
         return "Percentage of merged functions (%)"
-
-    def has_legend(self):
-        return True
-
 
 class CompileTimeDataSource(DataSource):
     def __init__(self, conn):
@@ -289,38 +343,58 @@ class CompileTimeDataSource(DataSource):
 
     def stats(self):
         baseline = self.baseline_case_name()
-        baseline_sizes = [self.data[bmark][baseline] for bmark in self.y_labels()]
+        baseline_sizes = [self.data[bmark][baseline] for bmark in self.default_bmarks()]
         baseline_mean = np.mean(baseline_sizes)
 
         variant_width = 20
-        for variant in self.variants():
+        for variant in self.default_variants():
             if len(variant) > variant_width:
                 variant_width = len(variant)
 
-        for variant in self.variants():
-            sizes = [self.data[bmark][variant] for bmark in self.y_labels()]
+        for variant in self.default_variants():
+            sizes = []
+            for bmark in self.default_bmarks():
+                if variant in self.data[bmark]:
+                    sizes.append(self.data[bmark][variant])
             mean = np.mean(sizes)
             std = np.std(sizes)
             print(f"{variant:{variant_width}}: {-(1 - mean / baseline_mean) * 100:.2f}%")
 
+class ColorPool:
+    def __init__(self):
+        self.cmaps = {}
+        self.assigned = {}
+
+    def get(self, key, cmap_name):
+        import matplotlib.pyplot as plt
+        if key in self.assigned:
+            return self.assigned[key]
+        if not cmap_name in self.cmaps:
+            cmap = plt.get_cmap(cmap_name)
+            self.cmaps[cmap_name] = { "cmap": cmap, "next_idx": 0.4 }
+        cmap = self.cmaps[cmap_name]["cmap"]
+        next_idx = self.cmaps[cmap_name]["next_idx"]
+        self.cmaps[cmap_name]["next_idx"] += 0.2
+        color = cmap(next_idx)
+        self.assigned[key] = color
+        return color
 
 class Plotter:
 
-    def __init__(self, options):
+    def __init__(self, options: PlottingOptions):
         self.options = options
 
-    def plot(self, data_source: DataSource, colors, ax):
+    def plot(self, data_source: DataSource, colors: ColorPool, ax):
         fontsize = self.options.fontsize
-        bmarks = data_source.y_labels()
-        variants = data_source.variants()
+        bmarks = self.options.benchmarks
+        variants = self.options.variants
 
         bench_space = 0.05
         bar_width = (1 - bench_space) / len(variants)
         y = np.arange(len(bmarks))
-        values_by_variant = []
 
         for idx, variant in enumerate(variants):
-            y_pos = y + idx * bar_width + bar_width/2 - bar_width * len(variants)/2
+            y_pos = y - idx * bar_width - bar_width/2 + bar_width * len(variants)/2
             values = []
             bar_labels = []
             for bmark in bmarks:
@@ -333,13 +407,14 @@ class Plotter:
                     bar_labels.append("no data")
 
             label = data_source.legend(variant)
-            rect = ax.barh(y_pos, values, bar_width, label=label, color=colors[idx])
+            color = colors.get(variant, data_source.colormap(variant))
+            rect = ax.barh(y_pos, values, bar_width, label=label, color=color)
             ax.bar_label(rect, padding=3, labels=bar_labels, fontsize=fontsize)
-            values_by_variant.append(values)
 
         hans, labs = ax.get_legend_handles_labels()
-        if data_source.has_legend():
-            ax.legend(handles=hans[::-1], labels=labs[::-1], fontsize=fontsize-2)
+        has_legend = self.options.has_legend
+        if has_legend is not None and has_legend(data_source):
+            ax.legend(handles=hans, labels=labs, fontsize=fontsize-2)
 
         ax.axvline(0, color="black", linewidth=0.5)
         ax.set_title(data_source.title(), fontsize=fontsize + 6)
@@ -350,10 +425,9 @@ class Plotter:
 
 def plot(data_source, options, output):
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=options.figsize)
     plotter = Plotter(options)
-    colors = [plt.get_cmap('Paired')(idx) for idx in (1, 2, 3, 4, 5, 7, 9, 11)]
-    plotter.plot(data_source, colors, ax)
+    plotter.plot(data_source, ColorPool(), ax)
     fig.tight_layout()
 
     plt.savefig(output)
@@ -370,6 +444,7 @@ def main():
     parser.add_argument("--exclude-zeros", action="store_true")
     parser.add_argument("--fontsize", type=int, default=11)
     parser.add_argument("--target", type=str, default="all")
+    parser.add_argument("--preset", type=str, default=None)
 
     options = parser.parse_args()
 
@@ -393,7 +468,8 @@ def main():
             data_source_class = all_data_sources[target]
             data_source = data_source_class(conn)
             output = options.output or f".x/bench-suite/f3m/plot_{target}.png"
-            plot(data_source, options, output)
+            plot_options = PlottingOptions.from_args(options, data_source)
+            plot(data_source, plot_options, output)
             data_source.stats()
 
 if __name__ == "__main__":

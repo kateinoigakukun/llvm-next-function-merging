@@ -7,27 +7,11 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/FunctionMergingOptions.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 namespace llvm {
-
-class MSAAlignmentEntry {
-  std::vector<Value *> Values;
-  bool IsMatched;
-
-public:
-  MSAAlignmentEntry(std::vector<Value *> Values, bool IsMatched)
-      : Values(Values), IsMatched(IsMatched) {}
-
-  bool match() const { return IsMatched; }
-  ArrayRef<Value *> getValues() const { return Values; }
-  /// Collect all instructions from the values.
-  /// Returns true if all values are instructions. Otherwise returns false.
-  bool collectInstructions(std::vector<Instruction *> &Instructions) const;
-  void verify() const;
-  void print(raw_ostream &OS) const;
-  void dump() const { print(dbgs()); }
-};
 
 struct MSAStats {
   size_t NumSelection = 0;
@@ -115,7 +99,6 @@ class MSAFunctionMerger {
   ArrayRef<Function *> Functions;
   Module *M;
   FunctionMerger &PairMerger;
-  ScoringSystem Scoring;
   OptimizationRemarkEmitter &ORE;
   FunctionAnalysisManager &FAM;
 
@@ -132,7 +115,7 @@ public:
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
-  bool align(std::vector<MSAAlignmentEntry> &Alignment,
+  bool align(std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
              const FunctionMergingOptions &Options = {});
 };
 
@@ -141,7 +124,7 @@ class MSAGenFunctionBody;
 class MSAGenFunction {
   Module *M;
   LLVMContext &C;
-  const std::vector<MSAAlignmentEntry> &Alignment;
+  const std::vector<MSAAlignmentEntry<>> &Alignment;
   const ArrayRef<Function *> &Functions;
   Optional<std::string> NameCache;
   IntegerType *DiscriminatorTy;
@@ -153,7 +136,7 @@ class MSAGenFunction {
   friend class MSAGenFunctionBody;
 
 public:
-  MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry> &Alignment,
+  MSAGenFunction(Module *M, const std::vector<MSAAlignmentEntry<>> &Alignment,
                  const ArrayRef<Function *> &Functions,
                  IntegerType *DiscriminatorTy, OptimizationRemarkEmitter &ORE)
       : M(M), C(M->getContext()), Alignment(Alignment), Functions(Functions),

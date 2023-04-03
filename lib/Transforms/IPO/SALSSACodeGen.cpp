@@ -68,48 +68,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
 
   auto CloneInst = [](IRBuilder<> &Builder, Function *MF,
                       Instruction *I) -> Instruction * {
-    Instruction *NewI = nullptr;
-    if (I->getOpcode() == Instruction::Ret) {
-      if (MF->getReturnType()->isVoidTy()) {
-        NewI = Builder.CreateRetVoid();
-      } else {
-        NewI = Builder.CreateRet(UndefValue::get(MF->getReturnType()));
-      }
-    } else {
-      // assert(I1->getNumOperands() == I2->getNumOperands() &&
-      //      "Num of Operands SHOULD be EQUAL!");
-      NewI = I->clone();
-      for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
-        if (!isa<Constant>(I->getOperand(i)))
-          NewI->setOperand(i, nullptr);
-      }
-      Builder.Insert(NewI);
-    }
-
-    // NewI->dropPoisonGeneratingFlags(); //TODO: NOT SURE IF THIS IS VALID
-
-    // TODO: temporarily removing metadata
-
-    SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
-    NewI->getAllMetadata(MDs);
-    for (std::pair<unsigned, MDNode *> MDPair : MDs) {
-      NewI->setMetadata(MDPair.first, nullptr);
-    }
-
-    // if (isa<GetElementPtrInst>(NewI)) {
-    // GetElementPtrInst * GEP = dyn_cast<GetElementPtrInst>(I);
-    // GetElementPtrInst * GEP2 = dyn_cast<GetElementPtrInst>(I2);
-    // dyn_cast<GetElementPtrInst>(NewI)->setIsInBounds(GEP->isInBounds());
-    //}
-
-    /*
-    if (auto *CB = dyn_cast<CallBase>(I)) {
-      auto *NewCB = dyn_cast<CallBase>(NewI);
-      auto AttrList = CB->getAttributes();
-      NewCB->setAttributes(AttrList);
-    }*/
-
-    return NewI;
+    return fmutils::InstructionCloner::clone(Builder, I);
   };
 
   for (auto &Entry : AlignedSeq) {
@@ -175,12 +134,12 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
         IRBuilder<> Builder(MergedBB);
         for (Instruction &I : *BB1) {
           if (isa<PHINode>(&I)) {
-            VMap[&I] = Builder.CreatePHI(I.getType(), 0);
+            VMap[&I] = Builder.CreatePHI(I.getType(), 0, I.getName());
           }
         }
         for (Instruction &I : *BB2) {
           if (isa<PHINode>(&I)) {
-            VMap[&I] = Builder.CreatePHI(I.getType(), 0);
+            VMap[&I] = Builder.CreatePHI(I.getType(), 0, I.getName());
           }
         }
       } // end if(instruction)-else
@@ -224,7 +183,7 @@ static void CodeGen(BlockListType &Blocks1, BlockListType &Blocks2,
             IRBuilder<> Builder(NewBB);
             for (Instruction &I : *BB) {
               if (isa<PHINode>(&I)) {
-                VMap[&I] = Builder.CreatePHI(I.getType(), 0);
+                VMap[&I] = Builder.CreatePHI(I.getType(), 0, I.getName());
               }
             }
           }
@@ -363,8 +322,6 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   }
 
   // errs() << "Assigning label operands\n";
-
-  std::set<BranchInst *> XorBrConds;
   // assigning label operands
 
   for (auto &Entry : AlignedSeq) {
@@ -575,7 +532,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     }
 
     IRBuilder<> Builder(InsertPt);
-    Instruction *Sel = (Instruction *)Builder.CreateSelect(FuncId, V2, V1);
+    Instruction *Sel =
+        (Instruction *)Builder.CreateSelect(FuncId, V2, V1, "switch.select");
     ListSelects.push_back(dyn_cast<Instruction>(Sel));
     return Sel;
   };
@@ -868,7 +826,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
         Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
         // create PHI
-        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+        PHINode *PHI = Builder.CreatePHI(IV->getType(), 0, "store2addr");
         for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
              PredIt != PredE; PredIt++) {
           BasicBlock *PredBB = *PredIt;
@@ -886,7 +844,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
 
           Builder.SetInsertPoint(&*DestBB->getFirstInsertionPt());
           // create PHI
-          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0);
+          PHINode *PHI = Builder.CreatePHI(IV->getType(), 0, "store2addr");
           for (auto PredIt = pred_begin(DestBB), PredE = pred_end(DestBB);
                PredIt != PredE; PredIt++) {
             BasicBlock *PredBB = *PredIt;
@@ -922,7 +880,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     if (InstSet.empty())
       return nullptr;
     IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
-    AllocaInst *Addr = Builder.CreateAlloca((*InstSet.begin())->getType());
+    AllocaInst *Addr =
+        Builder.CreateAlloca((*InstSet.begin())->getType(), nullptr, "memfy");
 
     for (Instruction *I : InstSet) {
       for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {

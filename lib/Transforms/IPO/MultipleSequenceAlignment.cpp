@@ -2,7 +2,6 @@
 #include "FunctionMergingUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/FixedBitVector.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -32,6 +31,8 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
+#include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "llvm/Transforms/Scalar/InstSimplifyPass.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
@@ -42,6 +43,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <tuple>
@@ -70,6 +72,14 @@ static cl::opt<bool>
     IdenticalType("multiple-func-merging-identical-type", cl::init(false), cl::Hidden,
                   cl::desc("Match only values with identical types"));
 
+static cl::opt<bool>
+    EnableHyFMNW("multiple-func-merging-hyfm-nw", cl::init(false), cl::Hidden,
+                 cl::desc("Enable HyFM with the Pairwise Alignment"));
+
+static cl::opt<bool> HyFMProfitability(
+    "multiple-func-merging-hyfm-profitability", cl::init(true), cl::Hidden,
+    cl::desc("Enable profitability check for basic block alignment in HyFM"));
+
 static cl::opt<bool> EnableSALSSACoalescing(
     "multiple-func-merging-coalescing", cl::init(true), cl::Hidden,
     cl::desc("Enable phi-node coalescing during SSA reconstruction"));
@@ -93,294 +103,6 @@ static cl::opt<bool> EnableStats(
 
 namespace {
 
-using TransitionOffset = FixedBitVector;
-struct TransitionEntry {
-  TransitionOffset Offset;
-  bool Match;
-  bool Invalid;
-  fmutils::OptionalScore Score;
-
-  TransitionEntry(TransitionOffset Offset, bool Match, uint32_t Score)
-      : Offset(Offset), Match(Match), Invalid(false), Score(Score) {}
-  TransitionEntry()
-      : Offset({}), Match(false), Invalid(true),
-        Score(fmutils::OptionalScore::None()) {}
-
-  void print(raw_ostream &OS) const {
-    OS << "(";
-    OS << "{";
-    for (size_t i = 0; i < 32; i++) {
-      if (i != 0)
-        OS << ", ";
-      OS << Offset[i];
-    }
-    OS << "},";
-    if (Match)
-      OS << "T";
-    else
-      OS << "F";
-    OS << ")";
-  }
-  void dump() const { print(llvm::errs()); }
-};
-
-raw_ostream &operator<<(raw_ostream &OS, const TransitionEntry &Entry) {
-  Entry.print(OS);
-  return OS;
-}
-
-raw_ostream &operator<<(raw_ostream &OS, const MSAAlignmentEntry &Entry) {
-  Entry.print(OS);
-  return OS;
-}
-
-class MSAligner {
-  ScoringSystem &Scoring;
-  ArrayRef<Function *> Functions;
-  const std::vector<size_t> Shape;
-  const size_t ShapeSize;
-  const FunctionMergingOptions &Options;
-
-  std::vector<SmallVector<Value *, 16>> &InstrVecList;
-  TensorTable<TransitionEntry> BestTransTable;
-
-  struct MatchResult {
-    bool Match;
-    bool IdenticalTypes;
-  };
-
-  void initScoreTable();
-  void buildScoreTable();
-  void buildAlignment(std::vector<llvm::MSAAlignmentEntry> &Alignment);
-  void computeBestTransition(const TensorTableCursor &Cursor,
-                             const SmallVector<size_t, 4> &Point);
-  inline void updateBestScore(const TensorTableCursor &Point,
-                              TransitionOffset TransOffset,
-                              fmutils::OptionalScore newScore, bool IsMatched) {
-    BestTransTable.set(Point,
-                       TransitionEntry(TransOffset, IsMatched, newScore));
-  }
-  void align(std::vector<MSAAlignmentEntry> &Alignment);
-
-  bool advancePointInShape(SmallVector<size_t, 4> &Point) const {
-    for (size_t i = 0; i < ShapeSize; i++) {
-      if (Point[i] < Shape[i] - 1) {
-        Point[i]++;
-        return true;
-      }
-      Point[i] = 0;
-    }
-    return false;
-  }
-
-  MatchResult matchInstructions(const SmallVector<size_t, 4> &Point) const {
-    auto *TheInstr = InstrVecList[0][Point[0]];
-    bool IdenticalTypes = true;
-    for (size_t i = 1; i < ShapeSize; i++) {
-      auto *OtherInstr = InstrVecList[i][Point[i]];
-      IdenticalTypes &= TheInstr->getType() == OtherInstr->getType();
-      if (!FunctionMerger::match(OtherInstr, TheInstr, Options)) {
-        return MatchResult{.Match = false, .IdenticalTypes = IdenticalTypes};
-      }
-    }
-    return MatchResult{.Match = true, .IdenticalTypes = IdenticalTypes};
-  }
-
-  MSAligner(ScoringSystem &Scoring, ArrayRef<Function *> Functions,
-            std::vector<size_t> Shape,
-            std::vector<SmallVector<Value *, 16>> &InstrVecList,
-            const FunctionMergingOptions &Options)
-      : Scoring(Scoring), Functions(Functions), Shape(Shape),
-        ShapeSize(Shape.size()), Options(Options), InstrVecList(InstrVecList),
-        BestTransTable(Shape, {}) {
-
-    initScoreTable();
-  }
-
-public:
-  static bool align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
-                    ArrayRef<Function *> Functions,
-                    std::vector<MSAAlignmentEntry> &Alignment,
-                    size_t ShapeSizeLimit = DefaultShapeSizeLimit,
-                    OptimizationRemarkEmitter *ORE = nullptr,
-                    const FunctionMergingOptions &Options = {});
-};
-
-void MSAligner::initScoreTable() {
-
-  {
-    // Initialize {0,0,...,0}
-    std::vector<size_t> Point(Shape.size(), 0);
-    TransitionOffset transOffset(Shape.size(), 0);
-    BestTransTable[Point] = TransitionEntry(transOffset, false, 0);
-  }
-
-  for (size_t dim = 0; dim < Shape.size(); dim++) {
-    std::vector<size_t> Point(Shape.size(), 0);
-    for (size_t i = 1; i < Shape[dim]; i++) {
-      Point[dim] = i;
-      auto score = Scoring.getGapPenalty() * i;
-      TransitionOffset transOffset(Shape.size(), 0);
-      transOffset.set(dim);
-      BestTransTable[Point] = TransitionEntry(transOffset, false, score);
-    }
-  }
-}
-
-namespace MSAlignerUtilites {
-static int32_t addScore(int32_t Score, int32_t addend) {
-  if (addend > 0 && Score >= fmutils::OptionalScore::max() - addend)
-    return fmutils::OptionalScore::max();
-  if (addend < 0 && Score <= fmutils::OptionalScore::min() - addend)
-    return fmutils::OptionalScore::min();
-  return Score + addend;
-};
-
-inline SmallVector<size_t, 4>
-minusOffsetFromPoint(const TransitionOffset &Offset,
-                     const SmallVector<size_t, 4> &Point, size_t ShapeSize) {
-  SmallVector<size_t, 4> Result(ShapeSize);
-  for (size_t i = 0; i < ShapeSize; i++) {
-    Result[i] = Point[i] - Offset[i];
-  }
-  return Result;
-};
-}; // namespace MSAlignerUtilites
-
-void MSAligner::computeBestTransition(const TensorTableCursor &Cursor,
-                                      const SmallVector<size_t, 4> &Point) {
-
-  // Build a virtual tensor table for transition scores.
-  // e.g. If the shape is (2, 2, 2), the virtual tensor table is:
-  //
-  //       +-----------+-----------+
-  //      / (0, 0, 1) / (0, 1, 1) /|
-  //     /           /           / |
-  //    +-----------+-----------+  |
-  //   /           /           /|  +
-  //  /           /           / | /|
-  // +-----------+-----------+  |/ |
-  // |           |           |  +  |
-  // | (0, 0, 0) | (0, 1, 0) | /|  +
-  // |           |           |/ | /
-  // +-----------+-----------+  |/
-  // |           |           |  +
-  // | (1, 0, 0) | (1, 1, 0) | /
-  // |           |           |/
-  // +-----------+-----------+
-  // The current visiting point in the virtual tensor table.
-  assert(ShapeSize < 32 && "Shape size is too large");
-  TransitionOffset TransOffset(ShapeSize, true);
-  TransitionOffset DiagnoalOffset(ShapeSize, true);
-
-  // Visit all possible transitions except for the current point itself.
-  TransitionEntry BestTransition;
-
-  do {
-    if (!BestTransTable.contains(Point, TransOffset, true))
-      continue;
-
-    int32_t similarity = 0;
-    bool IsMatched = false;
-    // If diagonal transition, add the match score.
-    if (TransOffset == DiagnoalOffset) {
-      auto result = matchInstructions(MSAlignerUtilites::minusOffsetFromPoint(
-          TransOffset, Point, ShapeSize));
-      IsMatched = result.Match;
-      similarity = IsMatched ? (result.IdenticalTypes ? Scoring.Match
-                                                      : Scoring.Match / 2)
-                             : Scoring.Mismatch;
-    } else {
-      similarity = Scoring.getGapPenalty() * TransOffset.count();
-    }
-    assert(BestTransTable.get(Point, TransOffset, true).Score &&
-           "non-visited point");
-    auto fromScore = *BestTransTable.get(Point, TransOffset, true).Score;
-    int32_t newScore = MSAlignerUtilites::addScore(fromScore, similarity);
-    auto bestScore = BestTransition.Score;
-    if (!bestScore.hasValue() || newScore > *bestScore) {
-      BestTransition = TransitionEntry(TransOffset, IsMatched, newScore);
-    }
-  } while (TransOffset.decrement());
-
-  BestTransTable.set(Cursor, BestTransition);
-}
-
-void MSAligner::buildScoreTable() {
-  // Start visiting from (0, 0, ..., 0)
-  auto Cursor = TensorTableCursor::zero();
-  SmallVector<size_t, 4> Point(Shape.size(), 0);
-
-  while (advancePointInShape(Point)) {
-    Cursor.advance();
-    computeBestTransition(Cursor, Point);
-  };
-}
-
-void MSAligner::buildAlignment(
-    std::vector<llvm::MSAAlignmentEntry> &Alignment) {
-  TimeTraceScope TimeScope("BuildAlignment");
-  size_t MaxDim = BestTransTable.getShape().size();
-  std::vector<size_t> Cursor(MaxDim, 0);
-
-  auto BuildAlignmentEntry = [&](const TransitionEntry &Entry,
-                                 std::vector<size_t> Cursor) {
-    std::vector<Value *> Instrs;
-    const TransitionOffset &TransOffset = Entry.Offset;
-    for (int FuncIdx = 0; FuncIdx < Shape.size(); FuncIdx++) {
-      size_t diff = TransOffset[FuncIdx];
-      if (diff == 1) {
-        Value *I = InstrVecList[FuncIdx][Cursor[FuncIdx] - 1];
-        Instrs.push_back(I);
-      } else {
-        assert(diff == 0);
-        Instrs.push_back(nullptr);
-      }
-    }
-    return MSAAlignmentEntry(Instrs, Entry.Match);
-  };
-
-  // Set the first point to the end edge of the table.
-  for (size_t dim = 0; dim < MaxDim; dim++) {
-    Cursor[dim] = BestTransTable.getShape()[dim] - 1;
-  }
-
-  while (true) {
-    MSA_VERBOSE(
-        dbgs() << "BackCursor: "; for (size_t dim = 0; dim < MaxDim; dim++) {
-          dbgs() << Cursor[dim] << " ";
-        } dbgs() << "\n");
-    // If the current point is the start edge of the table, we are done.
-    if (std::all_of(Cursor.begin(), Cursor.end(),
-                    [](size_t v) { return v == 0; })) {
-      break;
-    }
-
-    auto &Entry = BestTransTable[Cursor];
-    MSA_VERBOSE(dbgs() << "Entry: " << Entry << "\n");
-    auto &Offset = Entry.Offset;
-    auto alignEntry = BuildAlignmentEntry(Entry, Cursor);
-    Alignment.emplace_back(alignEntry);
-    for (size_t dim = 0; dim < MaxDim; dim++) {
-      assert(Cursor[dim] >= Offset[dim] && "cursor is moving to outside the "
-                                           "table!");
-      Cursor[dim] -= Offset[dim];
-    }
-  }
-}
-
-void MSAligner::align(std::vector<MSAAlignmentEntry> &Alignment) {
-  /* ===== Needleman–Wunsch algorithm ======= */
-
-  buildScoreTable();
-  MSA_VERBOSE(llvm::dbgs() << "BestTransTable:\n";
-              BestTransTable.print(llvm::dbgs()));
-
-  buildAlignment(Alignment);
-
-  return;
-}
-
 static OptimizationRemarkMissed
 createMissedRemark(StringRef RemarkName, StringRef Reason,
                    ArrayRef<Function *> Functions) {
@@ -403,312 +125,36 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
   return remark;
 }
 
-bool MSAligner::align(FunctionMerger &PairMerger, ScoringSystem &Scoring,
-                      ArrayRef<Function *> Functions,
-                      std::vector<MSAAlignmentEntry> &Alignment,
-                      size_t ShapeSizeLimit, OptimizationRemarkEmitter *ORE,
-                      const FunctionMergingOptions &Options) {
-  std::vector<SmallVector<Value *, 16>> InstrVecList(Functions.size());
-  std::vector<size_t> Shape;
-  size_t ShapeSize = 1;
-
-  {
-    TimeTraceScope TimeScope("Linearize");
-    for (size_t i = 0; i < Functions.size(); i++) {
-      auto &F = *Functions[i];
-      PairMerger.linearize(&F, InstrVecList[i]);
-      Shape.push_back(InstrVecList[i].size() + 1);
-      ShapeSize *= Shape[i];
-    }
-  }
-
-  // FIXME(katei): The current algorithm is not optimal and consumes too much
-  // memory. We should use more efficient algorithm and unlock this limitation.
-  if (ShapeSize > ShapeSizeLimit) {
-    if (ORE) {
-      ORE->emit([&] {
-        auto remark =
-            createMissedRemark("Alignment", "Too large table size", Functions);
-        for (size_t i = 0; i < Shape.size(); i++) {
-          remark << ore::NV("Shape", Shape[i]);
-        }
-        return remark;
-      });
-    }
-    return false;
-  }
-
-  MSAligner Aligner(Scoring, Functions, Shape, InstrVecList, Options);
-  Aligner.align(Alignment);
-  return true;
-}
 
 }; // namespace
 
-bool MSAAlignmentEntry::collectInstructions(
-    std::vector<Instruction *> &Instructions) const {
-  bool allInstructions = true;
-  for (auto *V : Values) {
-    if (V && isa<Instruction>(V)) {
-      Instructions.push_back(cast<Instruction>(V));
-    } else {
-      allInstructions = false;
-      Instructions.push_back(nullptr);
-    }
-  }
-  return allInstructions;
-}
-
-void MSAAlignmentEntry::verify() const {
-  if (!match() || Values.empty()) {
-    return;
-  }
-  bool isBB = isa<BasicBlock>(Values[0]);
-  for (size_t i = 1; i < Values.size(); i++) {
-    if (isBB != isa<BasicBlock>(Values[i])) {
-      llvm_unreachable(
-          "all values must be either basic blocks or instructions");
-    }
-  }
-}
-
-void MSAAlignmentEntry::print(raw_ostream &OS) const {
-  OS << "MSAAlignmentEntry:\n";
-  for (auto *V : Values) {
-    if (V) {
-      if (auto *BB = dyn_cast<BasicBlock>(V)) {
-        OS << "- bb" << BB->getName() << "\n";
-      } else {
-        OS << "- " << *V << "\n";
-      }
-    } else {
-      OS << "-   nullptr\n";
-    }
-  }
-}
-
-bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry> &Alignment,
+bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
+                              bool &isProfitable,
                               const FunctionMergingOptions &Options) {
   TimeTraceScope TimeScope("Align");
-  return MSAligner::align(PairMerger, Scoring, Functions, Alignment,
-                          DefaultShapeSizeLimit, &ORE, Options);
-}
 
-MSAThunkFunction
-MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
-                         unsigned int FuncId,
-                         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
-  auto *M = MergedFunction->getParent();
-  auto *thunk = Function::Create(SrcFunction->getFunctionType(),
-                                 SrcFunction->getLinkage(), "");
-  M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
-  // In order to preserve function order, we move Clone after old Function
-  thunk->setCallingConv(SrcFunction->getCallingConv());
-  thunk->copyAttributesFrom(SrcFunction);
-  auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
-  IRBuilder<> Builder(BB);
-
-  SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
-
-  Args[0] = ConstantInt::get(MergedFunction->getFunctionType()->getParamType(0),
-                             FuncId);
-
-  for (auto &srcArg : SrcFunction->args()) {
-    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
-    Args[newArgNo] = thunk->getArg(srcArg.getArgNo());
-  }
-  for (size_t i = 0; i < Args.size(); i++) {
-    if (!Args[i]) {
-      Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
-    }
-  }
-
-  auto *Call = Builder.CreateCall(MergedFunction, Args);
-  Call->setTailCall();
-  Call->setIsNoInline();
-
-  if (SrcFunction->getReturnType()->isVoidTy()) {
-    Builder.CreateRetVoid();
+  constexpr auto Ty = MSAAlignmentEntryType::Variable;
+  std::unique_ptr<MultipleSequenceAligner<Ty>> Aligner;
+  std::unique_ptr<NeedlemanWunschMultipleSequenceAligner<Ty>> NWAligner;
+  ScoringSystem Scoring(/*Gap*/ -1, /*Match*/ 2,
+                        /*Mismatch*/ fmutils::OptionalScore::min());
+  if (Options.EnableHyFMAlignment) {
+    NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
+        Scoring, DefaultShapeSizeLimit, Options);
+    Aligner = std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
+        *NWAligner.get(), Options);
   } else {
-    Builder.CreateRet(Call);
+    Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
+        Scoring, DefaultShapeSizeLimit, Options);
   }
-  return MSAThunkFunction(SrcFunction, thunk);
-}
-
-void MSAThunkFunction::applyReplacements() {
-  SrcFunction->replaceAllUsesWith(Thunk);
-  Thunk->takeName(SrcFunction);
-  SrcFunction->eraseFromParent();
-}
-
-void MSAThunkFunction::discard() { Thunk->eraseFromParent(); }
-
-Optional<MSACallReplacement> MSACallReplacement::create(
-    size_t FuncId, Function *SrcFunction,
-    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
-  std::vector<WeakTrackingVH> Calls;
-  for (User *U : SrcFunction->users()) {
-    if (auto *Call = dyn_cast<CallBase>(U)) {
-      if (Call->getCalledFunction() != SrcFunction) {
-        return None;
-      }
-      Calls.emplace_back(Call);
-    } else {
-      return None;
-    }
-  }
-
-  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
-  for (auto &srcArg : SrcFunction->args()) {
-    unsigned srcArgNo = srcArg.getArgNo();
-    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
-    SrcArgNoToMergedArgNo[srcArgNo] = newArgNo;
-  }
-
-  return MSACallReplacement(FuncId, SrcFunction, std::move(Calls),
-                            std::move(SrcArgNoToMergedArgNo));
-}
-
-void MSACallReplacement::applyReplacements(Function *MergedFunction) {
-
-  for (auto V : Calls) {
-    if (!V) {
-      continue;
-    }
-
-    auto *CI = cast<CallBase>(V);
-    IRBuilder<> Builder(CI);
-
-    SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
-
-    Args[0] = ConstantInt::get(
-        MergedFunction->getFunctionType()->getParamType(0), FuncId);
-
-    for (auto &srcArg : SrcFunction->args()) {
-      unsigned srcArgNo = srcArg.getArgNo();
-      unsigned newArgNo = SrcArgNoToMergedArgNo[srcArgNo];
-      Args[newArgNo] = CI->getArgOperand(srcArgNo);
-    }
-    for (size_t i = 0; i < Args.size(); i++) {
-      if (!Args[i]) {
-        Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
-      }
-    }
-
-    CallBase *NewCB = nullptr;
-    if (auto *Call = dyn_cast<CallInst>(CI)) {
-      NewCB = Builder.CreateCall(MergedFunction, Args);
-    } else if (auto *Invoke = dyn_cast<InvokeInst>(CI)) {
-      NewCB = Builder.CreateInvoke(MergedFunction, Invoke->getNormalDest(),
-                                   Invoke->getUnwindDest(), Args);
-    } else {
-      llvm_unreachable("unsupported call instruction");
-    }
-    NewCB->setCallingConv(MergedFunction->getCallingConv());
-    NewCB->setIsNoInline();
-
-    CI->replaceAllUsesWith(NewCB);
-    CI->eraseFromParent();
-  }
-  SrcFunction->eraseFromParent();
-}
-
-size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
-
-MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
-  size_t MergedSize =
-      EstimateFunctionSize(&Merged, &FAM.getResult<TargetIRAnalysis>(Merged));
-  size_t OriginalTotalSize = 0;
-  for (auto *F : Functions) {
-    OriginalTotalSize +=
-        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
-  }
-  // This magic number respects `EstimateThunkOverhead`
-  size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
-
-  for (auto &thunk : Thunks) {
-    ThunkOverhead += Merged.getFunctionType()->getNumParams();
-  }
-  return Score{
-      .MergedSize = MergedSize,
-      .ThunkOverhead = ThunkOverhead,
-      .OriginalTotalSize = OriginalTotalSize,
-      .Options = Options,
-      .Stats = Stats,
-  };
-}
-
-bool MSAMergePlan::Score::isProfitableMerge() const {
-  if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
-    return true;
-  }
-  if (Stats.NumSelection > MaxNumSelection) {
-    return false;
-  }
-  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
-    return true;
-  }
-  return false;
-}
-
-void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
-                                           OptimizationRemarkEmitter &ORE) {
-  auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
-                << ore::NV("MergedSize", MergedSize)
-                << ore::NV("ThunkOverhead", ThunkOverhead)
-                << ore::NV("OriginalTotalSize", OriginalTotalSize)
-                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
-                << ore::NV("NumSelection", Stats.NumSelection);
-  ORE.emit(remark);
-}
-
-void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
-                                           OptimizationRemarkEmitter &ORE) {
-  ORE.emit([&] {
-    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", &plan.getMerged());
-    for (auto *F : plan.getFunctions()) {
-      remark << ore::NV("Function", F->getName());
-    }
-    remark << ore::NV("MergedSize", MergedSize)
-           << ore::NV("ThunkOverhead", ThunkOverhead)
-           << ore::NV("OriginalTotalSize", OriginalTotalSize)
-           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
-    return remark;
-  });
-}
-
-bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
-  return (MergedSize + ThunkOverhead + Other.OriginalTotalSize) <
-         (Other.MergedSize + Other.ThunkOverhead + OriginalTotalSize);
-}
-
-Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
-                                   OptimizationRemarkEmitter &ORE) {
-  TimeTraceScope TimeScope("ApplyMerge");
-  for (auto replacement : CallReplacements) {
-    replacement.applyReplacements(&Merged);
-  }
-
-  for (auto &thunk : Thunks) {
-    thunk.applyReplacements();
-  }
-  return Merged;
-}
-
-void MSAMergePlan::discard() {
-  for (auto &thunk : Thunks) {
-    thunk.discard();
-  }
-  Merged.eraseFromParent();
+  return Aligner->align(Functions, Alignment, isProfitable, &ORE);
 }
 
 MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
                                      FunctionMerger &PM,
                                      OptimizationRemarkEmitter &ORE,
                                      FunctionAnalysisManager &FAM)
-    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
-      Scoring(/*Gap*/ -1, /*Match*/ 2,
-              /*Mismatch*/ fmutils::OptionalScore::min()) {
+    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM) {
   assert(!Functions.empty() && "No functions to merge");
   M = Functions[0]->getParent();
   size_t noOfBits = std::ceil(std::log2(Functions.size()));
@@ -718,10 +164,23 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
 Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   MSAStats Stats;
-  std::vector<MSAAlignmentEntry> Alignment;
-  if (!align(Alignment, Options)) {
+  std::vector<MSAAlignmentEntry<>> Alignment;
+  bool isProfitable = true;
+  if (!align(Alignment, isProfitable, Options)) {
+    ORE.emit([&] {
+      return createMissedRemark("Align", "Failed to align functions", Functions);
+    });
     return None;
   }
+  if (!isProfitable && !AllowUnprofitableMerge) {
+    ORE.emit([&] {
+      return createMissedRemark("UnprofitableMerge", "Unprofitable alignment",
+                                Functions);
+    });
+    return None;
+  }
+
+  LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); };);
 
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
   MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
@@ -837,9 +296,10 @@ public:
     return BlackholeBBCache;
   }
 
-  Instruction *cloneInstruction(IRBuilder<> &Builder, Instruction *I);
-  Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty,
-                    const Twine &Name = "");
+  static Instruction *cloneInstruction(IRBuilder<> &Builder,
+                                       const Instruction *I);
+  static Value *tryBitcast(IRBuilder<> &Builder, Value *V, Type *Ty,
+                           const Twine &Name = "");
 
   void layoutSharedBasicBlocks();
   void chainBasicBlocks();
@@ -872,59 +332,9 @@ public:
 
 }; // namespace llvm
 
-static bool hasLocalValueInMetadata(Metadata *MD) {
-  if (auto *LMD = dyn_cast<LocalAsMetadata>(MD)) {
-    auto *V = LMD->getValue();
-    if (auto *MDV = dyn_cast<MetadataAsValue>(V)) {
-      return hasLocalValueInMetadata(MDV->getMetadata());
-    }
-    return true;
-  } else {
-    return false;
-  }
-}
-
-/// Return true if the value can be updated after merging operands.
-/// Otherwise, the value is a constant or a global value.
-static bool isLocalValue(Value *V) {
-  if (isa<Constant>(V)) {
-    return false;
-  }
-  // TODO(katei): Should we merge metadata as well?
-  if (auto *MDV = dyn_cast<MetadataAsValue>(V)) {
-    // if metadata holds an inner value, clear it.
-    if (!hasLocalValueInMetadata(MDV->getMetadata())) {
-      return false;
-    }
-  }
-  return true;
-}
-
 Instruction *MSAGenFunctionBody::cloneInstruction(IRBuilder<> &Builder,
-                                                  Instruction *I) {
-  Instruction *NewI = nullptr;
-  auto *MF = MergedFunc;
-  if (I->getOpcode() == Instruction::Ret) {
-    if (MF->getReturnType()->isVoidTy()) {
-      NewI = Builder.CreateRetVoid();
-    } else {
-      NewI = Builder.CreateRet(UndefValue::get(MF->getReturnType()));
-    }
-  } else {
-    NewI = I->clone();
-    Builder.Insert(NewI);
-    for (unsigned i = 0; i < NewI->getNumOperands(); i++) {
-      auto Op = I->getOperand(i);
-      if (isLocalValue(Op)) {
-        NewI->setOperand(i, nullptr);
-      }
-    }
-  }
-
-  NewI->copyMetadata(*I);
-
-  NewI->setName(I->getName());
-  return NewI;
+                                                  const Instruction *I) {
+  return fmutils::InstructionCloner::clone(Builder, I);
 }
 
 Value *MSAGenFunctionBody::tryBitcast(IRBuilder<> &Builder, Value *V,
@@ -1251,6 +661,44 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
         FV = I->getOperand(OperandIdx);
         // FIXME(katei): `VMap[FV]` is enough?
         V = MapValue(FV, VMap);
+        if (V == nullptr && isa<LandingPadInst>(FV)) {
+          // FIXME(katei): SalSSA unsoundness?
+          // SalSSA depends on the order of "invoke" and "landingpad"
+          // instructions. In most cases, "invoke" is processed before
+          // "landingpad", thanks to the order of the invoker BB and the
+          // landingpad BB **in linearized aligned instruction sequence**.
+          // e.g. SalSSA works well for the following code:
+          //   entry:
+          //   invoke void @foo() to label %invoke.cont unwind label %lpad
+          //   lpad:
+          //   (%l = landingpad { i8*, i32 })
+          //   %e = extractvalue { i8*, i32 } %l, 0
+          //
+          // In this case, SalSSA's label operand assignment phase visits the
+          // top BB first and then the bottom BB at last. So "invoke" is visited
+          // at first, then its landingpad label is recognized and a new
+          // landingpad BB is created. "landingpad" instruction itself is
+          // ignored at alignment phase, so it's skipped. (see Section "4.2.2
+          // Landing Blocks" in the SalSSA paper). Finally, the use of the
+          // landingpad instruction "%e" is visited and the label operand is
+          // already in VMap, so it works well.
+          //
+          // However, the linear order of the BBs is not guaranteed and can have
+          // different orders for the same CFG like:
+          //   lpad:
+          //   (%l = landingpad { i8*, i32 })
+          //   %e = extractvalue { i8*, i32 } %l, 0
+          //   entry:
+          //   invoke void @foo() to label %invoke.cont unwind label %lpad
+          //
+          // In this case, the use of the landingpad instruction "%e" is visited
+          // before "landingpad" is assigned in VMap. So the below assertion can
+          // fails.
+          //
+          // We leave this as a known issue for now to follow the baseline
+          // codegen behavior.
+          return false;
+        }
         assert(V && "Operand not found in VMap!");
       } else {
         V = UndefValue::get(
@@ -1386,7 +834,7 @@ bool MSAGenFunctionBody::assignLabelOperands() {
   // to see use of landingpad BB before the actual landingpad inst.
   for (auto it = Parent.Alignment.rbegin(); it != Parent.Alignment.rend();
        ++it) {
-    MSAAlignmentEntry Entry = *it;
+    MSAAlignmentEntry<> Entry = *it;
     std::vector<Instruction *> Instructions;
     bool allInsts = Entry.collectInstructions(Instructions);
     // If instructions are merged, select new operand values by switch-phi.
@@ -1555,7 +1003,7 @@ bool MSAGenFunctionBody::assignValueOperands(Instruction *SrcI) {
         continue;
       // Metadata or constant operands should be cloned correctly by
       // cloneInstruction
-      if (!isLocalValue(Op))
+      if (!fmutils::InstructionCloner::isLocalValue(Op))
         continue;
 
       Value *V = MapValue(Op, VMap);
@@ -2321,6 +1769,225 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   return MergedF;
 }
 
+MSAThunkFunction
+MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
+                         unsigned int FuncId,
+                         ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
+  auto *M = MergedFunction->getParent();
+  auto *thunk = Function::Create(SrcFunction->getFunctionType(),
+                                 SrcFunction->getLinkage(), "");
+  M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
+  // In order to preserve function order, we move Clone after old Function
+  thunk->setCallingConv(SrcFunction->getCallingConv());
+  thunk->copyAttributesFrom(SrcFunction);
+  auto *BB = BasicBlock::Create(thunk->getContext(), "", thunk);
+  IRBuilder<> Builder(BB);
+
+  SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
+
+  Args[0] = ConstantInt::get(MergedFunction->getFunctionType()->getParamType(0),
+                             FuncId);
+
+  for (auto &srcArg : SrcFunction->args()) {
+    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+    Args[newArgNo] = thunk->getArg(srcArg.getArgNo());
+  }
+  for (size_t i = 0; i < Args.size(); i++) {
+    if (!Args[i]) {
+      Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
+    }
+  }
+
+  auto *Call = Builder.CreateCall(MergedFunction, Args);
+  Call->setTailCall();
+  Call->setIsNoInline();
+
+  if (SrcFunction->getReturnType()->isVoidTy()) {
+    Builder.CreateRetVoid();
+  } else {
+    Builder.CreateRet(Call);
+  }
+  return MSAThunkFunction(SrcFunction, thunk);
+}
+
+void MSAThunkFunction::applyReplacements() {
+  SrcFunction->replaceAllUsesWith(Thunk);
+  Thunk->takeName(SrcFunction);
+  SrcFunction->eraseFromParent();
+}
+
+void MSAThunkFunction::discard() { Thunk->eraseFromParent(); }
+
+Optional<MSACallReplacement> MSACallReplacement::create(
+    size_t FuncId, Function *SrcFunction,
+    ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
+  std::vector<WeakTrackingVH> Calls;
+  for (User *U : SrcFunction->users()) {
+    if (auto *Call = dyn_cast<CallBase>(U)) {
+      if (Call->getCalledFunction() != SrcFunction) {
+        return None;
+      }
+      Calls.emplace_back(Call);
+    } else {
+      return None;
+    }
+  }
+
+  SmallDenseMap<unsigned, unsigned> SrcArgNoToMergedArgNo;
+  for (auto &srcArg : SrcFunction->args()) {
+    unsigned srcArgNo = srcArg.getArgNo();
+    unsigned newArgNo = ArgToMergedArgNo[&srcArg];
+    SrcArgNoToMergedArgNo[srcArgNo] = newArgNo;
+  }
+
+  return MSACallReplacement(FuncId, SrcFunction, std::move(Calls),
+                            std::move(SrcArgNoToMergedArgNo));
+}
+
+void MSACallReplacement::applyReplacements(Function *MergedFunction) {
+
+  for (auto V : Calls) {
+    if (!V) {
+      continue;
+    }
+
+    auto *CI = cast<CallBase>(V);
+    // Insert the new call after the old one. The old call will be
+    // replaced/erased
+    IRBuilder<> Builder(CI);
+
+    SmallVector<Value *, 16> Args(MergedFunction->arg_size(), nullptr);
+
+    Args[0] = ConstantInt::get(
+        MergedFunction->getFunctionType()->getParamType(0), FuncId);
+
+    for (auto &srcArg : SrcFunction->args()) {
+      unsigned srcArgNo = srcArg.getArgNo();
+      unsigned newArgNo = SrcArgNoToMergedArgNo[srcArgNo];
+      Args[newArgNo] = CI->getArgOperand(srcArgNo);
+    }
+    for (size_t i = 0; i < Args.size(); i++) {
+      if (!Args[i]) {
+        Args[i] = UndefValue::get(MergedFunction->getArg(i)->getType());
+      }
+    }
+
+    CallBase *NewCB = nullptr;
+    if (auto *Call = dyn_cast<CallInst>(CI)) {
+      NewCB = Builder.CreateCall(MergedFunction, Args);
+    } else if (auto *Invoke = dyn_cast<InvokeInst>(CI)) {
+      NewCB = Builder.CreateInvoke(MergedFunction, Invoke->getNormalDest(),
+                                   Invoke->getUnwindDest(), Args);
+    } else {
+      llvm_unreachable("unsupported call instruction");
+    }
+    NewCB->setCallingConv(MergedFunction->getCallingConv());
+    NewCB->setIsNoInline();
+
+    // If the source return type is void, we can just discard the unified return
+    // value. Otherwise, we need to cast it to the source return type.
+    if (!SrcFunction->getReturnType()->isVoidTy()) {
+      auto Replacement = MSAGenFunctionBody::tryBitcast(
+          Builder, NewCB, SrcFunction->getReturnType());
+      CI->replaceAllUsesWith(Replacement);
+    } else {
+      assert(CI->getNumUses() == 0 && "void function should not have any uses");
+    }
+
+    CI->eraseFromParent();
+  }
+  SrcFunction->eraseFromParent();
+}
+
+size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
+
+MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
+  size_t MergedSize =
+      EstimateFunctionSize(&Merged, &FAM.getResult<TargetIRAnalysis>(Merged));
+  size_t OriginalTotalSize = 0;
+  for (auto *F : Functions) {
+    OriginalTotalSize +=
+        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
+  }
+  // This magic number respects `EstimateThunkOverhead`
+  size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
+
+  for (auto &thunk : Thunks) {
+    ThunkOverhead += Merged.getFunctionType()->getNumParams();
+  }
+  return Score{
+      .MergedSize = MergedSize,
+      .ThunkOverhead = ThunkOverhead,
+      .OriginalTotalSize = OriginalTotalSize,
+      .Options = Options,
+      .Stats = Stats,
+  };
+}
+
+bool MSAMergePlan::Score::isProfitableMerge() const {
+  if (AllowUnprofitableMerge || !OnlyFunctions.empty()) {
+    return true;
+  }
+  if (Stats.NumSelection > MaxNumSelection) {
+    return false;
+  }
+  if (MergedSize + ThunkOverhead < OriginalTotalSize) {
+    return true;
+  }
+  return false;
+}
+
+void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
+                                           OptimizationRemarkEmitter &ORE) {
+  auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
+                << ore::NV("MergedSize", MergedSize)
+                << ore::NV("ThunkOverhead", ThunkOverhead)
+                << ore::NV("OriginalTotalSize", OriginalTotalSize)
+                << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
+                << ore::NV("NumSelection", Stats.NumSelection);
+  ORE.emit(remark);
+}
+
+void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
+                                           OptimizationRemarkEmitter &ORE) {
+  ORE.emit([&] {
+    auto remark = OptimizationRemark(DEBUG_TYPE, "Merge", &plan.getMerged());
+    for (auto *F : plan.getFunctions()) {
+      remark << ore::NV("Function", F->getName());
+    }
+    remark << ore::NV("MergedSize", MergedSize)
+           << ore::NV("ThunkOverhead", ThunkOverhead)
+           << ore::NV("OriginalTotalSize", OriginalTotalSize)
+           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
+    return remark;
+  });
+}
+
+bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
+  return (MergedSize + ThunkOverhead + Other.OriginalTotalSize) <
+         (Other.MergedSize + Other.ThunkOverhead + OriginalTotalSize);
+}
+
+Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
+                                   OptimizationRemarkEmitter &ORE) {
+  TimeTraceScope TimeScope("ApplyMerge");
+  for (auto replacement : CallReplacements) {
+    replacement.applyReplacements(&Merged);
+  }
+
+  for (auto &thunk : Thunks) {
+    thunk.applyReplacements();
+  }
+  return Merged;
+}
+
+void MSAMergePlan::discard() {
+  for (auto &thunk : Thunks) {
+    thunk.discard();
+  }
+  Merged.eraseFromParent();
+}
+
 /// Check whether \p F is eligible to be a function merging candidate.
 static bool isEligibleToBeMergeCandidate(Function &F) {
   if (F.isDeclaration() || F.hasAvailableExternallyLinkage()) {
@@ -2361,6 +2028,8 @@ public:
                     bool IdenticalTypesOnly = true) {
     MSAOptions Opt = BaseOpt;
     Opt.matchOnlyIdenticalTypes(IdenticalTypesOnly);
+    Opt.EnableHyFMAlignment = EnableHyFMNW;
+
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     auto maybePlan = FM.planMerge(Opt);
     if (!maybePlan) {
@@ -2402,6 +2071,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
   FunctionMerger PairMerger(&M);
   auto Options = MSAOptions();
+  Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
 
   std::unique_ptr<Matcher<Function *>> MatchFinder;
   {
