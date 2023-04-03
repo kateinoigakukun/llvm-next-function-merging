@@ -64,6 +64,7 @@ class DataSource:
             # 'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true',
             'TECHNIQUE=f3m',
             'TECHNIQUE=hyfm',
+            'TECHNIQUE=hyfm ALIGNMENT=pa'
             # 'TECHNIQUE=f3m-legacy'
         ]
 
@@ -76,7 +77,8 @@ class DataSource:
         'TECHNIQUE=mfm2 ALIGNER=hyfm': {'title': 'Multiple Function Merging N=2 (HyFM)', 'color': 'Greens'},
         'TECHNIQUE=mfm2 IDENTICAL_TYPE_ONLY=true': {'title': 'Multiple Function Merging N=2 (identical types only)', 'color': 'Blues'},
         'TECHNIQUE=f3m': {'title': 'F3M (Patched)', 'color': 'Greys'},
-        'TECHNIQUE=hyfm': {'title': 'HyFM', 'color': 'Greys'},
+        'TECHNIQUE=hyfm': {'title': 'HyFM (NW)', 'color': 'Greys'},
+        'TECHNIQUE=hyfm ALIGNMENT=pa': {'title': 'HyFM (PA)', 'color': 'Greys'},
         'TECHNIQUE=f3m-legacy': {'title': 'F3M (Original)', 'color': 'Greys'},
     }
 
@@ -172,6 +174,7 @@ class PlottingOptions:
         'next': {
             'variants': [
                 'TECHNIQUE=hyfm',
+                'TECHNIQUE=hyfm ALIGNMENT=pa',
                 'TECHNIQUE=f3m',
                 'TECHNIQUE=mfm2',
                 'TECHNIQUE=mfm2 ALIGNER=hyfm',

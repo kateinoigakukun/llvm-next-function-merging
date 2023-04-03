@@ -20,6 +20,7 @@ _DEFAULTS = {
 _TECHNIQUES = {
     'baseline': {'TECHNIQUE': 'baseline'},
     'hyfm': {'TECHNIQUE': 'hyfm', 'ALIGNMENT': 'nw'},
+    'hyfm-pa': {'TECHNIQUE': 'hyfm', 'ALIGNMENT': 'pa'},
     'f3m': {'TECHNIQUE': 'f3m', 'ALIGNMENT': 'nw'},
     'f3m-adapt': {'TECHNIQUE': 'f3m', 'ALIGNMENT': 'nw', 'F3M_ADAPT_BANDS': 'true', 'F3M_ADAPT_THR': 'true'},
     'mfm2-ito': {'TECHNIQUE': 'mfm2', 'IDENTICAL_TYPE_ONLY': 'true'},
