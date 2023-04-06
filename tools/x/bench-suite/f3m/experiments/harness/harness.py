@@ -15,12 +15,14 @@ def db_init():
     con.execute('''
         CREATE TABLE IF NOT EXISTS invocations (
             timestamp INTEGER PRIMARY KEY,
+            revision TEXT,
             datetime TEXT,
             flags TEXT)''')
 
     con.execute('''
         CREATE TABLE IF NOT EXISTS builds (
             benchmark TEXT,
+            revision TEXT,
             flags TEXT,
             runtime FLOAT,
             size INTEGER,
@@ -31,6 +33,7 @@ def db_init():
     con.execute('''
         CREATE TABLE IF NOT EXISTS runs (
             benchmark TEXT,
+            revision TEXT,
             flags TEXT,
             runtime FLOAT,
             log TEXT,
@@ -39,12 +42,17 @@ def db_init():
     con.execute('''
         CREATE TABLE IF NOT EXISTS reports (
             benchmark TEXT,
+            revision TEXT,
             flags TEXT,
             runtime FLOAT,
             log TEXT,
             timestamp INTEGER)''')
 
     return con
+
+def git_revision():
+    return subprocess.check_output(
+        ["/usr/bin/git", "rev-parse", "HEAD"]).decode('utf-8')
 
 class Exp():
     def __init__(self, benchmarks, experimental_combos=None, repeats=1, timeout=5*60*60, register=True):
@@ -55,14 +63,16 @@ class Exp():
         else:
             self.combos = Flags.get_standard()
 
+        self.revision = git_revision()
         self.benchmarks = benchmarks
         self.timestamp = int(time.time())
         self.timestamp_txt = datetime.datetime.now().isoformat()
         self.con = db_init()
         if register:
             with self.con:
-                self.con.execute('''INSERT INTO invocations values (?, ?, ?)''', (
+                self.con.execute('''INSERT INTO invocations values (?, ?, ?, ?)''', (
                     self.timestamp,
+                    self.revision,
                     self.timestamp_txt,
                     Flags.globals_repr()))
 
@@ -72,13 +82,14 @@ class Exp():
     def _init_stats(self):
         # Retrieve the experiments history
         with self.con:
-            sqlcmd = 'SELECT benchmark, flags, runtime FROM ' + self.table
-            for bmark, flags, runtime in self.con.execute(sqlcmd):
+            sqlcmd = 'SELECT benchmark, revision, flags, runtime FROM ' + self.table
+            for bmark, revision, flags, runtime in self.con.execute(sqlcmd):
                 bmark = Benchmark.get_by_name(bmark)
                 flags = Flags.from_str(flags)
-                self._update_stats(bmark, flags, runtime)
+                self._update_stats(bmark, revision, flags, runtime)
 
     def is_complete(self, bmark, flags):
+        revision = self.revision
         print(f"Checking if {bmark.name} {flags} is complete")
         print(f"  {bmark} in stats: {bmark in self.stats}")
         if bmark not in self.stats:
@@ -86,11 +97,13 @@ class Exp():
         print(f"  {flags} in stats: {flags in self.stats[bmark]}")
         if flags not in self.stats[bmark]:
             return False
-        print(f"  Checking time: {self.stats[bmark][flags]['time']} > {self.timeout}")
-        if self.stats[bmark][flags]['time'] > self.timeout:
+        if revision not in self.stats[bmark][flags]:
+            return False
+        print(f"  Checking time: {self.stats[bmark][flags][revision]['time']} > {self.timeout}")
+        if self.stats[bmark][flags][revision]['time'] > self.timeout:
             return True
-        print(f"  Checking count: {self.stats[bmark][flags]['count']} >= {self.repeats}")
-        if self.stats[bmark][flags]['count'] >= self.repeats:
+        print(f"  Checking count: {self.stats[bmark][flags][revision]['count']} >= {self.repeats}")
+        if self.stats[bmark][flags][revision]['count'] >= self.repeats:
             return True
         return False
 
@@ -107,11 +120,12 @@ class Exp():
                     self.write_results(bmark, flags, res)
 
     def write_results(self, bmark, flags, res):
-        self._update_stats(bmark, flags, res['runtime'])
+        self._update_stats(bmark, self.revision, flags, res['runtime'])
         with self.con:
             if 'object_size' in res and self.table != 'reports':
-                self.con.execute("INSERT INTO " + self.table + " values (?, ?, ?, ?, ?, ?, ?)", (
+                self.con.execute("INSERT INTO " + self.table + " values (?, ?, ?, ?, ?, ?, ?, ?)", (
                     bmark.name,
+                    self.revision,
                     str(flags),
                     float(res['runtime']),
                     res['object_size'],
@@ -119,23 +133,27 @@ class Exp():
                     str(res['remark']),
                     self.timestamp))
             else:
-                self.con.execute("INSERT INTO " + self.table + " values (?, ?, ?, ?, ?)", (
+                self.con.execute("INSERT INTO " + self.table + " values (?, ?, ?, ?, ?, ?)", (
                     bmark.name,
+                    self.revision,
                     str(flags),
                     float(res['runtime']),
                     str(res['log']),
                     self.timestamp))
 
 
-    def _update_stats(self, bmark, flags, runtime):
+    def _update_stats(self, bmark, revision, flags, runtime):
         if bmark not in self.stats:
             self.stats[bmark] = dict()
 
         if flags not in self.stats[bmark]:
-            self.stats[bmark][flags] = {'count': 0, 'time': 0.0}
+            self.stats[bmark][flags] = dict()
 
-        self.stats[bmark][flags]['count'] += 1
-        self.stats[bmark][flags]['time'] += runtime
+        if revision not in self.stats[bmark][flags]:
+            self.stats[bmark][flags][revision] = {'count': 0, 'time': 0.0}
+
+        self.stats[bmark][flags][revision]['count'] += 1
+        self.stats[bmark][flags][revision]['time'] += runtime
 
     def do_one(self, bmark, flags):
         raise NotImplementedError
