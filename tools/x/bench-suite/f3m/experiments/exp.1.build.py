@@ -10,6 +10,7 @@ global_flags = {
     'debug': False,
     'from_scratch': False,
     'report': False,
+    'output': config._REPO_ROOTDIR / '.x' / 'bench-suite' / 'f3m' / 'output',
     'llvm_dir': config.LLVM_DIR}
 
 combos = Flags.get_standard()

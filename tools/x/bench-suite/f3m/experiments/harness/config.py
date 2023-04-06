@@ -3,8 +3,7 @@ import pathlib
 
 _BASEDIR = pathlib.Path(__file__).parent.resolve()
 _REPO_ROOTDIR = pathlib.Path(__file__).parent.parent.parent.parent.parent.parent.parent
-_ORIGINAL_BASEDIR = _REPO_ROOTDIR.joinpath(
-    ".x", "bench-suite", "f3m", "f3m-cgo22-artifact.v4").resolve()
+_ORIGINAL_BASEDIR = _REPO_ROOTDIR.joinpath("..", "llvm-nextfm-benchmark").resolve()
 
 LLVM_DIR = _BASEDIR.parent / 'llvm-fakebin'
 LOGDIR = _ORIGINAL_BASEDIR / 'logs'

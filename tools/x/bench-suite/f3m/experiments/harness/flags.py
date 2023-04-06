@@ -131,3 +131,7 @@ class Flags(object):
     @classmethod
     def llvm_dir(cls):
         return cls._global['llvm_dir']
+
+    @classmethod
+    def output(cls):
+        return cls._global['output']

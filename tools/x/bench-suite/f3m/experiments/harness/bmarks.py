@@ -36,11 +36,16 @@ class Benchmark(object):
             check=True, universal_newlines=True,
             env={'LLVM_NEXTFM_PLUGIN': config.PASS_PLUGIN})
 
+    def _execute_make(self, args, flags, stdout, stderr):
+        cmd = ['/usr/bin/make']
+        cmd.extend(args)
+        cmd.extend(flags.mkfile_opts())
+        cmd.append(f'BUILD_DIR={self.build_dir(flags)}')
+        return [self._execute(cmd, stdout, stderr), cmd]
+
     def binary_name(self, flags):
         '''Returns the relative path of the binary created by the Makefile'''
-        cmd = ['/usr/bin/make', 'name_bin']
-        cmd.extend(flags.mkfile_opts())
-        res = self._execute(cmd, subprocess.PIPE, None)
+        res, _ = self._execute_make(['name_bin'], flags, subprocess.PIPE, None)
         return res.stdout.strip()
 
     def binary_file(self, flags):
@@ -53,9 +58,7 @@ class Benchmark(object):
 
     def object_name(self, flags):
         '''Returns the relative path of the obj file created by the Makefile'''
-        cmd = ['/usr/bin/make', 'name_obj']
-        cmd.extend(flags.mkfile_opts())
-        res = self._execute(cmd, subprocess.PIPE, None)
+        res, _ = self._execute_make(['name_obj'], flags, subprocess.PIPE, None)
         return res.stdout.strip()
 
     def object_size(self, flags):
@@ -79,18 +82,19 @@ class Benchmark(object):
         remark = config.REAMRKDIR / f'{kind}.{self.name}.{flags_str}.{timestamp}.yaml'
         return log, remark
 
+    def build_dir(self, flags):
+        '''Returns the path where the benchmark will be built'''
+        return flags.output() / self.suite_name / self.name
+
     def build(self, flags):
         '''Build the benchmark with the selected flags'''
-        build_dir = self.basedir / 'build'
-        build_dir.mkdir(exist_ok=True)
+        self.build_dir(flags).mkdir(parents=True, exist_ok=True)
 
         log, remark = self.logpath('build', flags)
         with open(log, 'w') as fout:
-            cmd = ['/usr/bin/make']
-            cmd.extend(flags.mkfile_opts())
-            cmd.extend([f'REMARK_PATH={remark}'])
+            args = [f'REMARK_PATH={remark}']
             start = time.perf_counter()
-            self._execute(cmd, fout, subprocess.STDOUT)
+            _, cmd = self._execute_make(args, flags, fout, subprocess.STDOUT)
             end = time.perf_counter()
         return {'cmd': cmd,
                 'runtime': end-start,
