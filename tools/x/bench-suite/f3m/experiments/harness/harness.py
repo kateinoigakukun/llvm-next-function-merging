@@ -55,7 +55,7 @@ def git_revision():
         ["/usr/bin/git", "rev-parse", "HEAD"]).decode('utf-8')
 
 class Exp():
-    def __init__(self, benchmarks, experimental_combos=None, repeats=1, timeout=5*60*60, register=True):
+    def __init__(self, benchmarks, config: config.Configuration, experimental_combos=None, repeats=1, timeout=5*60*60, register=True):
         self.repeats = repeats
         self.timeout = timeout
         if experimental_combos:
@@ -68,16 +68,10 @@ class Exp():
         self.timestamp = int(time.time())
         self.timestamp_txt = datetime.datetime.now().isoformat()
         self.con = db_init()
-        if register:
-            with self.con:
-                self.con.execute('''INSERT INTO invocations values (?, ?, ?, ?)''', (
-                    self.timestamp,
-                    self.revision,
-                    self.timestamp_txt,
-                    Flags.globals_repr()))
 
         self.stats = dict()
         self.table = None
+        self.config = config
 
     def _init_stats(self):
         # Retrieve the experiments history
@@ -85,7 +79,7 @@ class Exp():
             sqlcmd = 'SELECT benchmark, revision, flags, runtime FROM ' + self.table
             for bmark, revision, flags, runtime in self.con.execute(sqlcmd):
                 bmark = Benchmark.get_by_name(bmark)
-                flags = Flags.from_str(flags)
+                flags = Flags.from_str(flags, config=self.config)
                 self._update_stats(bmark, revision, flags, runtime)
 
     def is_complete(self, bmark, flags):
@@ -210,50 +204,15 @@ class ReportExp(Exp):
     def do_one(self, bmark, flags):
         return bmark.build(flags)
 
-def main(global_flags, experimental_combos=None, repeats=1, timeout=5*60*60):
+def main(global_flags, config: config.Configuration, benchmarks = Benchmark.get_all(), experimental_combos=None, repeats=1, timeout=5*60*60):
     Flags.set_globals(global_flags)
-
-    if not global_flags['benchmarks']:
-        benchmarks = Benchmark.get_all()
-    else:
-        benchmarks = []
-        for name in global_flags['benchmarks']:
-            names = Benchmark.get_by_suite(name)
-            if names:
-                benchmarks.extend(names)
-                continue
-            benchmarks.append(Benchmark.get_by_name(name))
-
-    if global_flags['report']:
-        ReportExp(
-            benchmarks,
-            experimental_combos=[Flags.get_report_flags()]
-        ).do_all()
-    elif global_flags.get('matcher_report', False):
-        BuildExp(
-            benchmarks,
-            experimental_combos=[Flags({'TECHNIQUE': 'lshfm', 'ALIGNMENT': 'pa', 'MATCHER_REPORT': 'true'})]
-        ).do_all()
-    elif global_flags.get('execute', False):
-        RunExp(
-            benchmarks,
-            experimental_combos=experimental_combos,
-            repeats=repeats,
-            timeout=timeout
-        ).do_all()
-        BuildExp(
-            benchmarks,
-            experimental_combos=experimental_combos,
-            repeats=repeats,
-            timeout=timeout
-        ).do_all()
-    else:
-        BuildExp(
-            benchmarks,
-            experimental_combos=experimental_combos,
-            repeats=repeats,
-            timeout=timeout
-        ).do_all()
+    BuildExp(
+        benchmarks,
+        experimental_combos=experimental_combos,
+        repeats=repeats,
+        timeout=timeout,
+        config=config
+    ).do_all()
 
 
 if __name__ == '__main__':

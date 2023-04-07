@@ -1,3 +1,7 @@
+from .config import Configuration
+from dataclasses import dataclass
+import logging
+
 '''Class encapsulating compilation flags.
 Handles defaults, conversion from/to string, equality comparison'''
 
@@ -35,10 +39,10 @@ _TECHNIQUES = {
 }
 
 class Flags(object):
-    _global = dict()
 
-    def __init__(self, flags, name=None):
+    def __init__(self, flags, config):
         self.flags = dict(flags)
+        self.config: Configuration = config
         self._name = None
 
     def __eq__(self, other):
@@ -74,12 +78,12 @@ class Flags(object):
         return None
 
     def mkfile_fmt(self):
+        def mkbool(val: bool):
+            return 'true' if val else 'false'
         new_flags = dict()
-        for prop, val in self._global.items():
-            if isinstance(val, bool):
-                new_flags[prop.upper()] = 'true' if val else 'false'
-            else:
-                new_flags[prop.upper()] = val
+        new_flags["DEBUG"] = mkbool(self.config.debug)
+        new_flags["VERBOSE"] = mkbool(self.config.verbose)
+        new_flags["LLVM_DIR"] = self.config.llvm_dir
 
         for prop, val in self.flags.items():
             if isinstance(val, bool):
@@ -93,23 +97,23 @@ class Flags(object):
 
 
     @classmethod
-    def from_str(cls, txt):
+    def from_str(cls, txt, config: Configuration):
         '''Class method translating a string generated
         by __repr__ back into a Flags object'''
         flags = [field for field in txt.split() if field.find('=') >= 0]
         flags = dict([field.split('=') for field in flags])
-        return cls(flags)
+        return cls(flags, config)
 
     @classmethod
-    def from_name(cls, name):
+    def from_name(cls, name, config: Configuration):
         '''Class method translating a technique's name to a Flags object'''
         assert name in _TECHNIQUES
-        return cls(_TECHNIQUES[name], name=name)
+        return cls(_TECHNIQUES[name], config)
 
     @classmethod
     def get_standard(cls):
         '''Class method return Flags objects for all predefined techniques'''
-        return [cls(flags, name=name) for name, flags in _TECHNIQUES.items()]
+        return [cls(flags) for name, flags in _TECHNIQUES.items()]
 
     @classmethod
     def get_report_flags(cls):
@@ -118,20 +122,14 @@ class Flags(object):
 
     @classmethod
     def set_globals(cls, global_flags):
-        cls._global = global_flags
+        pass
 
-    @classmethod
-    def globals_repr(cls):
-        return ' '.join([f'{prop}={val}' for prop, val in cls._global.items()])
+    def from_scratch(self):
+        logging.warn('from_scratch is deprecated. Please clean the output manually')
+        return False
 
-    @classmethod
-    def from_scratch(cls):
-        return cls._global['from_scratch']
+    def llvm_dir(self):
+        return self.config.llvm_dir
 
-    @classmethod
-    def llvm_dir(cls):
-        return cls._global['llvm_dir']
-
-    @classmethod
-    def output(cls):
-        return cls._global['output']
+    def output(self):
+        return self.config.output_dir
