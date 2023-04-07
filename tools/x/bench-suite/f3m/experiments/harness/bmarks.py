@@ -12,6 +12,7 @@ import shutil
 from distutils.dir_util import copy_tree
 
 import harness.config as config
+from harness.flags import Flags
 
 class Benchmark(object):
     '''Mostly an interface with the Makefiles. Builds, cleans, measures
@@ -28,20 +29,23 @@ class Benchmark(object):
     def __hash__(self):
         return hash(self.basedir.resolve())
 
-    def _execute(self, cmd, stdout, stderr):
+    def _execute(self, cmd, stdout, stderr, config: config.Configuration = None):
+        env = {}
+        if config:
+            env = {'LLVM_NEXTFM_PLUGIN': str(config.llvm_pass_plugin)}
         return subprocess.run(
             cmd,
             stdout=stdout, stderr=stderr,
             cwd=self.basedir,
             check=True, universal_newlines=True,
-            env={'LLVM_NEXTFM_PLUGIN': config.PASS_PLUGIN})
+            env=env)
 
-    def _execute_make(self, args, flags, stdout, stderr):
+    def _execute_make(self, args, flags: Flags, stdout, stderr):
         cmd = ['/usr/bin/make']
         cmd.extend(args)
         cmd.extend(flags.mkfile_opts())
-        cmd.append(f'BUILD_DIR={self.build_dir(flags)}')
-        return [self._execute(cmd, stdout, stderr), cmd]
+        cmd.append(f'BUILD_DIR={self.build_dir(flags.config)}')
+        return [self._execute(cmd, stdout, stderr, flags.config), cmd]
 
     def binary_name(self, flags):
         '''Returns the relative path of the binary created by the Makefile'''
@@ -74,23 +78,26 @@ class Benchmark(object):
         data = res.stdout.strip().split('\n')[1]
         return data.split()[0]
 
-    def logpath(self, kind, flags):
+    def logpath(self, kind, flags: Flags):
         '''Returns the path where the output of the experiment will be saved'''
         flags_str = str(flags).replace(' ', '.')
         timestamp = datetime.datetime.now().isoformat()
-        log = config.LOGDIR / f'{kind}.{self.name}.{flags_str}.{timestamp}.log'
-        remark = config.REAMRKDIR / f'{kind}.{self.name}.{flags_str}.{timestamp}.yaml'
+        log = flags.config.logs_dir() / f'{kind}.{self.name}.{flags_str}.{timestamp}.log'
+        remark = flags.config.remarks_dir() / f'{kind}.{self.name}.{flags_str}.{timestamp}.yaml'
         return log, remark
 
-    def build_dir(self, flags):
+    def build_dir(self, config: config.Configuration):
         '''Returns the path where the benchmark will be built'''
-        return flags.output() / self.suite_name / self.name
+        return config.output_dir / "build" / self.suite_name / self.name
 
-    def build(self, flags):
+    def build(self, flags: Flags):
         '''Build the benchmark with the selected flags'''
-        self.build_dir(flags).mkdir(parents=True, exist_ok=True)
+        self.build_dir(flags.config).mkdir(parents=True, exist_ok=True)
 
         log, remark = self.logpath('build', flags)
+        log.parent.mkdir(parents=True, exist_ok=True)
+        remark.parent.mkdir(parents=True, exist_ok=True)
+        
         with open(log, 'w') as fout:
             args = [f'REMARK_PATH={remark}']
             start = time.perf_counter()

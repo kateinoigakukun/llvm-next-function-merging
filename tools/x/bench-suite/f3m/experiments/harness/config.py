@@ -7,17 +7,12 @@ _REPO_ROOTDIR = pathlib.Path(
     subprocess.check_output(
         ["/usr/bin/git", "rev-parse", "--show-toplevel"], cwd=_BASEDIR).decode('utf-8').strip()
 )
-_ORIGINAL_BASEDIR = _REPO_ROOTDIR.joinpath(
-    "..", "llvm-nextfm-benchmark").resolve()
 
 LLVM_DIR = _BASEDIR.parent / 'llvm-fakebin'
-LOGDIR = _ORIGINAL_BASEDIR / 'logs'
-REAMRKDIR = _ORIGINAL_BASEDIR / 'remarks'
-BMARK_DIR = _ORIGINAL_BASEDIR / 'benchmarks'
+BMARK_DIR = _REPO_ROOTDIR.joinpath(
+    "..", "llvm-nextfm-benchmark", 'benchmarks').resolve()
 
-DBPATH = _ORIGINAL_BASEDIR / 'results.db'
-
-PASS_PLUGIN = _REPO_ROOTDIR / '.x' / 'build' / \
+_DEFAULT_PASS_PLUGIN = _REPO_ROOTDIR / '.x' / 'build' / \
     'RelWithDebInfo' / 'lib' / 'LLVMNextFM.so'
 
 BMARK_SUITES = [
@@ -32,9 +27,10 @@ BMARK_SUITES = [
 
 @dataclass
 class Configuration:
-    llvm_pass_plugin: pathlib.Path
-    llvm_dir: pathlib.Path
+    dbpath: pathlib.Path
     output_dir: pathlib.Path
+    llvm_pass_plugin: pathlib.Path = _DEFAULT_PASS_PLUGIN
+    llvm_dir: pathlib.Path = _BASEDIR.parent / 'llvm-fakebin'
 
     debug: bool = False
     verbose: bool = False

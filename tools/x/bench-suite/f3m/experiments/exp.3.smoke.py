@@ -13,9 +13,10 @@ short_tests = [
 ]
 
 configuration = config.Configuration(
+    dbpath=config._REPO_ROOTDIR / '.x' / 'bench-suite' / 'f3m' / 'db.sqlite3',
     llvm_dir=config.LLVM_DIR,
-    llvm_pass_plugin=config.PASS_PLUGIN,
-    output_dir=config._REPO_ROOTDIR / '.x' / 'bench-suite' / 'f3m' / 'output'
+    llvm_pass_plugin=config._DEFAULT_PASS_PLUGIN,
+    output_dir=config._REPO_ROOTDIR / '.x' / 'bench-suite' / 'f3m' / 'output',
 )
 
 combos = [Flags.from_name(name, config=configuration)

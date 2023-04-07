@@ -10,8 +10,8 @@ import harness.config as config
 from .bmarks import Benchmark
 from .flags import Flags
 
-def db_init():
-    con = sqlite3.connect(str(config.DBPATH))
+def db_init(config: config.Configuration):
+    con = sqlite3.connect(str(config.dbpath))
     con.execute('''
         CREATE TABLE IF NOT EXISTS invocations (
             timestamp INTEGER PRIMARY KEY,
@@ -67,7 +67,7 @@ class Exp():
         self.benchmarks = benchmarks
         self.timestamp = int(time.time())
         self.timestamp_txt = datetime.datetime.now().isoformat()
-        self.con = db_init()
+        self.con = db_init(config=config)
 
         self.stats = dict()
         self.table = None
@@ -82,7 +82,7 @@ class Exp():
                 flags = Flags.from_str(flags, config=self.config)
                 self._update_stats(bmark, revision, flags, runtime)
 
-    def is_complete(self, bmark, flags):
+    def is_complete(self, bmark: Benchmark, flags):
         revision = self.revision
         print(f"Checking if {bmark.name} {flags} is complete")
         print(f"  {bmark} in stats: {bmark in self.stats}")
@@ -158,15 +158,13 @@ class BuildExp(Exp):
         self.table = 'builds'
         self._init_stats()
 
-    def do_one(self, bmark, flags):
-        if flags.from_scratch():
-            bmark.clean()
+    def do_one(self, bmark: Benchmark, flags):
         try:
             return self._do_one(bmark, flags)
         except subprocess.CalledProcessError:
             return None
 
-    def _do_one(self, bmark, flags):
+    def _do_one(self, bmark: Benchmark, flags):
         return bmark.build(flags)
 
 class RunExp(Exp):
