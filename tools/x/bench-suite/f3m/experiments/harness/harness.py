@@ -204,8 +204,7 @@ class ReportExp(Exp):
     def do_one(self, bmark, flags):
         return bmark.build(flags)
 
-def main(global_flags, config: config.Configuration, benchmarks = Benchmark.get_all(), experimental_combos=None, repeats=1, timeout=5*60*60):
-    Flags.set_globals(global_flags)
+def main(config: config.Configuration, benchmarks = Benchmark.get_all(), experimental_combos=None, repeats=1, timeout=5*60*60):
     BuildExp(
         benchmarks,
         experimental_combos=experimental_combos,

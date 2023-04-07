@@ -21,5 +21,5 @@ configuration = config.Configuration(
 combos = [Flags.from_name(name, config=configuration)
           for name in ["baseline", "hyfm", "f3m", "mfm2"]]
 
-harness.main({}, benchmarks=short_tests, experimental_combos=combos,
+harness.main(benchmarks=short_tests, experimental_combos=combos,
              repeats=1, config=configuration)
