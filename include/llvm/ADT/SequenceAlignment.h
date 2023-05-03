@@ -69,6 +69,54 @@ public:
       E.dump();
     }
   }
+
+  static void verifyTwoAreSame(AlignedSequence<Ty> &Seq0,
+                               AlignedSequence<Ty> &Seq1) {
+    if (Seq0.size() != Seq1.size()) {
+      llvm::errs() << "Seq0.size() = " << Seq0.size()
+                   << ", Seq1.size() = " << Seq1.size() << "\n";
+      __builtin_trap();
+    }
+
+    auto It0 = Seq0.begin();
+    auto It1 = Seq1.begin();
+
+    while (It0 != Seq0.end() && It1 != Seq1.end()) {
+
+      auto &E0 = *It0;
+      auto &E1 = *It1;
+
+      if (E0.match() != E1.match()) {
+        llvm::errs() << "E0.match() = " << E0.match()
+                     << ", E1.match() = " << E1.match() << "\n";
+        __builtin_trap();
+      }
+
+      auto &Values0 = E0.getValues();
+      auto &Values1 = E1.getValues();
+
+      if (Values0.size() != Values1.size()) {
+        llvm::errs() << "Values0.size() = " << Values0.size()
+                     << ", Values1.size() = " << Values1.size() << "\n";
+        __builtin_trap();
+      }
+
+      auto ItValues0 = Values0.begin();
+      auto ItValues1 = Values1.begin();
+
+      while (ItValues0 != Values0.end() && ItValues1 != Values1.end()) {
+        Ty V0 = *ItValues0;
+        Ty V1 = *ItValues1;
+
+        if (V0 != V1) {
+          __builtin_trap();
+        }
+
+        ++ItValues0;
+        ++ItValues1;
+      }
+    }
+  }
 };
 
 class ScoringSystem {
