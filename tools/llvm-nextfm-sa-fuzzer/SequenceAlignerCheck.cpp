@@ -1,32 +1,75 @@
 #include "llvm/IR/Value.h"
 
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Transforms/IPO/FunctionMergingOptions.h"
 #include "llvm/Transforms/IPO/LegacySequenceAligner.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
+#include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
+#include <memory>
 
 using namespace llvm;
 
+enum AlignerTy {
+  NeedlemanWunsch,
+  HyFM,
+};
+
+static cl::opt<AlignerTy> AlignerType(
+    "aligner", cl::desc("Aligner type"), cl::init(HyFM),
+    cl::values(clEnumValN(NeedlemanWunsch, "nw", "Needleman-Wunsch"),
+               clEnumValN(HyFM, "hyfm", "HyFM")));
+
+class AlignerFactory {
+  static constexpr auto Ty = MSAAlignmentEntryType::Fixed2;
+
+  std::unique_ptr<NeedlemanWunschMultipleSequenceAligner<Ty>> NWAligner;
+  FunctionMergingOptions Options;
+  size_t ShapeSizeLimit;
+  ScoringSystem Scoring;
+
+public:
+  AlignerFactory()
+      : Scoring(/*Gap*/ -1, /*Match*/ 2,
+                /*Mismatch*/ fmutils::OptionalScore::min()) {
+    this->Options = FunctionMergingOptions()
+                        .maximizeParameterScore(true)
+                        .matchOnlyIdenticalTypes(false)
+                        .enableUnifiedReturnTypes(true);
+    Options.EnableHyFMBlockProfitabilityEstimation = true;
+    this->ShapeSizeLimit = 24 * 1024 * 1024;
+    this->NWAligner =
+        std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
+            Scoring, this->ShapeSizeLimit, Options);
+  }
+
+  std::pair<std::unique_ptr<Aligner>, std::unique_ptr<Aligner>>
+  makeAligners(AlignerTy AlignerType) {
+    switch (AlignerType) {
+    case NeedlemanWunsch:
+      return std::make_pair(
+          std::make_unique<MSAAlignerAdapter>(
+              std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
+                  Scoring, ShapeSizeLimit, Options)),
+          std::make_unique<SALSSAAligner>());
+    case HyFM:
+      return std::make_pair(
+          std::make_unique<MSAAlignerAdapter>(
+              std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
+                  *NWAligner.get(), Options)),
+          std::make_unique<HyFMNWAligner>(
+              Options.EnableHyFMBlockProfitabilityEstimation));
+    }
+  }
+};
+
 void SequenceAlignerCheck(Module *M) {
-  FunctionMergingOptions Options = FunctionMergingOptions()
-                                       .maximizeParameterScore(true)
-                                       .matchOnlyIdenticalTypes(false)
-                                       .enableUnifiedReturnTypes(true);
-  Options.EnableHyFMBlockProfitabilityEstimation = true;
-  ScoringSystem Scoring(/*Gap*/ -1, /*Match*/ 2,
-                        /*Mismatch*/ fmutils::OptionalScore::min());
-
-  constexpr auto Ty = MSAAlignmentEntryType::Fixed2;
-  auto NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-      Scoring, 24 * 1024 * 1024, Options);
-
-  std::unique_ptr<Aligner> NewAligner = std::make_unique<MSAAlignerAdapter>(
-      std::make_unique<HyFMMultipleSequenceAligner<Ty>>(*NWAligner.get(),
-                                                        Options));
-  std::unique_ptr<Aligner> OldAligner = std::make_unique<HyFMNWAligner>(
-      Options.EnableHyFMBlockProfitabilityEstimation);
-
   auto &Functions = M->getFunctionList();
   auto F1 = &Functions.front();
   auto F2 = &Functions.back();
+
+  AlignerFactory Factory;
+  std::unique_ptr<Aligner> NewAligner, OldAligner;
+  std::tie(NewAligner, OldAligner) = Factory.makeAligners(AlignerType);
 
   bool NewIsProfitable = false;
   auto NewResult = NewAligner->align(F1, F2, NewIsProfitable);
