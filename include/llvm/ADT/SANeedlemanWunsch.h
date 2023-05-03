@@ -2,6 +2,7 @@
 #define LLVM_ADT_SEQUENCE_ALIGNMENT_NEEDLEMANWUNSCH_H
 
 #include "llvm/ADT/SequenceAlignment.h"
+#include "llvm/Support/Format.h"
 #include <functional>
 
 template <typename ContainerType,
@@ -77,7 +78,7 @@ private:
   void print(llvm::raw_ostream &OS) {
     for (unsigned i = 0; i < MatrixRows; i++) {
       for (unsigned j = 0; j < MatrixCols; j++) {
-        OS << j << "," << i << "=" << Matrix[i * MatrixCols + j] << " ";
+        OS << j << "," << i << "=" << llvm::format("%3d", Matrix[i * MatrixCols + j]) << " ";
       }
       OS << "\n";
     }

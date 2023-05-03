@@ -1,6 +1,7 @@
 #include "llvm/ADT/TensorTable.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 
@@ -22,19 +23,10 @@ struct TransitionEntry {
         Score(fmutils::OptionalScore::None()) {}
 
   void print(raw_ostream &OS) const {
-    OS << "(";
-    OS << "{";
-    for (size_t i = 0; i < 32; i++) {
-      if (i != 0)
-        OS << ", ";
-      OS << Offset[i];
-    }
-    OS << "},";
-    if (Match)
-      OS << "T";
-    else
-      OS << "F";
-    OS << ")";
+    std::string ScoreStr;
+    raw_string_ostream SS(ScoreStr);
+    Score.print(SS);
+    OS << llvm::format("%3s", ScoreStr.c_str());
   }
   void dump() const { print(llvm::errs()); }
 };
