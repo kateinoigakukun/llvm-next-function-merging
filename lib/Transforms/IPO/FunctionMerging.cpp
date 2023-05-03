@@ -2205,46 +2205,8 @@ public:
 };
 
 bool FunctionMerger::isSAProfitable(AlignedSequence<Value *> &AlignedBlocks) {
-  int OriginalCost = 0;
-  int MergedCost = 0;
-
-  bool InsideSplit = false;
-
-  for (auto &Entry : AlignedBlocks) {
-    Instruction *I1 = nullptr;
-    if (Entry.get(0))
-      I1 = dyn_cast<Instruction>(Entry.get(0));
-
-    Instruction *I2 = nullptr;
-    if (Entry.get(1))
-      I2 = dyn_cast<Instruction>(Entry.get(1));
-
-    bool IsInstruction = I1 != nullptr || I2 != nullptr;
-    if (Entry.match()) {
-      if (IsInstruction) {
-        OriginalCost += 2;
-        MergedCost += 1;
-      }
-      if (InsideSplit) {
-        InsideSplit = false;
-        MergedCost += 2;
-      }
-    } else {
-      if (IsInstruction) {
-        OriginalCost += 1;
-        MergedCost += 1;
-      }
-      if (!InsideSplit) {
-        InsideSplit = true;
-        MergedCost += 1;
-      }
-    }
-  }
-
-  bool Profitable = (MergedCost <= OriginalCost);
-  if (Verbose)
-    errs() << ((Profitable) ? "Profitable" : "Unprofitable") << "\n";
-  return Profitable;
+  return fmutils::isProfitableSequenceAlignment(AlignedBlocks.begin(),
+                                                AlignedBlocks.end());
 }
 
 bool FunctionMerger::isPAProfitable(BasicBlock *BB1, BasicBlock *BB2) {

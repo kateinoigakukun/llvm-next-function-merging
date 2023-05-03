@@ -288,38 +288,8 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::isBlockAlignmentProfitable(
 template <MSAAlignmentEntryType Type>
 bool HyFMMultipleSequenceAlignerImpl<Type>::isInstructionAlignmentProfitable(
     ArrayRef<MSAAlignmentEntry<Type>> Alignments) {
-  int OriginalCost = 0;
-  int MergedCost = 0;
-
-  bool InsideSplit = false;
-
-  for (auto It = Alignments.rbegin(), E = Alignments.rend(); It != E; ++It) {
-    auto &Entry = *It;
-
-    bool IsInstruction = Entry.hasInstruction();
-    if (Entry.match()) {
-      if (IsInstruction) {
-        OriginalCost += 2;
-        MergedCost += 1;
-      }
-      if (InsideSplit) {
-        InsideSplit = false;
-        MergedCost += 2;
-      }
-    } else {
-      if (IsInstruction) {
-        OriginalCost += 1;
-        MergedCost += 1;
-      }
-      if (!InsideSplit) {
-        InsideSplit = true;
-        MergedCost += 1;
-      }
-    }
-  }
-
-  bool Profitable = (MergedCost <= OriginalCost);
-  return Profitable;
+  return fmutils::isProfitableSequenceAlignment(Alignments.rbegin(),
+                                                Alignments.rend());
 }
 
 template <MSAAlignmentEntryType Type>

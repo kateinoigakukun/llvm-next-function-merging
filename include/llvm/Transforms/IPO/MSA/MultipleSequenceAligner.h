@@ -56,6 +56,40 @@ public:
   }
 };
 
+template <typename AlignmentEntryIterator>
+bool isProfitableSequenceAlignment(AlignmentEntryIterator begin,
+                                   AlignmentEntryIterator end) {
+  int OriginalCost = 0;
+  int MergedCost = 0;
+
+  bool InsideSplit = false;
+
+  for (auto It = begin; It != end; ++It) {
+    auto &Entry = *It;
+    bool IsInstruction = Entry.hasInstruction();
+    if (Entry.match()) {
+      if (IsInstruction) {
+        OriginalCost += 2;
+        MergedCost += 1;
+      }
+      if (InsideSplit) {
+        InsideSplit = false;
+        MergedCost += 2;
+      }
+    } else {
+      if (IsInstruction) {
+        OriginalCost += 1;
+        MergedCost += 1;
+      }
+      if (!InsideSplit) {
+        InsideSplit = true;
+        MergedCost += 1;
+      }
+    }
+  }
+  return (MergedCost <= OriginalCost);
+}
+
 } // namespace fmutils
 
 template <MSAAlignmentEntryType Type> class MultipleSequenceAligner {
