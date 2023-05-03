@@ -13,6 +13,8 @@ add_library(LLVMNextFMObjects OBJECT
   Transforms/IPO/LegacySequenceAligner.cpp
   Transforms/IPO/MSA/MultipleSequenceAligner.cpp
   Transforms/IPO/MSA/HyFMMultipleSequenceAligner.cpp
+  Transforms/IPO/MSA/BlockAlignment.cpp
+  Transforms/IPO/MSA/BlockAlignment.h
   Transforms/IPO/MSA/NeedlemanWunschMultipleSequenceAligner.cpp)
 
 set_property(TARGET LLVMNextFMObjects PROPERTY POSITION_INDEPENDENT_CODE ON)
