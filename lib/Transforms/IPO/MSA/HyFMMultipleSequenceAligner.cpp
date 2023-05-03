@@ -27,6 +27,16 @@ public:
         EnableHyFMBlockProfitabilityEstimation(
             EnableHyFMBlockProfitabilityEstimation) {}
 
+  struct AlignmentStats {
+    int32_t Insts = 0;
+    int32_t Matches = 0;
+    int32_t CoreMatches = 0;
+
+    bool isProfitable() const {
+      return (Matches == Insts) || (CoreMatches > 0);
+    };
+  };
+
   class BlockAlignment {
     SmallVector<BasicBlock *, 4> Blocks;
     Optional<std::vector<MSAAlignmentEntry<Type>>> InstAlignment;
@@ -62,6 +72,43 @@ public:
       Dest.insert(Dest.end(), InstAlignment->begin(), InstAlignment->end());
     }
 
+    void updateStats(AlignmentStats &Stats) const {
+      if (isMatched()) {
+        for (auto &Entry : *InstAlignment) {
+          if (!Entry.hasInstruction()) {
+            continue;
+          }
+          Stats.Insts++;
+          if (Entry.match()) {
+            Stats.Matches++;
+          }
+          for (auto *V : Entry.getValues()) {
+            if (!V) {
+              continue;
+            }
+            if (auto *I = dyn_cast<Instruction>(V)) {
+              if (I->isTerminator()) {
+                Stats.CoreMatches++;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        for (auto *BB : Blocks) {
+          if (!BB) {
+            continue;
+          }
+          for (auto &I : *BB) {
+            if (isa<PHINode>(&I) || isa<LandingPadInst>(&I)) {
+              continue;
+            }
+            Stats.Insts++;
+          }
+        }
+      }
+    }
+
     void print(raw_ostream &OS) const {
       OS << "BlockAlignment:\n";
       for (size_t i = 0; i < size(); i++) {
@@ -92,6 +139,8 @@ public:
   bool isBlockAlignmentProfitable(
       const BlockAlignment &BA,
       std::vector<MSAAlignmentEntry<Type>> &InstAlignment) const;
+
+  bool isProfitable(ArrayRef<BlockAlignment> Alignments) const;
 
   static void dumpBlockAlignments(ArrayRef<BlockAlignment> Alignments);
   static bool isInstructionAlignmentProfitable(
@@ -258,6 +307,7 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::align(
       appendAlignmentEntries(BA, Alignment);
     }
   }
+  isProfitable = this->isProfitable(BlockAlignments);
 
   LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); });
   return true;
@@ -289,6 +339,18 @@ void HyFMMultipleSequenceAlignerImpl<Type>::appendAlignmentEntries(
       }
     }
   }
+}
+
+template <MSAAlignmentEntryType Type>
+bool HyFMMultipleSequenceAlignerImpl<Type>::isProfitable(
+    ArrayRef<BlockAlignment> Alignments) const {
+
+  AlignmentStats Stats;
+
+  for (auto &BA : Alignments) {
+    BA.updateStats(Stats);
+  }
+  return Stats.isProfitable();
 }
 
 template <MSAAlignmentEntryType Type>
