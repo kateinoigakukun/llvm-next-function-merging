@@ -39,6 +39,11 @@ void SequenceAlignerCheck(Module *M) {
                  << " OldIsProfitable: " << OldIsProfitable << "\n";
     __builtin_trap();
   }
+  if (!NewIsProfitable) {
+    // Early exit if both are not profitable because the results won't be used
+    // so we don't care the difference between them.
+    return;
+  }
 
   AlignedSequence<Value *>::verifyTwoAreSame(NewResult, OldResult);
 }
