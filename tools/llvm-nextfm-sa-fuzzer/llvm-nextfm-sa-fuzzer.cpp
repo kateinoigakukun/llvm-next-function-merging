@@ -116,6 +116,8 @@ extern "C" LLVM_ATTRIBUTE_USED size_t LLVMFuzzerCustomMutator(
   return Buf.size();
 }
 
+void SequenceAlignerCheck(Module *M);
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   assert(TM && "Should have been created during fuzzer initialization");
 
@@ -144,41 +146,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   M->setTargetTriple(TM->getTargetTriple().normalize());
   M->setDataLayout(TM->createDataLayout());
 
-  FunctionMergingOptions Options = FunctionMergingOptions()
-                                       .maximizeParameterScore(true)
-                                       .matchOnlyIdenticalTypes(false)
-                                       .enableUnifiedReturnTypes(true);
-  Options.EnableHyFMBlockProfitabilityEstimation = true;
-  ScoringSystem Scoring(/*Gap*/ -1, /*Match*/ 2,
-                        /*Mismatch*/ fmutils::OptionalScore::min());
-
-  constexpr auto Ty = MSAAlignmentEntryType::Fixed2;
-  auto NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-      Scoring, 24 * 1024 * 1024, Options);
-
-  std::unique_ptr<Aligner> NewAligner = std::make_unique<MSAAlignerAdapter>(
-      std::make_unique<HyFMMultipleSequenceAligner<Ty>>(*NWAligner.get(),
-                                                        Options));
-  std::unique_ptr<Aligner> OldAligner = std::make_unique<HyFMNWAligner>(
-      Options.EnableHyFMBlockProfitabilityEstimation);
-
-  auto &Functions = M->getFunctionList();
-  auto F1 = &Functions.front();
-  auto F2 = &Functions.back();
-
-  bool NewIsProfitable = false;
-  auto NewResult = NewAligner->align(F1, F2, NewIsProfitable);
-
-  bool OldIsProfitable = false;
-  auto OldResult = OldAligner->align(F1, F2, OldIsProfitable);
-
-  if (NewIsProfitable != OldIsProfitable) {
-    llvm::errs() << "NewIsProfitable: " << NewIsProfitable
-                 << " OldIsProfitable: " << OldIsProfitable << "\n";
-    __builtin_trap();
-  }
-
-  AlignedSequence<Value *>::verifyTwoAreSame(NewResult, OldResult);
+  SequenceAlignerCheck(M.get());
 
   return 0;
 }
