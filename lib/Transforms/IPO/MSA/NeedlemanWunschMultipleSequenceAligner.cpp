@@ -305,6 +305,7 @@ void NeedlemanWunschMultipleSequenceAlignerImpl::align(
 
   buildAlignment(Alignment);
 
+  isProfitable = true;
   return;
 }
 
