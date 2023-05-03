@@ -49,7 +49,13 @@ template <> struct MSAAlignmentEntryTypeTraits<MSAAlignmentEntryType::Fixed2> {
 
   static ValuesTy createWithSingleValue(Value *V, size_t Size, size_t FuncId) {
     assert(Size == 2 && "Size must be 2 for Fixed2 type");
-    return ValuesTy{V, nullptr};
+    if (FuncId == 0) {
+      return ValuesTy{V, nullptr};
+    } else if (FuncId == 1) {
+      return ValuesTy{nullptr, V};
+    } else {
+      llvm_unreachable("FuncId must be 0 or 1");
+    }
   }
 
   template <typename ClaimValueFn>

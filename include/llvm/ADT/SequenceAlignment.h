@@ -78,11 +78,8 @@ public:
       __builtin_trap();
     }
 
-    auto It0 = Seq0.begin();
-    auto It1 = Seq1.begin();
-
-    while (It0 != Seq0.end() && It1 != Seq1.end()) {
-
+    for (auto It0 = Seq0.begin(), It1 = Seq1.begin();
+         It0 != Seq0.end() && It1 != Seq1.end(); It0++, It1++) {
       auto &E0 = *It0;
       auto &E1 = *It1;
 
