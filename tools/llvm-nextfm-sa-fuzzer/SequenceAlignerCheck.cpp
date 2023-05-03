@@ -31,10 +31,10 @@ public:
   AlignerFactory()
       : Scoring(/*Gap*/ -1, /*Match*/ 2,
                 /*Mismatch*/ fmutils::OptionalScore::min()) {
-    this->Options = FunctionMergingOptions()
-                        .maximizeParameterScore(true)
-                        .matchOnlyIdenticalTypes(false)
-                        .enableUnifiedReturnTypes(true);
+    this->Options = FunctionMergingOptions();
+    Options.MaximizeParamScore = true;
+    Options.IdenticalTypesOnly = true;
+    Options.EnableUnifiedReturnType = true;
     Options.EnableHyFMBlockProfitabilityEstimation = true;
     this->ShapeSizeLimit = 24 * 1024 * 1024;
     this->NWAligner =
