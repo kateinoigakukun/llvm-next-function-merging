@@ -50,40 +50,52 @@ public:
     Dest.insert(Dest.end(), InstAlignment->begin(), InstAlignment->end());
   }
 
-  void updateStats(BlockAlignmentStats &Stats) const {
-    if (isMatched()) {
-      for (auto &Entry : *InstAlignment) {
-        if (!Entry.hasInstruction()) {
+  template <typename AlignmentsTy>
+  static void updateStatsMatching(BlockAlignmentStats &Stats,
+                                  AlignmentsTy &InstAlignment) {
+    for (const MSAAlignmentEntry<Type> &Entry : InstAlignment) {
+      if (!Entry.hasInstruction()) {
+        continue;
+      }
+      Stats.Insts++;
+      if (Entry.match()) {
+        Stats.Matches++;
+      }
+      for (auto *V : Entry.getValues()) {
+        if (!V) {
+          continue;
+        }
+        if (auto *I = dyn_cast<Instruction>(V)) {
+          if (I->isTerminator()) {
+            Stats.CoreMatches++;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  template <typename BlocksTy>
+  static void updateStatsNotMatching(BlockAlignmentStats &Stats,
+                                     BlocksTy &Blocks) {
+    for (BasicBlock *BB : Blocks) {
+      if (!BB) {
+        continue;
+      }
+      for (auto &I : *BB) {
+        if (isa<PHINode>(&I) || isa<LandingPadInst>(&I)) {
           continue;
         }
         Stats.Insts++;
-        if (Entry.match()) {
-          Stats.Matches++;
-        }
-        for (auto *V : Entry.getValues()) {
-          if (!V) {
-            continue;
-          }
-          if (auto *I = dyn_cast<Instruction>(V)) {
-            if (I->isTerminator()) {
-              Stats.CoreMatches++;
-              break;
-            }
-          }
-        }
       }
+    }
+  }
+
+  void updateStats(BlockAlignmentStats &Stats) const {
+    if (isMatched()) {
+      updateStatsMatching(Stats, *InstAlignment);
     } else {
-      for (auto *BB : Blocks) {
-        if (!BB) {
-          continue;
-        }
-        for (auto &I : *BB) {
-          if (isa<PHINode>(&I) || isa<LandingPadInst>(&I)) {
-            continue;
-          }
-          Stats.Insts++;
-        }
-      }
+      updateStatsNotMatching(Stats, Blocks);
     }
   }
 

@@ -1,4 +1,5 @@
 #include "llvm/Transforms/IPO/LegacySequenceAligner.h"
+#include "MSA/BlockAlignment.h"
 #include "llvm/ADT/SANeedlemanWunsch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/Fingerprint.h"
@@ -26,6 +27,7 @@ AlignedSequence<Value *> HyFMNWAligner::align(Function *F1, Function *F2,
                                               bool &isProfitable) {
   AlignedSequence<Value *> AlignedSeq;
   AlignmentStats TotalAlignmentStats;
+  BlockAlignmentStats TotalBlockAlignmentStats;
 
   int B1Max = 0;
   int B2Max = 0;
@@ -115,6 +117,10 @@ AlignedSequence<Value *> HyFMNWAligner::align(Function *F1, Function *F2,
       if (!HyFMProfitability || FunctionMerger::isSAProfitable(AlignedBlocks)) {
         LLVM_DEBUG(dbgs() << "The alignment is profitable.\n");
         extendAlignedSeq(AlignedSeq, AlignedBlocks, TotalAlignmentStats);
+
+        BlockAlignment<MSAAlignmentEntryType::Fixed2>::updateStatsMatching(
+            TotalBlockAlignmentStats, AlignedBlocks.Data);
+
         LLVM_DEBUG(dumpBlockAlignment(BB1, BB2));
         B1Blocks.erase(BestIt);
         MergedBlock = true;
@@ -126,12 +132,18 @@ AlignedSequence<Value *> HyFMNWAligner::align(Function *F1, Function *F2,
     if (!MergedBlock) {
       LLVM_DEBUG(dumpBlockAlignment(nullptr, BB2));
       extendAlignedSeq(AlignedSeq, nullptr, BB2, TotalAlignmentStats);
+      SmallVector<BasicBlock *, 2> Blocks{nullptr, BB2};
+      BlockAlignment<MSAAlignmentEntryType::Fixed2>::updateStatsNotMatching(
+          TotalBlockAlignmentStats, Blocks);
     }
   }
 
   for (auto &BD1 : B1Blocks) {
     LLVM_DEBUG(dumpBlockAlignment(BD1.BB, nullptr));
     extendAlignedSeq(AlignedSeq, BD1.BB, nullptr, TotalAlignmentStats);
+    SmallVector<BasicBlock *, 2> Blocks{BD1.BB, nullptr};
+    BlockAlignment<MSAAlignmentEntryType::Fixed2>::updateStatsNotMatching(
+        TotalBlockAlignmentStats, Blocks);
   }
 
   LLVM_DEBUG(errs() << "Stats: " << B1Max << " , " << B2Max << " , " << MaxMem
@@ -139,7 +151,9 @@ AlignedSequence<Value *> HyFMNWAligner::align(Function *F1, Function *F2,
              errs() << "RStats: " << NumBB1 << " , " << NumBB2 << " , "
                     << MemSize << "\n");
 
-  isProfitable = TotalAlignmentStats.isProfitable();
+  isProfitable = TotalBlockAlignmentStats.isProfitable();
+  assert(isProfitable == TotalAlignmentStats.isProfitable() &&
+         "Inconsistent profitability");
   return AlignedSeq;
 }
 
