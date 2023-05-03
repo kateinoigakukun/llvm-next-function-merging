@@ -10,6 +10,7 @@ add_library(LLVMNextFMObjects OBJECT
   Transforms/IPO/MinSizeAttr.cpp
   Transforms/IPO/MultipleSequenceAlignment.cpp
   Transforms/IPO/SALSSACodeGen.cpp
+  Transforms/IPO/LegacySequenceAligner.cpp
   Transforms/IPO/MSA/MultipleSequenceAligner.cpp
   Transforms/IPO/MSA/HyFMMultipleSequenceAligner.cpp
   Transforms/IPO/MSA/NeedlemanWunschMultipleSequenceAligner.cpp)

@@ -143,14 +143,6 @@ public:
   //  static const FunctionMergeResult Error;
 };
 
-struct AlignmentStats {
-  int Insts{0};
-  int Matches{0};
-  int CoreMatches{0};
-  bool isProfitable() const {return (Matches == Insts) || (CoreMatches > 0);};
-};
-
-
 template <class T> class MatchInfo {
 public:
   T candidate{nullptr};
