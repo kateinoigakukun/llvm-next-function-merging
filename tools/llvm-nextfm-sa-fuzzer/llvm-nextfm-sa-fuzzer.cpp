@@ -50,7 +50,7 @@ parseAndVerifyOrCreateModule(uint8_t *Data, size_t Size, LLVMContext &Context) {
       auto *F = Function::Create(FunctionType::get(Type::getVoidTy(Context),
                                                    /*isVarArg=*/false),
                                  Function::ExternalLinkage,
-                                 "f" + std::to_string(i), M.get());
+                                 "f" + std::to_string(i + 1), M.get());
       auto *BB = BasicBlock::Create(Context, "entry", F);
       ReturnInst::Create(Context, BB);
     }
