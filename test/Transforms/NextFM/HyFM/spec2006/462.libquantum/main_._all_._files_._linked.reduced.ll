@@ -1,11 +1,22 @@
-; RUN: %opt --passes="mergefunc,func-merging" --func-merging-f3m -func-merging-explore=1 --func-merging-debug=false --func-merging-whole-program=true --func-merging-coalescing=false --func-merging-hyfm-nw -hyfm-profitability=true  -o %t.f3m-hyfm.bc %s
-; RUN: %opt --passes="mergefunc,multiple-func-merging" -func-merging-explore=1 --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -multiple-func-merging-hyfm-profitability=true -o %t.mfm-hyfm.bc %s
+; FIXME(katei): Text IR format somehow drops UseListOrder info but bitcode format keeps it.
+; And this difference causes different "llc" output size.
+
+; RUN: %opt -S --passes="func-merging" --func-merging-f3m -func-merging-explore=1 --func-merging-debug=false --func-merging-whole-program=true --func-merging-coalescing=false --func-merging-hyfm-nw -o %t.f3m-hyfm.ll %s
+; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore=1 --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.ll %s
+; RUN: %llc --filetype=obj %t.f3m-hyfm.ll -o %t.f3m-hyfm.S.o
+; RUN: %llc --filetype=obj %t.mfm-hyfm.ll -o %t.mfm-hyfm.S.o
+; RUN: %strip %t.f3m-hyfm.S.o
+; RUN: %strip %t.mfm-hyfm.S.o
+; RUN: test $(stat -c%%s %t.mfm-hyfm.S.o) -eq $(stat -c%%s %t.f3m-hyfm.S.o)
+
+; RUN: %opt --passes="func-merging" --func-merging-f3m -func-merging-explore=1 --func-merging-debug=false --func-merging-whole-program=true --func-merging-coalescing=false --func-merging-hyfm-nw -o %t.f3m-hyfm.bc %s
+; RUN: %opt --passes="multiple-func-merging" -func-merging-explore=1 --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -o %t.mfm-hyfm.bc %s
 ; RUN: %llc --filetype=obj %t.f3m-hyfm.bc -o %t.f3m-hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
 ; RUN: %strip %t.f3m-hyfm.o
 ; RUN: %strip %t.mfm-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -lt $(stat -c%%s %t.f3m-hyfm.o)
-; XFAIL: *
+; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.f3m-hyfm.o)
+
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/HyFM/spec2006/462.libquantum/main_._all_._files_._linked.reduced.ll'
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
