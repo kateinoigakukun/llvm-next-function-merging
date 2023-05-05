@@ -19,7 +19,7 @@ class MergePassedRemark
   end
 
   def has_reused?(n)
-    funcs.count { _1.start_with?("__fm_merge_") || _1.start_with?("__msa_merge") } == n
+    funcs.count { _1.start_with?("__fm_merge_") || _1.start_with?("__msa_merge") || _1.start_with?("__mf_merge") } == n
   end
 end
 

@@ -1,5 +1,5 @@
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 --multiple-func-merging-only=_ZN8regalloc7bt_main10alloc_main17hff001664e8376445E --multiple-func-merging-only=_ZN8regalloc7bt_main10alloc_main17had6f854518aa1322E -o - -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK:      define internal void @__msa_merge__ZN8regalloc7bt_main10alloc_main17hff001664e8376445E__ZN8regalloc7bt_main10alloc_main17had6f854518aa1322E(
+; CHECK:      define internal void @__mf_merge__ZN8regalloc7bt_main10alloc_main17hff001664e8376445E__ZN8regalloc7bt_main10alloc_main17had6f854518aa1322E(
 ; CHECK-NEXT: entry:
 ; CHECK-NEXT:   ret void
 ; CHECK-NEXT: }

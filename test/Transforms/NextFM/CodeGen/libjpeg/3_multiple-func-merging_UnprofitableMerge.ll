@@ -6,7 +6,7 @@
 ; CHECK:      --- !Passed
 ; CHECK-NEXT: Pass:            multiple-func-merging
 ; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __msa_merge_get_interlaced_row_get_8bit_row
+; CHECK-NEXT: Function:        __mf_merge_get_interlaced_row_get_8bit_row
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"

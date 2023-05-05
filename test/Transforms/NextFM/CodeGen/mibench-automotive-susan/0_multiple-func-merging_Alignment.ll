@@ -6,7 +6,7 @@
 ; CHECK:      --- !Passed
 ; CHECK-NEXT: Pass:            multiple-func-merging
 ; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __msa_merge_susan_edges_susan_edges_small
+; CHECK-NEXT: Function:        __mf_merge_susan_edges_susan_edges_small
 
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-size-benchmark-suite/bazel-bin/benchmarks/mibench/automotive/susan.bc'
 source_filename = "llvm-link"

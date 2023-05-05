@@ -6,7 +6,7 @@
 ; CHECK:      --- !Passed
 ; CHECK-NEXT: Pass:            multiple-func-merging
 ; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __msa_merge_read_pbm_integer.13_read_pbm_integer
+; CHECK-NEXT: Function:        __mf_merge_read_pbm_integer.13_read_pbm_integer
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"

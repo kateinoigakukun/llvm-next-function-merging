@@ -6,7 +6,7 @@
 ; CHECK:      --- !Passed
 ; CHECK-NEXT: Pass:            multiple-func-merging
 ; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __msa_merge_read_scan_script_read_quant_tables
+; CHECK-NEXT: Function:        __mf_merge_read_scan_script_read_quant_tables
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"

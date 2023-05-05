@@ -4,7 +4,7 @@
 ; RUN:   --multiple-func-merging-only=bitcount \
 ; RUN:   --multiple-func-merging-only=ntbl_bitcnt | not FileCheck %s
 
-; CHECK-LABEL: define internal i32 @__msa_merge_ntbl_bitcount_AR_btbl_bitcount_bitcount_ntbl_bitcnt(i2 %discriminator, i64 %m.0.0.0.0) 
+; CHECK-LABEL: define internal i32 @__mf_merge_ntbl_bitcount_AR_btbl_bitcount_bitcount_ntbl_bitcnt(i2 %discriminator, i64 %m.0.0.0.0) 
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    unreachable
 ; CHECK-NEXT:  }

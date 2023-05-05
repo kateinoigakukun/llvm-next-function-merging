@@ -2,8 +2,6 @@
 ; RUN: %opt --passes="mergefunc,multiple-func-merging" -func-merging-explore=1 --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -multiple-func-merging-hyfm-profitability=true -o %t.mfm-hyfm.bc %s
 ; RUN: %llc --filetype=obj %t.f3m-hyfm.bc -o %t.f3m-hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
-; RUN: %strip %t.f3m-hyfm.o
-; RUN: %strip %t.mfm-hyfm.o
 ; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -eq $(stat -c%%s %t.f3m-hyfm.o)
 
 ; ModuleID = '../llvm-nextfm-benchmark/benchmarks/spec2006/462.libquantum/_main_._all_._files_._linked_.bc'

@@ -18,7 +18,7 @@ define double @rad2deg() {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_deg2rad_rad2deg(i1 %discriminator) {
+; CHECK-LABEL: define internal double @__mf_merge_deg2rad_rad2deg(i1 %discriminator) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    br i1 %discriminator, label %m.inst.bb1, label %deg2rad..split
 ; CHECK-EMPTY:

@@ -1,6 +1,6 @@
 ; RUN: %opt -multiple-func-merging-whole-program=true -func-merging-whole-program=true --passes="mergefunc,multiple-func-merging" -multiple-func-merging-identical-type=true -multiple-func-merging-coalescing=false -pass-remarks-filter=multiple-func-merging -func-merging-explore=1 -pass-remarks-output=- %s -o /dev/null | FileCheck %s --check-prefix=CHECK-MFM
 ; RUN: %opt -mergefunc -func-merging -func-merging-operand-reorder=false -func-merging-coalescing=false -func-merging-whole-program=true -func-merging-matcher-report=false -func-merging-debug=false -func-merging-verbose=false  -pass-remarks-filter=func-merging -hyfm-profitability=true -func-merging-f3m=true -adaptive-threshold=false -adaptive-bands=false -hyfm-f3m-rows=2 -hyfm-f3m-bands=100 -shingling-cross-basic-blocks=true -ranking-distance=1.0 -bucket-size-cap=100 -func-merging-report=false -func-merging-hyfm-nw=true -pass-remarks-output=- %s -o /dev/null | FileCheck %s --check-prefix=CHECK-F3M
-; CHECK-MFM:      Function:        __msa_merge_glist_add_float64_glist_add_float32
+; CHECK-MFM:      Function:        __mf_merge_glist_add_float64_glist_add_float32
 ; CHECK-MFM-NEXT: Args:
 ; CHECK-MFM-NEXT:   - Function:        glist_add_float64
 ; CHECK-MFM-NEXT:   - Function:        glist_add_float32

@@ -12,7 +12,7 @@ define double @rad2deg(double %0) {
   ret double %2
 }
 
-; CHECK-LABEL: define internal double @__msa_merge_rad2deg_deg2rad(i1 %discriminator, double %m.0.0) {
+; CHECK-LABEL: define internal double @__mf_merge_rad2deg_deg2rad(i1 %discriminator, double %m.0.0) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    %switch.select = select i1 %discriminator, double %m.0.0, double 4.000000e+00
 ; CHECK-NEXT:    %switch.select1 = select i1 %discriminator, double 1.800000e+02, double %m.0.0
