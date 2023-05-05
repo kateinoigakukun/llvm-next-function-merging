@@ -15,7 +15,7 @@
 ; RUN: %llc --filetype=obj %t.mfm-hyfm.bc -o %t.mfm-hyfm.o
 ; RUN: %strip %t.f3m-hyfm.o
 ; RUN: %strip %t.mfm-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -gt $(stat -c%%s %t.f3m-hyfm.o)
+; RUN: test $(stat -c%%s %t.mfm-hyfm.o) -eq $(stat -c%%s %t.f3m-hyfm.o)
 
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/HyFM/spec2006/462.libquantum/main_._all_._files_._linked.reduced.ll'
 source_filename = "llvm-link"

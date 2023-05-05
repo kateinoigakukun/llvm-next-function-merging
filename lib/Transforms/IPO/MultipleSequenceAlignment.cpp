@@ -1025,7 +1025,10 @@ Value *createCastIfNeeded(Value *V, Type *DstType, IRBuilder<> &Builder,
                           const FunctionMergingOptions &Options = {});
 
 bool MSAGenFunctionBody::assignValueOperands() {
-  for (auto &Entry : Parent.Alignment) {
+  // iterator over reverse order to have the same order as the F3M
+  for (auto it = Parent.Alignment.rbegin(); it != Parent.Alignment.rend();
+       ++it) {
+    auto Entry = *it;
     std::vector<Instruction *> Instructions;
     bool allValuesAreInstruction = Entry.collectInstructions(Instructions);
     if (!allValuesAreInstruction) {
