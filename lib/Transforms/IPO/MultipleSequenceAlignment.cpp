@@ -161,6 +161,8 @@ MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
   DiscriminatorTy = IntegerType::getIntNTy(M->getContext(), noOfBits);
 }
 
+bool shouldPreserveSymbol(StringRef Name) { return Name.equals("main"); }
+
 Optional<MSAMergePlan>
 MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   MSAStats Stats;
@@ -217,7 +219,7 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
 
   for (size_t FuncId = 0; FuncId < Functions.size(); FuncId++) {
     auto *F = Functions[FuncId];
-    if (!F->hasAddressTaken() &&
+    if (!F->hasAddressTaken() && !shouldPreserveSymbol(F->getName()) &&
         (HasWholeProgram || F->isDiscardableIfUnused())) {
       if (auto replacement =
               MSACallReplacement::create(FuncId, F, ArgToMergedArgNo)) {
