@@ -663,34 +663,9 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
 BasicBlock *
 MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
                                        ArrayRef<Instruction *> Instructions) {
-  bool areAllOperandsEqual =
-      std::all_of(NewOperands.begin(), NewOperands.end(),
-                  [&](Value *V) { return V == NewOperands[0]; });
-
-  if (areAllOperandsEqual) {
-    return dyn_cast<BasicBlock>(
-        NewOperands[0]); // assume that V1 == V2 == ... == Vn
-  } else if (NewOperands.size() == 2) {
-    assert(Instructions.size() == 2 && "Invalid number of instructions!");
-    // if there are only two instructions, we can just use cond_br
-    auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
-    IRBuilder<> Builder(SelectBB);
-    Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(NewOperands[1]),
-                         dyn_cast<BasicBlock>(NewOperands[0]));
-    return SelectBB;
-  } else {
-    auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
-    IRBuilder<> BuilderBB(SelectBB);
-    auto *Switch = BuilderBB.CreateSwitch(Discriminator, getBlackholeBB());
-
-    for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-      auto *I = Instructions[FuncId];
-      auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-      auto *BB = dyn_cast<BasicBlock>(NewOperands[FuncId]);
-      Switch->addCase(Case, BB);
-    }
-    return SelectBB;
-  }
+  return fmutils::LabelOperandMerger::merge(
+      NewOperands, Instructions, Discriminator, MergedFunc, IsMergedBB,
+      [&]() { return this->getBlackholeBB(); });
 }
 bool MSAGenFunctionBody::assignMergedInstLabelOperand(
     ArrayRef<Instruction *> Instructions, size_t OperandIdx) {

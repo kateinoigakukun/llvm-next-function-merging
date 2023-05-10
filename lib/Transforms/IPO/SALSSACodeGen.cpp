@@ -399,22 +399,15 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
         auto *F1BB = dyn_cast<BasicBlock>(F1V);
         auto *F2BB = dyn_cast<BasicBlock>(F2V);
 
-        if (V1 != V2) {
-          auto *BB1 = dyn_cast<BasicBlock>(V1);
-          auto *BB2 = dyn_cast<BasicBlock>(V2);
-
-          // auto CacheKey = std::pair<BasicBlock *, BasicBlock *>(BB1, BB2);
-          BasicBlock *SelectBB =
-              BasicBlock::Create(Context, "bb.select", MergedFunc);
-          IRBuilder<> BuilderBB(SelectBB);
-
-          BlocksF1[SelectBB] = I1->getParent();
-          BlocksF2[SelectBB] = I2->getParent();
-
-          BuilderBB.CreateCondBr(FuncId, BB2, BB1);
-          IsMergedBB[SelectBB] = true;
-          V = SelectBB;
-        }
+        BasicBlock *MergedBBOperand = fmutils::LabelOperandMerger::merge(
+            {V1, V2}, {I1, I2}, FuncId, MergedFunc, IsMergedBB, [&]() {
+              llvm_unreachable("blackhole bb should not be used for 2-merge");
+              return nullptr;
+            });
+        BlocksF1[MergedBBOperand] = I1->getParent();
+        BlocksF2[MergedBBOperand] = I2->getParent();
+        IsMergedBB[MergedBBOperand] = true;
+        V = MergedBBOperand;
 
         if (F1BB->isLandingPad() || F2BB->isLandingPad()) {
           LandingPadInst *LP1 = F1BB->getLandingPadInst();
