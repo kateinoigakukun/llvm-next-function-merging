@@ -732,7 +732,6 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
       }
-      FinalBBToBB[0][SelectBB] = I->getParent();
       IsMergedBB[SelectBB] = true;
       V = SelectBB;
     } else {
