@@ -306,6 +306,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   std::unordered_map<BasicBlock *, BasicBlock *> BlocksF2;
   DenseMap<BasicBlock *, bool> IsMergedBB;
   std::unordered_map<Value *, BasicBlock *> MaterialNodes;
+  fmutils::LabelOperandMerger LabelMerger;
 
   CodeGen(Blocks1, Blocks2, EntryBB1, EntryBB2, MergedFunc, FuncId, PreBB,
           AlignedSeq, VMap, BlocksF1, BlocksF2, IsMergedBB, MaterialNodes);
@@ -399,7 +400,7 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
         auto *F1BB = dyn_cast<BasicBlock>(F1V);
         auto *F2BB = dyn_cast<BasicBlock>(F2V);
 
-        BasicBlock *MergedBBOperand = fmutils::LabelOperandMerger::merge(
+        BasicBlock *MergedBBOperand = LabelMerger.merge(
             {V1, V2}, {I1, I2}, FuncId, MergedFunc, IsMergedBB, [&]() {
               llvm_unreachable("blackhole bb should not be used for 2-merge");
               return nullptr;

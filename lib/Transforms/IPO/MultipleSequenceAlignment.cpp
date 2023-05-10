@@ -267,6 +267,7 @@ class MSAGenFunctionBody {
   std::map<Instruction *, std::map<Instruction *, unsigned>>
       CoalescingCandidates;
 
+  fmutils::LabelOperandMerger LabelMerger;
 public:
   MSAGenFunctionBody(const MSAGenFunction &Parent,
                      const FunctionMergingOptions &Options, MSAStats &Stats,
@@ -312,7 +313,7 @@ public:
   /// Return true if the operand is assigned or the operand is not label.
   bool assignMergedInstLabelOperand(ArrayRef<Instruction *> Instructions,
                                     size_t OperandIdx);
-  BasicBlock *mergeLabelOperands(ArrayRef<Value *> NewOperands,
+  BasicBlock *mergeLabelOperands(SmallVector<Value *, 4> NewOperands,
                                  ArrayRef<Instruction *> Instructions);
   bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions) {
     auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
@@ -661,11 +662,11 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
 }
 
 BasicBlock *
-MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
+MSAGenFunctionBody::mergeLabelOperands(SmallVector<Value *, 4> NewOperands,
                                        ArrayRef<Instruction *> Instructions) {
-  return fmutils::LabelOperandMerger::merge(
-      NewOperands, Instructions, Discriminator, MergedFunc, IsMergedBB,
-      [&]() { return this->getBlackholeBB(); });
+  return LabelMerger.merge(NewOperands, Instructions, Discriminator, MergedFunc,
+                           IsMergedBB,
+                           [&]() { return this->getBlackholeBB(); });
 }
 bool MSAGenFunctionBody::assignMergedInstLabelOperand(
     ArrayRef<Instruction *> Instructions, size_t OperandIdx) {
@@ -675,8 +676,8 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperand(
 
   auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
 
-  std::vector<Value *> SrcOperands;
-  std::vector<Value *> NewOperands;
+  SmallVector<Value *, 4> SrcOperands;
+  SmallVector<Value *, 4> NewOperands;
   for (auto *SrcI : Instructions) {
     Value *SrcV = nullptr;
     Value *NewV = nullptr;
@@ -737,6 +738,7 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperand(
     return true;
 
   BasicBlock *MergedOperand = mergeLabelOperands(NewOperands, Instructions);
+
   assert(MergedOperand != nullptr && "Label operand value should be merged!");
 
   for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {

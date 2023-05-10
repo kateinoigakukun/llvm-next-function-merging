@@ -39,20 +39,50 @@ public:
 };
 
 class LabelOperandMerger {
+  class MergedLabelOperand {
+  public:
+    SmallVector<Value *, 4> Operands;
+    BasicBlock *MergedBB;
+
+    MergedLabelOperand(SmallVector<Value *, 4> Operands, BasicBlock *MergedBB)
+        : Operands(Operands), MergedBB(MergedBB) {}
+
+    bool hasEqualOperands(const ArrayRef<Value *> &OtherOperands) const {
+      if (Operands.size() != OtherOperands.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < Operands.size(); i++) {
+        if (Operands[i] != OtherOperands[i]) {
+          return false;
+        }
+      }
+      return true;
+    }
+  };
+
+  SmallVector<MergedLabelOperand, 16> MergedLabelOperands;
 public:
-  static BasicBlock *merge(ArrayRef<Value *> NewOperands,
-                           ArrayRef<Instruction *> Instructions,
-                           Value *Discriminator, Function *MergedFunc,
-                           DenseMap<BasicBlock *, bool> &IsMergedBB,
-                           std::function<BasicBlock *()> getBlackholeBB);
+  BasicBlock *merge(SmallVector<Value *, 4> NewOperands,
+                    ArrayRef<Instruction *> Instructions, Value *Discriminator,
+                    Function *MergedFunc,
+                    DenseMap<BasicBlock *, bool> &IsMergedBB,
+                    std::function<BasicBlock *()> getBlackholeBB);
 };
 
 inline BasicBlock *
-LabelOperandMerger::merge(ArrayRef<Value *> NewOperands,
+LabelOperandMerger::merge(SmallVector<Value *, 4> NewOperands,
                           ArrayRef<Instruction *> Instructions,
                           Value *Discriminator, Function *MergedFunc,
                           DenseMap<BasicBlock *, bool> &IsMergedBB,
                           std::function<BasicBlock *()> getBlackholeBB) {
+  for (auto &MergedInfo : MergedLabelOperands) {
+    if (MergedInfo.hasEqualOperands(NewOperands)) {
+      return MergedInfo.MergedBB;
+    }
+  }
+  auto RecordForReuse = [&](BasicBlock *BB) {
+    MergedLabelOperands.emplace_back(NewOperands, BB);
+  };
   bool areAllOperandsEqual =
       std::all_of(NewOperands.begin(), NewOperands.end(),
                   [&](Value *V) { return V == NewOperands[0]; });
@@ -68,6 +98,7 @@ LabelOperandMerger::merge(ArrayRef<Value *> NewOperands,
     IRBuilder<> Builder(SelectBB);
     Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(NewOperands[1]),
                          dyn_cast<BasicBlock>(NewOperands[0]));
+    RecordForReuse(SelectBB);
     return SelectBB;
   } else {
     auto *SelectBB = BasicBlock::Create(C, "bb.select.bb", MergedFunc);
@@ -81,6 +112,7 @@ LabelOperandMerger::merge(ArrayRef<Value *> NewOperands,
       auto *BB = dyn_cast<BasicBlock>(NewOperands[FuncId]);
       Switch->addCase(Case, BB);
     }
+    RecordForReuse(SelectBB);
     return SelectBB;
   }
 }
