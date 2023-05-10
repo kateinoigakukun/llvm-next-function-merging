@@ -312,8 +312,8 @@ public:
   /// Return true if the operand is assigned or the operand is not label.
   bool assignMergedInstLabelOperand(ArrayRef<Instruction *> Instructions,
                                     size_t OperandIdx);
-  Value *mergeLabelOperands(ArrayRef<Value *> NewOperands,
-                            ArrayRef<Instruction *> Instructions);
+  BasicBlock *mergeLabelOperands(ArrayRef<Value *> NewOperands,
+                                 ArrayRef<Instruction *> Instructions);
   bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions) {
     auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
     for (unsigned Op = 0; Op < MaxNumOperandsInst->getNumOperands(); Op++) {
@@ -660,7 +660,7 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   return MaxNumOperandsInst;
 }
 
-Value *
+BasicBlock *
 MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
                                        ArrayRef<Instruction *> Instructions) {
   bool areAllOperandsEqual =
@@ -668,7 +668,8 @@ MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
                   [&](Value *V) { return V == NewOperands[0]; });
 
   if (areAllOperandsEqual) {
-    return NewOperands[0]; // assume that V1 == V2 == ... == Vn
+    return dyn_cast<BasicBlock>(
+        NewOperands[0]); // assume that V1 == V2 == ... == Vn
   } else if (NewOperands.size() == 2) {
     assert(Instructions.size() == 2 && "Invalid number of instructions!");
     // if there are only two instructions, we can just use cond_br
@@ -676,10 +677,6 @@ MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
     IRBuilder<> Builder(SelectBB);
     Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(NewOperands[1]),
                          dyn_cast<BasicBlock>(NewOperands[0]));
-    for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-      FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
-    }
-    IsMergedBB[SelectBB] = true;
     return SelectBB;
   } else {
     auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
@@ -688,15 +685,10 @@ MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
 
     for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
       auto *I = Instructions[FuncId];
-      // XXX: is this correct?
-      FinalBBToBB[FuncId][SelectBB] = I->getParent();
-
       auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
       auto *BB = dyn_cast<BasicBlock>(NewOperands[FuncId]);
       Switch->addCase(Case, BB);
     }
-
-    IsMergedBB[SelectBB] = true;
     return SelectBB;
   }
 }
@@ -769,8 +761,13 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperand(
   if (!isa<BasicBlock>(NewOperands[0]))
     return true;
 
-  Value *MergedOperand = mergeLabelOperands(NewOperands, Instructions);
+  BasicBlock *MergedOperand = mergeLabelOperands(NewOperands, Instructions);
   assert(MergedOperand != nullptr && "Label operand value should be merged!");
+
+  for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+    FinalBBToBB[FuncId][MergedOperand] = Instructions[FuncId]->getParent();
+  }
+  IsMergedBB[MergedOperand] = true;
 
   bool isAnyOperandLandingPad =
       std::any_of(SrcOperands.begin(), SrcOperands.end(), [&](Value *FV) {
