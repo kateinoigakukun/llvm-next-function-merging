@@ -312,6 +312,8 @@ public:
   /// Return true if the operand is assigned or the operand is not label.
   bool assignMergedInstLabelOperand(ArrayRef<Instruction *> Instructions,
                                     size_t OperandIdx);
+  Value *mergeLabelOperands(ArrayRef<Value *> NewOperands,
+                            ArrayRef<Instruction *> Instructions);
   bool assignMergedInstLabelOperands(ArrayRef<Instruction *> Instructions) {
     auto *MaxNumOperandsInst = maxNumOperandsInstOf(Instructions);
     for (unsigned Op = 0; Op < MaxNumOperandsInst->getNumOperands(); Op++) {
@@ -658,6 +660,46 @@ MSAGenFunctionBody::maxNumOperandsInstOf(ArrayRef<Instruction *> Instructions) {
   return MaxNumOperandsInst;
 }
 
+Value *
+MSAGenFunctionBody::mergeLabelOperands(ArrayRef<Value *> NewOperands,
+                                       ArrayRef<Instruction *> Instructions) {
+  bool areAllOperandsEqual =
+      std::all_of(NewOperands.begin(), NewOperands.end(),
+                  [&](Value *V) { return V == NewOperands[0]; });
+
+  if (areAllOperandsEqual) {
+    return NewOperands[0]; // assume that V1 == V2 == ... == Vn
+  } else if (NewOperands.size() == 2) {
+    assert(Instructions.size() == 2 && "Invalid number of instructions!");
+    // if there are only two instructions, we can just use cond_br
+    auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
+    IRBuilder<> Builder(SelectBB);
+    Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(NewOperands[1]),
+                         dyn_cast<BasicBlock>(NewOperands[0]));
+    for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+      FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
+    }
+    IsMergedBB[SelectBB] = true;
+    return SelectBB;
+  } else {
+    auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
+    IRBuilder<> BuilderBB(SelectBB);
+    auto *Switch = BuilderBB.CreateSwitch(Discriminator, getBlackholeBB());
+
+    for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
+      auto *I = Instructions[FuncId];
+      // XXX: is this correct?
+      FinalBBToBB[FuncId][SelectBB] = I->getParent();
+
+      auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
+      auto *BB = dyn_cast<BasicBlock>(NewOperands[FuncId]);
+      Switch->addCase(Case, BB);
+    }
+
+    IsMergedBB[SelectBB] = true;
+    return SelectBB;
+  }
+}
 bool MSAGenFunctionBody::assignMergedInstLabelOperand(
     ArrayRef<Instruction *> Instructions, size_t OperandIdx) {
 
@@ -723,49 +765,11 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperand(
     NewOperands.push_back(NewV);
   }
 
-  Value *MergedOperand = nullptr;
-
   // handling just label operands for now
   if (!isa<BasicBlock>(NewOperands[0]))
     return true;
 
-  bool areAllOperandsEqual =
-      std::all_of(NewOperands.begin(), NewOperands.end(),
-                  [&](Value *V) { return V == NewOperands[0]; });
-
-  if (areAllOperandsEqual) {
-    MergedOperand = NewOperands[0]; // assume that V1 == V2 == ... == Vn
-  } else if (NewOperands.size() == 2) {
-    assert(Instructions.size() == 2 && "Invalid number of instructions!");
-    // if there are only two instructions, we can just use cond_br
-    auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
-    IRBuilder<> Builder(SelectBB);
-    Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(NewOperands[1]),
-                         dyn_cast<BasicBlock>(NewOperands[0]));
-    for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-      FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
-    }
-    IsMergedBB[SelectBB] = true;
-    MergedOperand = SelectBB;
-  } else {
-    auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
-    IRBuilder<> BuilderBB(SelectBB);
-    auto *Switch = BuilderBB.CreateSwitch(Discriminator, getBlackholeBB());
-
-    for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
-      auto *I = Instructions[FuncId];
-      // XXX: is this correct?
-      FinalBBToBB[FuncId][SelectBB] = I->getParent();
-
-      auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-      auto *BB = dyn_cast<BasicBlock>(NewOperands[FuncId]);
-      Switch->addCase(Case, BB);
-    }
-
-    IsMergedBB[SelectBB] = true;
-    MergedOperand = SelectBB;
-  }
-
+  Value *MergedOperand = mergeLabelOperands(NewOperands, Instructions);
   assert(MergedOperand != nullptr && "Label operand value should be merged!");
 
   bool isAnyOperandLandingPad =
