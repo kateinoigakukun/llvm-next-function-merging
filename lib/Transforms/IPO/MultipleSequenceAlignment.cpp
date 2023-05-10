@@ -254,6 +254,7 @@ class MSAGenFunctionBody {
   Function *MergedFunc;
 
   Value *Discriminator;
+  // Original instruction -> Merged instruction.
   ValueToValueMapTy &VMap;
   // FIXME(katei): Better name?
   DenseMap<Value *, BasicBlock *> MaterialNodes;
@@ -654,16 +655,16 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
 
   for (unsigned OperandIdx = 0;
        OperandIdx < MaxNumOperandsInst->getNumOperands(); OperandIdx++) {
-    std::vector<Value *> FVs;
-    std::vector<Value *> Vs;
-    for (auto *I : Instructions) {
-      Value *FV = nullptr;
-      Value *V = nullptr;
-      if (OperandIdx < I->getNumOperands()) {
-        FV = I->getOperand(OperandIdx);
+    std::vector<Value *> SrcOperandss;
+    std::vector<Value *> NewOperands;
+    for (auto *SrcI : Instructions) {
+      Value *SrcV = nullptr;
+      Value *NewV = nullptr;
+      if (OperandIdx < SrcI->getNumOperands()) {
+        SrcV = SrcI->getOperand(OperandIdx);
         // FIXME(katei): `VMap[FV]` is enough?
-        V = MapValue(FV, VMap);
-        if (V == nullptr && isa<LandingPadInst>(FV)) {
+        NewV = MapValue(SrcV, VMap);
+        if (NewV == nullptr && isa<LandingPadInst>(SrcV)) {
           // FIXME(katei): SalSSA unsoundness?
           // SalSSA depends on the order of "invoke" and "landingpad"
           // instructions. In most cases, "invoke" is processed before
@@ -701,39 +702,40 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
           // codegen behavior.
           return false;
         }
-        assert(V && "Operand not found in VMap!");
+        assert(NewV && "Operand not found in VMap!");
       } else {
-        V = UndefValue::get(
+        NewV = UndefValue::get(
             MaxNumOperandsInst->getOperand(OperandIdx)->getType());
       }
-      assert(V != nullptr && "Value should NOT be null!");
-      FVs.push_back(FV);
-      Vs.push_back(V);
+      assert(NewV != nullptr && "Value should NOT be null!");
+      SrcOperandss.push_back(SrcV);
+      NewOperands.push_back(NewV);
     }
 
-    Value *V = nullptr;
+    Value *MergedOperand = nullptr;
 
     // handling just label operands for now
-    if (!isa<BasicBlock>(Vs[0]))
+    if (!isa<BasicBlock>(NewOperands[0]))
       continue;
 
     bool areAllOperandsEqual =
-        std::all_of(Vs.begin(), Vs.end(), [&](Value *V) { return V == Vs[0]; });
+        std::all_of(NewOperands.begin(), NewOperands.end(),
+                    [&](Value *V) { return V == NewOperands[0]; });
 
     if (areAllOperandsEqual) {
-      V = Vs[0]; // assume that V1 == V2 == ... == Vn
-    } else if (Vs.size() == 2) {
+      MergedOperand = NewOperands[0]; // assume that V1 == V2 == ... == Vn
+    } else if (NewOperands.size() == 2) {
       assert(Instructions.size() == 2 && "Invalid number of instructions!");
       // if there are only two instructions, we can just use cond_br
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> Builder(SelectBB);
-      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(Vs[1]),
-                           dyn_cast<BasicBlock>(Vs[0]));
+      Builder.CreateCondBr(Discriminator, dyn_cast<BasicBlock>(NewOperands[1]),
+                           dyn_cast<BasicBlock>(NewOperands[0]));
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         FinalBBToBB[FuncId][SelectBB] = Instructions[FuncId]->getParent();
       }
       IsMergedBB[SelectBB] = true;
-      V = SelectBB;
+      MergedOperand = SelectBB;
     } else {
       auto *SelectBB = BasicBlock::Create(Parent.C, "bb.select.bb", MergedFunc);
       IRBuilder<> BuilderBB(SelectBB);
@@ -745,23 +747,23 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
         FinalBBToBB[FuncId][SelectBB] = I->getParent();
 
         auto *Case = ConstantInt::get(Parent.DiscriminatorTy, FuncId);
-        auto *BB = dyn_cast<BasicBlock>(Vs[FuncId]);
+        auto *BB = dyn_cast<BasicBlock>(NewOperands[FuncId]);
         Switch->addCase(Case, BB);
       }
 
       IsMergedBB[SelectBB] = true;
-      V = SelectBB;
+      MergedOperand = SelectBB;
     }
 
-    assert(V != nullptr && "Label operand value should be merged!");
+    assert(MergedOperand != nullptr && "Label operand value should be merged!");
 
     bool isAnyOperandLandingPad =
-        std::any_of(FVs.begin(), FVs.end(), [&](Value *FV) {
+        std::any_of(SrcOperandss.begin(), SrcOperandss.end(), [&](Value *FV) {
           return dyn_cast<BasicBlock>(FV)->isLandingPad();
         });
 
     if (isAnyOperandLandingPad) {
-      for (auto *FV : FVs) {
+      for (auto *FV : SrcOperandss) {
         auto *BB = dyn_cast<BasicBlock>(FV);
         assert(BB->getLandingPadInst() != nullptr &&
                "Should be both as per the BasicBlock match!");
@@ -769,24 +771,24 @@ bool MSAGenFunctionBody::assignMergedInstLabelOperands(
       BasicBlock *LPadBB = BasicBlock::Create(Parent.C, "lpad.bb", MergedFunc);
       IRBuilder<> BuilderBB(LPadBB);
 
-      auto *LP1 = dyn_cast<BasicBlock>(FVs[0])->getLandingPadInst();
+      auto *LP1 = dyn_cast<BasicBlock>(SrcOperandss[0])->getLandingPadInst();
 
       Instruction *NewLP = LP1->clone();
       BuilderBB.Insert(NewLP);
 
-      BuilderBB.CreateBr(dyn_cast<BasicBlock>(V));
+      BuilderBB.CreateBr(dyn_cast<BasicBlock>(MergedOperand));
 
       for (size_t FuncId = 0, e = Instructions.size(); FuncId < e; ++FuncId) {
         FinalBBToBB[FuncId][LPadBB] = Instructions[FuncId]->getParent();
         // XXX: is this really merged?
         IsMergedBB[LPadBB] = true;
-        auto *FBB = dyn_cast<BasicBlock>(FVs[FuncId]);
+        auto *FBB = dyn_cast<BasicBlock>(SrcOperandss[FuncId]);
         VMap[FBB->getLandingPadInst()] = NewLP;
       }
 
-      V = LPadBB;
+      MergedOperand = LPadBB;
     }
-    NewI->setOperand(OperandIdx, V);
+    NewI->setOperand(OperandIdx, MergedOperand);
   }
   return true;
 }
