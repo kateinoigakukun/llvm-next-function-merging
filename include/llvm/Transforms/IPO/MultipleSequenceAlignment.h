@@ -57,12 +57,12 @@ class MSAMergePlan {
   std::vector<MSAThunkFunction> Thunks;
   std::vector<MSACallReplacement> CallReplacements;
   std::vector<Function *> Functions;
-  const FunctionMergingOptions &Options;
+  FunctionMergingOptions Options;
   MSAStats Stats;
 
 public:
   MSAMergePlan(Function &Merged, ArrayRef<Function *> Functions,
-               const FunctionMergingOptions &Options, MSAStats Stats)
+               FunctionMergingOptions Options, MSAStats Stats)
       : Merged(Merged), Functions(Functions), Options(Options), Stats(Stats) {}
 
   ArrayRef<Function *> getFunctions() const { return Functions; }
@@ -76,7 +76,7 @@ public:
     size_t MergedSize;
     size_t ThunkOverhead;
     size_t OriginalTotalSize;
-    const FunctionMergingOptions &Options;
+    FunctionMergingOptions Options;
     MSAStats Stats;
 
     bool isProfitableMerge() const;
@@ -116,7 +116,7 @@ public:
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
   bool align(std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
-             const FunctionMergingOptions &Options = {});
+             const FunctionMergingOptions Options = {});
 };
 
 class MSAGenFunctionBody;

@@ -130,7 +130,7 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                               bool &isProfitable,
-                              const FunctionMergingOptions &Options) {
+                              FunctionMergingOptions Options) {
   TimeTraceScope TimeScope("Align");
 
   constexpr auto Ty = MSAAlignmentEntryType::Variable;
@@ -236,11 +236,12 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
 
 namespace {
 
-struct MSAOptions : public FunctionMergingOptions {
+struct MSAOptions {
+  FunctionMergingOptions Base;
   size_t LSHRows = 2;
   size_t LSHBands = 100;
 
-  MSAOptions() : FunctionMergingOptions() { EnableUnifiedReturnType = false; }
+  MSAOptions() : Base() { Base.EnableUnifiedReturnType = false; }
 };
 
 } // namespace
@@ -2021,11 +2022,11 @@ public:
   void tryPlanMerge(SmallVectorImpl<Function *> &Functions,
                     bool IdenticalTypesOnly = true) {
     MSAOptions Opt = BaseOpt;
-    Opt.matchOnlyIdenticalTypes(IdenticalTypesOnly);
-    Opt.EnableHyFMAlignment = EnableHyFMNW;
+    Opt.Base.matchOnlyIdenticalTypes(IdenticalTypesOnly);
+    Opt.Base.EnableHyFMAlignment = EnableHyFMNW;
 
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    auto maybePlan = FM.planMerge(Opt);
+    auto maybePlan = FM.planMerge(Opt.Base);
     if (!maybePlan) {
       return;
     }
@@ -2065,12 +2066,12 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
   FunctionMerger PairMerger(&M);
   auto Options = MSAOptions();
-  Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
+  Options.Base.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
 
   std::unique_ptr<Matcher<Function *>> MatchFinder;
   {
     TimeTraceScope TimeScope("CreateMatcher");
-    MatchFinder = createMatcherLSH(PairMerger, Options, Options.LSHRows,
+    MatchFinder = createMatcherLSH(PairMerger, Options.Base, Options.LSHRows,
                                    Options.LSHBands);
   }
 
