@@ -16,9 +16,14 @@ public:
 
   enum class EstimationMethod { Approximate, Exact };
 
-  size_t estimate(Function &F, EstimationMethod Method);
+  size_t estimate(Function &F, EstimationMethod Method) {
+    return estimate({&F}, Method);
+  }
+  size_t estimate(const std::vector<Function *> &Functions,
+                  EstimationMethod Method);
   size_t estimateApproximateFunctionSize(Function &F);
-  static Optional<size_t> estimateExactFunctionSize(const Function &F);
+  static Optional<size_t>
+  estimateExactFunctionSize(const std::vector<Function *> &Functions);
 };
 } // end namespace llvm
 

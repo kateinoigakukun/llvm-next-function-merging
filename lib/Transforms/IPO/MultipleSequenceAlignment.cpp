@@ -1907,10 +1907,8 @@ size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 MSAMergePlan::Score MSAMergePlan::computeScore(FunctionSizeEstimation &FSE) {
   size_t MergedSize = FSE.estimate(Merged, Options.SizeEstimationMethod);
-  size_t OriginalTotalSize = 0;
-  for (auto *F : Functions) {
-    OriginalTotalSize += FSE.estimate(*F, Options.SizeEstimationMethod);
-  }
+  size_t OriginalTotalSize =
+      FSE.estimate(Functions, Options.SizeEstimationMethod);
   // This magic number respects `EstimateThunkOverhead`
   size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
 

@@ -21,10 +21,12 @@ using namespace llvm;
 
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
-size_t FunctionSizeEstimation::estimate(Function &F, EstimationMethod Method) {
+size_t
+FunctionSizeEstimation::estimate(const std::vector<Function *> &Functions,
+                                 EstimationMethod Method) {
   switch (Method) {
   case EstimationMethod::Exact: {
-    auto MaybeSize = estimateExactFunctionSize(F);
+    auto MaybeSize = estimateExactFunctionSize(Functions);
     if (MaybeSize) {
       return *MaybeSize;
     } else {
@@ -33,8 +35,13 @@ size_t FunctionSizeEstimation::estimate(Function &F, EstimationMethod Method) {
       [[fallthrough]];
     }
   }
-  case EstimationMethod::Approximate:
-    return estimateApproximateFunctionSize(F);
+  case EstimationMethod::Approximate: {
+    size_t Size = 0;
+    for (auto *F : Functions) {
+      Size += estimateApproximateFunctionSize(*F);
+    }
+    return Size;
+  }
   }
 }
 
@@ -71,8 +78,8 @@ public:
 };
 }; // namespace
 
-Optional<size_t>
-FunctionSizeEstimation::estimateExactFunctionSize(const Function &F) {
+Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
+    const std::vector<Function *> &Functions) {
   // This estimation actually emits the object code for the given function
   // and counts the number of bytes in the emitted object code.
   // This is a very expensive operation, but useful for further research.
@@ -80,8 +87,12 @@ FunctionSizeEstimation::estimateExactFunctionSize(const Function &F) {
   // First, extract the function from the module.
 
   legacy::PassManager PM;
-  std::unique_ptr<Module> NewM = CloneModule(*F.getParent());
-  std::vector<GlobalValue *> PreservedGVs = {NewM->getFunction(F.getName())};
+  std::unique_ptr<Module> NewM = CloneModule(*Functions[0]->getParent());
+  std::vector<GlobalValue *> PreservedGVs;
+
+  for (auto *F : Functions) {
+    PreservedGVs.push_back(F);
+  }
 
   std::string Error;
   const Target *TheTarget =
