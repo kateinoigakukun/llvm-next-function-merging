@@ -6,9 +6,10 @@ LIT_TEST_ENV = "LLVM_NEXTFM_REDUCE_LIT_INTERESTINGNESS_TEST"
 
 def main
   lit_test = File.expand_path(ARGV[0])
+  extra_args = ARGV[1..-1]
   # Pass this script itself as the interestingness test harness to llvm-reduce.
   env = { LIT_TEST_ENV => lit_test }
-  Kernel.exec env, "llvm-reduce-13", "--test", File.expand_path(__FILE__), lit_test, chdir: guess_build_dir
+  Kernel.exec env, *["llvm-reduce-13", "--test", File.expand_path(__FILE__), lit_test, *extra_args], chdir: guess_build_dir
 end
 
 def interestingness_test
