@@ -114,6 +114,7 @@
 
 #include "llvm/ADT/SANeedlemanWunsch.h"
 #include "llvm/Transforms/IPO/Fingerprint.h"
+#include "llvm/Transforms/IPO/FunctionSizeEstimation.h"
 #include "llvm/Transforms/IPO/LegacySequenceAligner.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
@@ -264,6 +265,15 @@ static cl::opt<bool>
     EnableCodeSharing("func-impl-sharing", cl::init(false), cl::Hidden,
                       cl::desc("Enable code sharing between MSA and F3M"));
 
+static cl::opt<FunctionSizeEstimation::EstimationMethod> SizeEstimationMethod(
+    "func-merging-size-estimation", cl::Hidden,
+    cl::desc("Function size estimation method"),
+    cl::init(FunctionSizeEstimation::EstimationMethod::Approximate),
+    cl::values(clEnumValN(FunctionSizeEstimation::EstimationMethod::Approximate,
+                          "approximate", "Approximate estimation"),
+               clEnumValN(FunctionSizeEstimation::EstimationMethod::Exact,
+                          "exact", "Exact estimation")));
+
 static std::string GetValueName(const Value *V);
 
 #ifdef __unix__ /* __unix__ is usually defined by compilers targeting Unix     \
@@ -300,7 +310,7 @@ static OptimizationRemarkMissed createMissedRemark(StringRef RemarkName,
 
 class FunctionMerging {
 public:
-  bool runImpl(Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
+  bool runImpl(Module &M, FunctionAnalysisManager &FAM,
                function_ref<OptimizationRemarkEmitter &(Function &)> GORE);
 };
 
@@ -3109,7 +3119,7 @@ bool ignoreFunction(Function &F) {
 }
 
 bool FunctionMerging::runImpl(
-    Module &M, function_ref<TargetTransformInfo *(Function &)> GTTI,
+    Module &M, FunctionAnalysisManager &FAM,
     function_ref<OptimizationRemarkEmitter &(Function &)> GORE) {
 
 #ifdef TIME_STEPS_DEBUG
@@ -3128,6 +3138,7 @@ bool FunctionMerging::runImpl(
           .matchOnlyIdenticalTypes(IdenticalType)
           .enableUnifiedReturnTypes(EnableUnifiedReturnType);
   Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
+  Options.SizeEstimationMethod = SizeEstimationMethod;
   // auto *PSI = &this->getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   // auto LookupBFI = [this](Function &F) {
   //  return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
@@ -3136,6 +3147,7 @@ bool FunctionMerging::runImpl(
   // TODO: We could use a TTI ModulePass instead but current TTI analysis pass
   // is a FunctionPass.
 
+  FunctionSizeEstimation FSE(FAM);
   FunctionMerger FM(&M);
 
   if (ReportStats) {
@@ -3239,7 +3251,7 @@ bool FunctionMerging::runImpl(
       continue;
     if (ignoreFunction(F))
       continue;
-    matcher->add_candidate(&F, EstimateFunctionSize(&F, GTTI(F)));
+    matcher->add_candidate(&F, FSE.estimateApproximateFunctionSize(F));
     count++;
   }
 
@@ -3373,13 +3385,13 @@ bool FunctionMerging::runImpl(
           });
           Result.getMergedFunction()->eraseFromParent();
         } else {
-          size_t MergedSize = EstimateFunctionSize(
-              Result.getMergedFunction(), GTTI(*Result.getMergedFunction()));
+          size_t MergedSize = FSE.estimate(*Result.getMergedFunction(),
+                                           Options.SizeEstimationMethod);
           size_t Overhead = EstimateThunkOverhead(Result, AlwaysPreserved);
 
           size_t SizeF12 = MergedSize + Overhead;
-          size_t SizeF1F2 = EstimateFunctionSize(F1, GTTI(*F1)) +
-                            EstimateFunctionSize(F2, GTTI(*F2));
+          size_t SizeF1F2 = FSE.estimate(*F1, Options.SizeEstimationMethod) +
+                            FSE.estimate(*F2, Options.SizeEstimationMethod);
 
           match.MergedSize = SizeF12;
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;
@@ -3403,10 +3415,9 @@ bool FunctionMerging::runImpl(
 
             if (ReuseMergedFunctions) {
               // feed new function back into the working lists
-              matcher->add_candidate(
-                  Result.getMergedFunction(),
-                  EstimateFunctionSize(Result.getMergedFunction(),
-                                       GTTI(*Result.getMergedFunction())));
+              matcher->add_candidate(Result.getMergedFunction(),
+                                     FSE.estimateApproximateFunctionSize(
+                                         *Result.getMergedFunction()));
             }
           } else {
             ORE.emit([&] {
@@ -3550,16 +3561,12 @@ bool FunctionMerging::runImpl(
 PreservedAnalyses FunctionMergingPass::run(Module &M,
                                            ModuleAnalysisManager &AM) {
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-  std::function<TargetTransformInfo *(Function &)> GTTI =
-      [&FAM](Function &F) -> TargetTransformInfo * {
-    return &FAM.getResult<TargetIRAnalysis>(F);
-  };
   auto GORE = [&](Function &F) -> OptimizationRemarkEmitter & {
     return FAM.getResult<OptimizationRemarkEmitterAnalysis>(F);
   };
 
   FunctionMerging FM;
-  if (!FM.runImpl(M, GTTI, GORE))
+  if (!FM.runImpl(M, FAM, GORE))
     return PreservedAnalyses::all();
   return PreservedAnalyses::none();
 }

@@ -101,6 +101,15 @@ static cl::opt<bool> EnableStats(
     "multiple-func-merging-stats", cl::init(false), cl::Hidden,
     cl::desc("Enable statistics for the multiple function merging"));
 
+static cl::opt<FunctionSizeEstimation::EstimationMethod> SizeEstimationMethod(
+    "multiple-func-merging-size-estimation", cl::Hidden,
+    cl::desc("Function size estimation method"),
+    cl::init(FunctionSizeEstimation::EstimationMethod::Approximate),
+    cl::values(clEnumValN(FunctionSizeEstimation::EstimationMethod::Approximate,
+                          "approximate", "Approximate estimation"),
+               clEnumValN(FunctionSizeEstimation::EstimationMethod::Exact,
+                          "exact", "Exact estimation")));
+
 namespace {
 
 static OptimizationRemarkMissed
@@ -1896,13 +1905,11 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
 
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
-MSAMergePlan::Score MSAMergePlan::computeScore(FunctionAnalysisManager &FAM) {
-  size_t MergedSize =
-      EstimateFunctionSize(&Merged, &FAM.getResult<TargetIRAnalysis>(Merged));
+MSAMergePlan::Score MSAMergePlan::computeScore(FunctionSizeEstimation &FSE) {
+  size_t MergedSize = FSE.estimate(Merged, Options.SizeEstimationMethod);
   size_t OriginalTotalSize = 0;
   for (auto *F : Functions) {
-    OriginalTotalSize +=
-        EstimateFunctionSize(F, &FAM.getResult<TargetIRAnalysis>(*F));
+    OriginalTotalSize += FSE.estimate(*F, Options.SizeEstimationMethod);
   }
   // This magic number respects `EstimateThunkOverhead`
   size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
@@ -1963,8 +1970,7 @@ bool MSAMergePlan::Score::isBetterThan(const MSAMergePlan::Score &Other) const {
          (Other.MergedSize + Other.ThunkOverhead + OriginalTotalSize);
 }
 
-Function &MSAMergePlan::applyMerge(FunctionAnalysisManager &FAM,
-                                   OptimizationRemarkEmitter &ORE) {
+Function &MSAMergePlan::applyMerge(OptimizationRemarkEmitter &ORE) {
   TimeTraceScope TimeScope("ApplyMerge");
   for (auto replacement : CallReplacements) {
     replacement.applyReplacements(&Merged);
@@ -2025,6 +2031,7 @@ public:
     Opt.Base.matchOnlyIdenticalTypes(IdenticalTypesOnly);
     Opt.Base.EnableHyFMAlignment = EnableHyFMNW;
 
+    FunctionSizeEstimation FSE(FAM);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     auto maybePlan = FM.planMerge(Opt.Base);
     if (!maybePlan) {
@@ -2035,7 +2042,7 @@ public:
       plan.discard();
     };
     auto plan = *maybePlan;
-    auto score = plan.computeScore(FAM);
+    auto score = plan.computeScore(FSE);
     if (!score.isProfitableMerge()) {
       disposePlan(plan, score);
       return;
@@ -2067,6 +2074,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   FunctionMerger PairMerger(&M);
   auto Options = MSAOptions();
   Options.Base.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
+  Options.Base.SizeEstimationMethod = SizeEstimationMethod;
+
+  FunctionSizeEstimation FSE(FAM);
 
   std::unique_ptr<Matcher<Function *>> MatchFinder;
   {
@@ -2092,9 +2102,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     if (auto result = Planner.getBestPlan()) {
       auto &plan = result->Plan;
-      auto score = plan.computeScore(FAM);
+      auto score = plan.computeScore(FSE);
       score.emitPassedRemark(plan, ORE);
-      auto &Merged = plan.applyMerge(FAM, ORE);
+      auto &Merged = plan.applyMerge(ORE);
     }
     return PreservedAnalyses::none();
   }
@@ -2104,8 +2114,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     for (auto &F : M) {
       if (!isEligibleToBeMergeCandidate(F))
         continue;
-      MatchFinder->add_candidate(
-          &F, EstimateFunctionSize(&F, &FAM.getResult<TargetIRAnalysis>(F)));
+      MatchFinder->add_candidate(&F, FSE.estimateApproximateFunctionSize(F));
     }
   }
 
@@ -2160,13 +2169,16 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       // Emit remarks before replacing original functions with thunks.
       score.emitPassedRemark(plan, ORE);
 
-      auto &Merged = plan.applyMerge(FAM, ORE);
+      auto &Merged = plan.applyMerge(ORE);
       for (auto *F : plan.getFunctions()) {
         if (F == F1)
           continue;
         MatchFinder->remove_candidate(F);
       }
-      MatchFinder->add_candidate(&Merged, score.MergedSize);
+      // NOTE: We now use approx way to estimate the size for ranking,
+      // but we may want to use the FSE in the future.
+      MatchFinder->add_candidate(&Merged,
+                                 FSE.estimateApproximateFunctionSize(Merged));
     }
   }
 

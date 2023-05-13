@@ -8,6 +8,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/FunctionMergingOptions.h"
+#include "llvm/Transforms/IPO/FunctionSizeEstimation.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
@@ -86,10 +87,9 @@ public:
     void emitPassedRemark(MSAMergePlan &plan, OptimizationRemarkEmitter &ORE);
   };
 
-  Score computeScore(FunctionAnalysisManager &FAM);
+  Score computeScore(FunctionSizeEstimation &FSE);
 
-  Function &applyMerge(FunctionAnalysisManager &FAM,
-                       OptimizationRemarkEmitter &ORE);
+  Function &applyMerge(OptimizationRemarkEmitter &ORE);
   void discard();
 };
 

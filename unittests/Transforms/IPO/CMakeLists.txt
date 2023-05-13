@@ -4,7 +4,7 @@ add_executable(LLVMNextFMTests
   MultipleSequenceAlignmentTests.cpp
   TensorTableTests.cpp)
 
-llvm_map_components_to_libnames(LLVM_LINK_LIBS Passes Core Analysis)
+llvm_map_components_to_libnames(LLVM_LINK_LIBS Passes Core Analysis CodeGen)
 target_link_libraries(LLVMNextFMTests
   LLVMNextFMObjects
   gtest_main

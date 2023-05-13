@@ -1,10 +1,12 @@
 add_library(LLVMNextFMObjects OBJECT
   Analysis/InstCount2.cpp
+  Transforms/IPO/ExtractGV2.cpp
   Transforms/IPO/FastFM.cpp
   Transforms/IPO/FMSA.cpp
   Transforms/IPO/FunctionMerging.cpp
   Transforms/IPO/FunctionMergingUtils.cpp
   Transforms/IPO/FunctionMergingUtils.h
+  Transforms/IPO/FunctionSizeEstimation.cpp
   Transforms/IPO/MatchingUtils.h
   Transforms/IPO/MergeSimilarFunctions.cpp
   Transforms/IPO/MinSizeAttr.cpp
