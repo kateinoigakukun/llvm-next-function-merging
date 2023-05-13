@@ -3547,46 +3547,6 @@ bool FunctionMerging::runImpl(
   return true;
 }
 
-class FunctionMergingLegacyPass : public ModulePass {
-public:
-  static char ID;
-  FunctionMergingLegacyPass() : ModulePass(ID) {
-#ifndef LLVM_NEXT_FM_STANDALONE
-    initializeFunctionMergingLegacyPassPass(*PassRegistry::getPassRegistry());
-#endif
-  }
-  bool runOnModule(Module &M) override {
-    auto GTTI = [this](Function &F) -> TargetTransformInfo * {
-      return &this->getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
-    };
-    std::unique_ptr<OptimizationRemarkEmitter> ORE;
-    std::function<OptimizationRemarkEmitter &(Function &)> GORE =
-        [&ORE](Function &F) -> OptimizationRemarkEmitter & {
-      ORE.reset(new OptimizationRemarkEmitter(&F));
-      return *ORE.get();
-    };
-    FunctionMerging FM;
-    return FM.runImpl(M, GTTI, GORE);
-  }
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<TargetTransformInfoWrapperPass>();
-    // ModulePass::getAnalysisUsage(AU);
-  }
-};
-
-char FunctionMergingLegacyPass::ID = 0;
-#ifdef LLVM_NEXT_FM_STANDALONE
-static RegisterPass<FunctionMergingLegacyPass>
-    X("func-merging", "New Function Merging", false, false);
-#else
-INITIALIZE_PASS(FunctionMergingLegacyPass, "func-merging",
-                "New Function Merging", false, false)
-
-ModulePass *llvm::createFunctionMergingPass() {
-  return new FunctionMergingLegacyPass();
-}
-#endif
-
 PreservedAnalyses FunctionMergingPass::run(Module &M,
                                            ModuleAnalysisManager &AM) {
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
