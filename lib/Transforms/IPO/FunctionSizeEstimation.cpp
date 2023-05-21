@@ -91,7 +91,8 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
   std::vector<GlobalValue *> PreservedGVs;
 
   for (auto *F : Functions) {
-    PreservedGVs.push_back(F);
+    Function *NewF = NewM->getFunction(F->getName());
+    PreservedGVs.push_back(NewF);
   }
 
   std::string Error;
@@ -106,12 +107,16 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
       TargetOptions(), Reloc::PIC_));
   PM.add(createGVExtraction2Pass(PreservedGVs, false));
 
-  raw_size_ostream OS;
-  if (Target->addPassesToEmitFile(PM, OS, nullptr, CGFT_ObjectFile)) {
-    errs() << "Error: cannot emit a file of this type\n";
-    return None;
+  std::string ObjectCode;
+  {
+    raw_string_ostream OS(ObjectCode);
+    buffer_ostream POS(OS);
+    if (Target->addPassesToEmitFile(PM, POS, nullptr, CGFT_ObjectFile)) {
+      errs() << "Error: cannot emit a file of this type\n";
+      return None;
+    }
+    PM.run(*NewM);
   }
-  PM.run(*NewM);
 
-  return OS.size();
+  return ObjectCode.size();
 }
