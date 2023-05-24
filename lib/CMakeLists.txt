@@ -1,4 +1,5 @@
 add_library(LLVMNextFMObjects OBJECT
+  Analysis/DumpFunctionSize.cpp
   Analysis/InstCount2.cpp
   Transforms/IPO/ExtractGV2.cpp
   Transforms/IPO/FastFM.cpp

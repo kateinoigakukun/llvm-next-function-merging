@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Analysis/DumpFunctionSize.h"
 #include "llvm/Analysis/InstCount2.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -24,6 +25,10 @@ llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
                    ArrayRef<PassBuilder::PipelineElement>) {
                   if (Name == "instcount2") {
                     PM.addPass(InstCount2Pass());
+                    return true;
+                  }
+                  if (Name == "dump-funcsize") {
+                    PM.addPass(DumpFunctionSizePass());
                     return true;
                   }
                   PM.addPass(
