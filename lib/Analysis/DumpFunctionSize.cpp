@@ -50,7 +50,5 @@ PreservedAnalyses DumpFunctionSizePass::run(Module &M,
     }
   });
 
-  J.objectEnd();
-
   return PreservedAnalyses::all();
 }
