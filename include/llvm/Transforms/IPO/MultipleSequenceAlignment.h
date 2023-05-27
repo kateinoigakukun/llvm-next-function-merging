@@ -85,6 +85,8 @@ public:
     void emitMissedRemark(ArrayRef<Function *> Functions,
                           OptimizationRemarkEmitter &ORE);
     void emitPassedRemark(MSAMergePlan &plan, OptimizationRemarkEmitter &ORE);
+
+    void composite(const Score &Other);
   };
 
   Score computeScore(FunctionSizeEstimation &FSE);

@@ -1937,6 +1937,13 @@ bool MSAMergePlan::Score::isProfitableMerge() const {
   return false;
 }
 
+void MSAMergePlan::Score::composite(const Score &Other) {
+  MergedSize += Other.MergedSize;
+  ThunkOverhead += Other.ThunkOverhead;
+  OriginalTotalSize += Other.OriginalTotalSize;
+  Stats.NumSelection += Other.Stats.NumSelection;
+}
+
 void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
                                            OptimizationRemarkEmitter &ORE) {
   auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
@@ -2004,11 +2011,14 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
 class MergePlanner {
 public:
   struct PlanResult {
-    MSAMergePlan Plan;
-    MSAMergePlan::Score Score;
+    std::vector<MSAMergePlan> Plan;
+    SmallVector<MSAMergePlan::Score, 2> Score;
+    MSAMergePlan::Score TotalScore;
 
-    PlanResult(MSAMergePlan Plan, MSAMergePlan::Score Score)
-        : Plan(std::move(Plan)), Score(Score) {}
+    PlanResult(std::vector<MSAMergePlan> Plan,
+               SmallVector<MSAMergePlan::Score, 2> Score,
+               MSAMergePlan::Score TotalScore)
+        : Plan(std::move(Plan)), Score(Score), TotalScore(TotalScore) {}
   };
 
 private:
@@ -2023,72 +2033,98 @@ public:
                OptimizationRemarkEmitter &ORE, FunctionAnalysisManager &FAM)
       : BaseOpt(BaseOpt), PairMerger(PairMerger), ORE(ORE), FAM(FAM) {}
 
-  void tryPlanMerge(SmallVectorImpl<Function *> &Functions,
+  using PartitionTy = fmutils::SetPartitions::PartitionTy;
+  using PartitionSetTy = fmutils::SetPartitions::PartitionSetTy;
+
+  void tryPlanMerge(const SmallVectorImpl<Function *> &Sources,
+                    bool IdenticalTypesOnly = true) {
+    PartitionTy Partition;
+    for (size_t i = 0; i < Sources.size(); i++) {
+      Partition.insert(i);
+    }
+    tryPlanMerge(Sources, {Partition}, IdenticalTypesOnly);
+  }
+
+  void tryPlanMerge(const SmallVectorImpl<Function *> &Sources,
+                    const PartitionSetTy &PartitionIndicesSet,
                     bool IdenticalTypesOnly = true) {
     MSAOptions Opt = BaseOpt;
     Opt.Base.matchOnlyIdenticalTypes(IdenticalTypesOnly);
     Opt.Base.EnableHyFMAlignment = EnableHyFMNW;
 
     FunctionSizeEstimation FSE(FAM);
-    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
-    auto maybePlan = FM.planMerge(Opt.Base);
-    if (!maybePlan) {
+
+    std::vector<MSAMergePlan> plans;
+    SmallVector<MSAMergePlan::Score, 2> scores;
+    for (auto Partition : PartitionIndicesSet) {
+      SmallVector<Function *, 4> Functions;
+      for (auto Idx : Partition) {
+        Functions.push_back(Sources[Idx]);
+      }
+      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+      auto maybePlan = FM.planMerge(Opt.Base);
+      if (!maybePlan) {
+        continue;
+      }
+      plans.push_back(std::move(*maybePlan));
+    }
+
+    if (plans.empty()) {
       return;
     }
-    auto disposePlan = [&](MSAMergePlan &plan, MSAMergePlan::Score &score) {
-      score.emitMissedRemark(plan.getFunctions(), ORE);
-      plan.discard();
+
+    auto disposePlan = [&](std::vector<MSAMergePlan> &plans,
+                           SmallVector<MSAMergePlan::Score, 2> &scores) {
+      for (size_t i = 0; i < plans.size(); i++) {
+        auto &plan = plans[i];
+        auto &score = scores[i];
+        score.emitMissedRemark(plan.getFunctions(), ORE);
+        plan.discard();
+      }
     };
-    auto plan = *maybePlan;
-    auto score = plan.computeScore(FSE);
-    if (!score.isProfitableMerge()) {
-      disposePlan(plan, score);
+
+    Optional<MSAMergePlan::Score> totalScore;
+
+    for (auto plan : plans) {
+      auto score = plan.computeScore(FSE);
+      scores.push_back(score);
+      if (totalScore) {
+        totalScore->composite(score);
+      } else {
+        totalScore = score;
+      }
+    }
+    if (!totalScore->isProfitableMerge()) {
+      disposePlan(plans, scores);
       return;
     }
 
     if (bestPlan) {
-      if (score.isBetterThan(bestPlan->Score)) {
+      if (totalScore->isBetterThan(bestPlan->TotalScore)) {
         disposePlan(bestPlan->Plan, bestPlan->Score);
-        bestPlan.emplace(plan, score);
+        bestPlan.emplace(std::move(plans), scores, *totalScore);
       } else {
-        disposePlan(plan, score);
+        disposePlan(plans, scores);
         return;
       }
     } else {
-      bestPlan.emplace(plan, score);
+      bestPlan.emplace(std::move(plans), scores, *totalScore);
     }
   };
 
   void exploreProfitableSet(SmallVectorImpl<Function *> &Functions,
                             bool IdenticalTypesOnly) {
-    SmallVector<Function *, 4> MergingSet;
-    std::function<void()> tryPlanAllSets = [&]() {
-      if (MergingSet.size() >= 2) {
-        if (!IdenticalType) {
-          tryPlanMerge(MergingSet, false);
-        }
-        tryPlanMerge(MergingSet, true);
+
+    auto tryPlanAllSets = [&](const PartitionSetTy &PartitionIndicesSet) {
+      if (!IdenticalType) {
+        tryPlanMerge(Functions, PartitionIndicesSet, false);
       }
+      tryPlanMerge(Functions, PartitionIndicesSet, true);
     };
-    // Find a set of functions to merge beneficialy by DFS.
-    std::function<void(int32_t, bool)> FindProfitableSet =
-        [&](int32_t selectCursor, bool pick) {
-          if (pick) {
-            MergingSet.push_back(Functions[selectCursor]);
-          }
-          if (selectCursor == Functions.size() - 1) {
-            tryPlanAllSets();
-          } else {
-            FindProfitableSet(selectCursor + 1, true);
-            FindProfitableSet(selectCursor + 1, false);
-          }
-          if (pick) {
-            assert(MergingSet.back() == Functions[selectCursor]);
-            MergingSet.pop_back();
-          }
-        };
-    FindProfitableSet(0, true);
-    FindProfitableSet(0, false);
+
+    fmutils::SetPartitions S(Functions.size(),
+                             [&](const auto &Set) { tryPlanAllSets(Set); });
+    S.iterateOverPartitions();
   }
 
   Optional<PlanResult> getBestPlan() { return bestPlan; }
@@ -2131,7 +2167,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     Planner.tryPlanMerge(Functions, true);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
     if (auto result = Planner.getBestPlan()) {
-      auto &plan = result->Plan;
+      auto &plan = result->Plan[0];
       auto score = plan.computeScore(FSE);
       score.emitPassedRemark(plan, ORE);
       auto &Merged = plan.applyMerge(ORE);
@@ -2168,22 +2204,27 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     Planner.exploreProfitableSet(Functions, IdenticalType);
 
     if (auto bestPlan = Planner.getBestPlan()) {
-      auto plan = bestPlan->Plan;
-      auto score = bestPlan->Score;
+      auto &plans = bestPlan->Plan;
+      auto score = bestPlan->TotalScore;
 
       // Emit remarks before replacing original functions with thunks.
-      score.emitPassedRemark(plan, ORE);
-
-      auto &Merged = plan.applyMerge(ORE);
-      for (auto *F : plan.getFunctions()) {
-        if (F == F1)
-          continue;
-        MatchFinder->remove_candidate(F);
+      for (auto &plan : plans) {
+        // New ORE is needed for each plan because previous iteration may
+        // delete F1 used for the above ORE.
+        auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(
+            *plan.getFunctions()[0]);
+        score.emitPassedRemark(plan, ORE);
+        auto &Merged = plan.applyMerge(ORE);
+        for (auto *F : plan.getFunctions()) {
+          if (F == F1)
+            continue;
+          MatchFinder->remove_candidate(F);
+        }
+        // NOTE: We now use approx way to estimate the size for ranking,
+        // but we may want to use the FSE in the future.
+        MatchFinder->add_candidate(&Merged,
+                                   FSE.estimateApproximateFunctionSize(Merged));
       }
-      // NOTE: We now use approx way to estimate the size for ranking,
-      // but we may want to use the FSE in the future.
-      MatchFinder->add_candidate(&Merged,
-                                 FSE.estimateApproximateFunctionSize(Merged));
     }
   }
 

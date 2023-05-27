@@ -2,7 +2,7 @@
 ; RUN: %opt -S --passes="mergefunc,multiple-func-merging" -func-merging-explore=3 --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -multiple-func-merging-hyfm-profitability=true -o %t.mfm4-hyfm.ll %s
 ; RUN: %llc --filetype=obj %t.mfm2-hyfm.ll -o %t.mfm2-hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm4-hyfm.ll -o %t.mfm4-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm4-hyfm.o) -gt $(stat -c%%s %t.mfm2-hyfm.o)
+; RUN: test $(stat -c%%s %t.mfm4-hyfm.o) -le $(stat -c%%s %t.mfm2-hyfm.o)
 
 ; When N=2
 ;   1. 2 similar functions found, and merged into __mf_merge_dslash_fn_on_temp_dslash_fn_on_temp_special
