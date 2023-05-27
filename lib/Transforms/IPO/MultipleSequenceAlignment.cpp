@@ -2061,8 +2061,7 @@ public:
 
   void exploreProfitableSet(SmallVectorImpl<Function *> &Functions,
                             bool IdenticalTypesOnly) {
-    Function *F1 = Functions[0];
-    SmallVector<Function *, 4> MergingSet{F1};
+    SmallVector<Function *, 4> MergingSet;
     std::function<void()> tryPlanAllSets = [&]() {
       if (MergingSet.size() >= 2) {
         if (!IdenticalType) {
@@ -2088,8 +2087,8 @@ public:
             MergingSet.pop_back();
           }
         };
-    FindProfitableSet(1, true);
-    FindProfitableSet(1, false);
+    FindProfitableSet(0, true);
+    FindProfitableSet(0, false);
   }
 
   Optional<PlanResult> getBestPlan() { return bestPlan; }

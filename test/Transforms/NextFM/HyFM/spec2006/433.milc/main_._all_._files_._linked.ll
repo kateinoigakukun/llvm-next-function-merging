@@ -2,7 +2,7 @@
 ; RUN: %opt --passes="mergefunc,multiple-func-merging" -func-merging-explore=2 --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -multiple-func-merging-hyfm-profitability=true -o %t.mfm3-hyfm.bc %s
 ; RUN: %llc --filetype=obj %t.mfm2-hyfm.bc -o %t.mfm2-hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm3-hyfm.bc -o %t.mfm3-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm3-hyfm.o) -gt $(stat -c%%s %t.mfm2-hyfm.o)
+; RUN: test $(stat -c%%s %t.mfm3-hyfm.o) -lt $(stat -c%%s %t.mfm2-hyfm.o)
 
 ; ModuleID = '../llvm-nextfm-benchmark/benchmarks/spec2006/433.milc/_main_._all_._files_._linked_.bc'
 source_filename = "llvm-link"
