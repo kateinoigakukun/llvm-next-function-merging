@@ -182,8 +182,6 @@ void SetPartitions::groupCombinationsN(const IndicesTy &Items, size_t N) {
   this->PartitionsSetSize = SourceSize / N;
   groupCombinationsRecursive(Items, PartitionTy(), PartitionSetTy(), 0, true,
                              0);
-  groupCombinationsRecursive(Items, PartitionTy(), PartitionSetTy(), 0, false,
-                             0);
 }
 
 void SetPartitions::iterateOverPartitionsImpl() {

@@ -32,20 +32,18 @@ TEST(SetPartitions, Basic) {
   ASSERT_EQ(Result[0], PartitionSetTy({{0, 1}}));
 
   Collect(3);
-  ASSERT_EQ(Result.size(), 4);
+  ASSERT_EQ(Result.size(), 3);
   ASSERT_EQ(Result[0], PartitionSetTy({{0, 1}}));
   ASSERT_EQ(Result[1], PartitionSetTy({{0, 2}}));
-  ASSERT_EQ(Result[2], PartitionSetTy({{1, 2}}));
-  ASSERT_EQ(Result[3], PartitionSetTy({{0, 1, 2}}));
+  ASSERT_EQ(Result[2], PartitionSetTy({{0, 1, 2}}));
 
   Collect(4);
-  ASSERT_EQ(Result.size(), 8);
+  ASSERT_EQ(Result.size(), 7);
   ASSERT_EQ(Result[0], PartitionSetTy({{0, 1}, {2, 3}}));
   ASSERT_EQ(Result[1], PartitionSetTy({{0, 2}, {1, 3}}));
   ASSERT_EQ(Result[2], PartitionSetTy({{0, 3}, {1, 2}}));
   ASSERT_EQ(Result[3], PartitionSetTy({{0, 1, 2}}));
   ASSERT_EQ(Result[4], PartitionSetTy({{0, 1, 3}}));
   ASSERT_EQ(Result[5], PartitionSetTy({{0, 2, 3}}));
-  ASSERT_EQ(Result[6], PartitionSetTy({{1, 2, 3}}));
-  ASSERT_EQ(Result[7], PartitionSetTy({{0, 1, 2, 3}}));
+  ASSERT_EQ(Result[6], PartitionSetTy({{0, 1, 2, 3}}));
 }
