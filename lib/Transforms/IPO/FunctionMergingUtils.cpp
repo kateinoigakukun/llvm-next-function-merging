@@ -129,3 +129,70 @@ Instruction *InstructionCloner::clone(IRBuilder<> &Builder,
   NewI->setName(I->getName());
   return NewI;
 }
+
+void SetPartitions::groupCombinationsRecursive(
+    const IndicesTy &Items, const PartitionTy &Partition,
+    const PartitionSetTy &PartitionSet, size_t I, bool Pick, size_t Depth) {
+
+  PartitionTy NewPartition = Partition;
+
+  if (Pick) {
+    NewPartition.insert(Items[I]);
+    if (NewPartition.size() == this->PartitionSize) {
+      PartitionSetTy NewPartitionSet = PartitionSet;
+      NewPartitionSet.insert(NewPartition);
+
+      if (NewPartitionSet.size() == this->PartitionsSetSize) {
+        bool New = this->SeenPartitionSet.insert(NewPartitionSet).second;
+        if (New) {
+          this->Callback(NewPartitionSet);
+        }
+        return;
+      }
+      IndicesTy NewItems;
+      for (size_t Idx : Items) {
+        if (NewPartition.find(Idx) == NewPartition.end()) {
+          NewItems.push_back(Idx);
+        }
+      }
+
+      if (NewItems.size() < this->PartitionSize) {
+        return;
+      }
+      groupCombinationsRecursive(NewItems, PartitionTy(), NewPartitionSet, 0,
+                                 true, Depth + 1);
+      groupCombinationsRecursive(NewItems, PartitionTy(), NewPartitionSet, 0,
+                                 false, Depth + 1);
+      return;
+    }
+  }
+
+  if (I + 1 >= Items.size()) {
+    return;
+  }
+
+  groupCombinationsRecursive(Items, NewPartition, PartitionSet, I + 1, true,
+                             Depth + 1);
+  groupCombinationsRecursive(Items, NewPartition, PartitionSet, I + 1, false,
+                             Depth + 1);
+}
+
+void SetPartitions::groupCombinationsN(const IndicesTy &Items, size_t N) {
+  this->PartitionSize = N;
+  this->PartitionsSetSize = SourceSize / N;
+  groupCombinationsRecursive(Items, PartitionTy(), PartitionSetTy(), 0, true,
+                             0);
+  groupCombinationsRecursive(Items, PartitionTy(), PartitionSetTy(), 0, false,
+                             0);
+}
+
+void SetPartitions::iterateOverPartitionsImpl() {
+  IndicesTy Items;
+  for (size_t i = 0; i < SourceSize; i++) {
+    Items.push_back(i);
+  }
+
+  for (size_t n = 2; n <= SourceSize; n++) {
+    groupCombinationsN(Items, n);
+  }
+}

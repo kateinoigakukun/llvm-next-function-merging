@@ -1,6 +1,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_FUNCTION_MERGING_UTILS_H
 #define LLVM_TRANSFORMS_IPO_FUNCTION_MERGING_UTILS_H
 
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
@@ -136,6 +137,33 @@ static bool decrementOffset(OffsetVec &Offset, size_t Size) {
   return false;
 };
 
+class SetPartitions {
+public:
+  using IndicesTy = std::vector<size_t>;
+  using PartitionTy = std::set<size_t>;
+  using PartitionSetTy = std::set<PartitionTy>;
+  using CallbackFuncTy = std::function<void(const PartitionSetTy &)>;
+
+private:
+  size_t SourceSize, PartitionsSetSize;
+  size_t PartitionSize;
+  std::set<PartitionSetTy> SeenPartitionSet;
+  CallbackFuncTy Callback;
+
+public:
+  SetPartitions(size_t SourceSize, CallbackFuncTy Callback)
+      : SourceSize(SourceSize), Callback(Callback){};
+
+  void iterateOverPartitions() { iterateOverPartitionsImpl(); }
+
+private:
+  void groupCombinationsRecursive(const IndicesTy &Items,
+                                  const PartitionTy &Partition,
+                                  const PartitionSetTy &PartitionSet, size_t I,
+                                  bool Pick, size_t Depth = 0);
+  void groupCombinationsN(const IndicesTy &Items, size_t N);
+  void iterateOverPartitionsImpl();
+};
 } // namespace fmutils
 } // namespace llvm
 #endif
