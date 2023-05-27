@@ -2059,6 +2059,39 @@ public:
     }
   };
 
+  void exploreProfitableSet(SmallVectorImpl<Function *> &Functions,
+                            bool IdenticalTypesOnly) {
+    Function *F1 = Functions[0];
+    SmallVector<Function *, 4> MergingSet{F1};
+    std::function<void()> tryPlanAllSets = [&]() {
+      if (MergingSet.size() >= 2) {
+        if (!IdenticalType) {
+          tryPlanMerge(MergingSet, false);
+        }
+        tryPlanMerge(MergingSet, true);
+      }
+    };
+    // Find a set of functions to merge beneficialy by DFS.
+    std::function<void(int32_t, bool)> FindProfitableSet =
+        [&](int32_t selectCursor, bool pick) {
+          if (pick) {
+            MergingSet.push_back(Functions[selectCursor]);
+          }
+          if (selectCursor == Functions.size() - 1) {
+            tryPlanAllSets();
+          } else {
+            FindProfitableSet(selectCursor + 1, true);
+            FindProfitableSet(selectCursor + 1, false);
+          }
+          if (pick) {
+            assert(MergingSet.back() == Functions[selectCursor]);
+            MergingSet.pop_back();
+          }
+        };
+    FindProfitableSet(1, true);
+    FindProfitableSet(1, false);
+  }
+
   Optional<PlanResult> getBestPlan() { return bestPlan; }
 };
 
@@ -2133,32 +2166,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
 
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
     MergePlanner Planner(Options, PairMerger, ORE, FAM);
-
-    SmallVector<Function *, 16> MergingSet{F1};
-    // Find a set of functions to merge beneficialy by DFS.
-    std::function<void(int32_t, bool)> FindProfitableSet =
-        [&](int32_t selectCursor, bool pick) {
-          if (pick) {
-            MergingSet.push_back(Functions[selectCursor]);
-          }
-          if (selectCursor == Functions.size() - 1) {
-            if (MergingSet.size() >= 2) {
-              if (!IdenticalType) {
-                Planner.tryPlanMerge(MergingSet, false);
-              }
-              Planner.tryPlanMerge(MergingSet, true);
-            }
-          } else {
-            FindProfitableSet(selectCursor + 1, true);
-            FindProfitableSet(selectCursor + 1, false);
-          }
-          if (pick) {
-            assert(MergingSet.back() == Functions[selectCursor]);
-            MergingSet.pop_back();
-          }
-        };
-    FindProfitableSet(1, true);
-    FindProfitableSet(1, false);
+    Planner.exploreProfitableSet(Functions, IdenticalType);
 
     if (auto bestPlan = Planner.getBestPlan()) {
       auto plan = bestPlan->Plan;
