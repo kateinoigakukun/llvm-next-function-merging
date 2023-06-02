@@ -4,6 +4,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -19,11 +20,35 @@ ModulePass *createGVExtraction2Pass(std::vector<GlobalValue *> &GVs,
 
 using namespace llvm;
 
+namespace {
+
+class PrettyStackTraceFunctionsAnalysis : public llvm::PrettyStackTraceEntry {
+  const std::vector<Function *> &Functions;
+  StringRef action;
+
+public:
+  PrettyStackTraceFunctionsAnalysis(const char *action,
+                                    const std::vector<Function *> &Functions)
+      : Functions(Functions), action(action) {}
+
+  virtual void print(llvm::raw_ostream &os) const override {
+    os << "While " << action << " on functions:\n";
+    for (auto *F : Functions) {
+      F->print(os);
+      os << "\n";
+    }
+  }
+};
+} // namespace
+
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 size_t
 FunctionSizeEstimation::estimate(const std::vector<Function *> &Functions,
                                  EstimationMethod Method) {
+
+  PrettyStackTraceFunctionsAnalysis X("estimating function size", Functions);
+
   switch (Method) {
   case EstimationMethod::Exact: {
     auto MaybeSize = estimateExactFunctionSize(Functions);
