@@ -2131,30 +2131,28 @@ public:
   Optional<PlanResult> getBestPlan() { return bestPlan; }
 };
 
-PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
-                                                   ModuleAnalysisManager &MAM) {
+class ModuleGlobalMergeExploration {
+public:
+  virtual PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
+                                MSAOptions Options, FunctionMerger &PairMerger,
+                                FunctionSizeEstimation &FSE) = 0;
 
-  timeTraceProfilerBegin("MultipleFunctionMergingPass", "run");
-  FunctionAnalysisManager &FAM =
-      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  static std::unique_ptr<ModuleGlobalMergeExploration> derive();
+};
 
-  FunctionMerger PairMerger(&M);
-  auto Options = MSAOptions();
-  Options.Base.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
-  Options.Base.SizeEstimationMethod = SizeEstimationMethod;
+class ManualMergeExploration : public ModuleGlobalMergeExploration {
 
-  FunctionSizeEstimation FSE(FAM);
+  ArrayRef<std::string> OnlyFunctions;
 
-  std::unique_ptr<Matcher<Function *>> MatchFinder;
-  {
-    TimeTraceScope TimeScope("CreateMatcher");
-    MatchFinder = createMatcherLSH(PairMerger, Options.Base, Options.LSHRows,
-                                   Options.LSHBands);
-  }
+public:
+  ManualMergeExploration(ArrayRef<std::string> OnlyFunctions)
+      : ModuleGlobalMergeExploration(), OnlyFunctions(OnlyFunctions) {}
 
-  if (!OnlyFunctions.empty()) {
+  PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
+                        MSAOptions Options, FunctionMerger &PairMerger,
+                        FunctionSizeEstimation &FSE) override {
     SmallVector<Function *, 16> Functions;
-    for (auto &FuncName : OnlyFunctions) {
+    for (auto &FuncName : this->OnlyFunctions) {
       auto *F = M.getFunction(FuncName);
       if (!F) {
         errs() << "Function " << FuncName << " not found\n";
@@ -2175,59 +2173,98 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     }
     return PreservedAnalyses::none();
   }
+};
 
-  {
-    TimeTraceScope TimeScope("IndexCandidates");
-    for (auto &F : M) {
-      if (!isEligibleToBeMergeCandidate(F))
-        continue;
-      MatchFinder->add_candidate(&F, FSE.estimateApproximateFunctionSize(F));
+class MatchFinderExploration : public ModuleGlobalMergeExploration {
+  PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
+                        MSAOptions Options, FunctionMerger &PairMerger,
+                        FunctionSizeEstimation &FSE) override {
+    std::unique_ptr<Matcher<Function *>> MatchFinder;
+    {
+      TimeTraceScope TimeScope("CreateMatcher");
+      MatchFinder = createMatcherLSH(PairMerger, Options.Base, Options.LSHRows,
+                                     Options.LSHBands);
     }
-  }
 
-  bool Changed = false;
-
-  while (MatchFinder->size() > 0) {
-    TimeTraceScope TimeScope("ProcessSimilarSet");
-    Function *F1 = MatchFinder->next_candidate();
-    auto &Rank = MatchFinder->get_matches(F1);
-    MatchFinder->remove_candidate(F1);
-
-    SmallVector<Function *, 16> Functions{F1};
-    for (auto &Match : Rank) {
-      Functions.push_back(Match.candidate);
-    }
-    if (Functions.size() < 2)
-      continue;
-
-    auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
-    MergePlanner Planner(Options, PairMerger, ORE, FAM);
-    Planner.exploreProfitableSet(Functions, IdenticalType);
-
-    if (auto bestPlan = Planner.getBestPlan()) {
-      auto &plans = bestPlan->Plan;
-      auto score = bestPlan->TotalScore;
-
-      // Emit remarks before replacing original functions with thunks.
-      for (auto &plan : plans) {
-        // New ORE is needed for each plan because previous iteration may
-        // delete F1 used for the above ORE.
-        auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(
-            *plan.getFunctions()[0]);
-        score.emitPassedRemark(plan, ORE);
-        auto &Merged = plan.applyMerge(ORE);
-        for (auto *F : plan.getFunctions()) {
-          if (F == F1)
-            continue;
-          MatchFinder->remove_candidate(F);
-        }
-        // NOTE: We now use approx way to estimate the size for ranking,
-        // but we may want to use the FSE in the future.
-        MatchFinder->add_candidate(&Merged,
-                                   FSE.estimateApproximateFunctionSize(Merged));
+    {
+      TimeTraceScope TimeScope("IndexCandidates");
+      for (auto &F : M) {
+        if (!isEligibleToBeMergeCandidate(F))
+          continue;
+        MatchFinder->add_candidate(&F, FSE.estimateApproximateFunctionSize(F));
       }
     }
+
+    while (MatchFinder->size() > 0) {
+      TimeTraceScope TimeScope("ProcessSimilarSet");
+      Function *F1 = MatchFinder->next_candidate();
+      auto &Rank = MatchFinder->get_matches(F1);
+      MatchFinder->remove_candidate(F1);
+
+      SmallVector<Function *, 16> Functions{F1};
+      for (auto &Match : Rank) {
+        Functions.push_back(Match.candidate);
+      }
+      if (Functions.size() < 2)
+        continue;
+
+      auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
+      MergePlanner Planner(Options, PairMerger, ORE, FAM);
+      Planner.exploreProfitableSet(Functions, IdenticalType);
+
+      if (auto bestPlan = Planner.getBestPlan()) {
+        auto &plans = bestPlan->Plan;
+        auto score = bestPlan->TotalScore;
+
+        // Emit remarks before replacing original functions with thunks.
+        for (auto &plan : plans) {
+          // New ORE is needed for each plan because previous iteration may
+          // delete F1 used for the above ORE.
+          auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(
+              *plan.getFunctions()[0]);
+          score.emitPassedRemark(plan, ORE);
+          auto &Merged = plan.applyMerge(ORE);
+          for (auto *F : plan.getFunctions()) {
+            if (F == F1)
+              continue;
+            MatchFinder->remove_candidate(F);
+          }
+          // NOTE: We now use approx way to estimate the size for ranking,
+          // but we may want to use the FSE in the future.
+          MatchFinder->add_candidate(
+              &Merged, FSE.estimateApproximateFunctionSize(Merged));
+        }
+      }
+    }
+    return PreservedAnalyses::none();
   }
+};
+
+std::unique_ptr<ModuleGlobalMergeExploration>
+ModuleGlobalMergeExploration::derive() {
+  if (OnlyFunctions.empty()) {
+    return std::make_unique<MatchFinderExploration>();
+  } else {
+    return std::make_unique<ManualMergeExploration>(OnlyFunctions);
+  }
+}
+
+PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
+                                                   ModuleAnalysisManager &MAM) {
+
+  timeTraceProfilerBegin("MultipleFunctionMergingPass", "run");
+  FunctionAnalysisManager &FAM =
+      MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+
+  FunctionMerger PairMerger(&M);
+  auto Options = MSAOptions();
+  Options.Base.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
+  Options.Base.SizeEstimationMethod = SizeEstimationMethod;
+  FunctionSizeEstimation FSE(FAM);
+
+  auto Exploration = ModuleGlobalMergeExploration::derive();
+
+  auto Result = Exploration->run(M, FAM, Options, PairMerger, FSE);
 
   timeTraceProfilerEnd();
 
@@ -2235,5 +2272,5 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
     std::unique_ptr<raw_ostream> OutStream = llvm::CreateInfoOutputFile();
     llvm::PrintStatistics(*OutStream);
   }
-  return PreservedAnalyses::none();
+  return Result;
 }
