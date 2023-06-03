@@ -2,7 +2,7 @@
 ; RUN: %opt --passes="mergefunc,multiple-func-merging" --multiple-func-merging-size-estimation=exact -func-merging-explore=2 -pass-remarks-output=%t.mfm3-hyfm.yaml -pass-remarks-filter=multiple-func-merging --multiple-func-merging-whole-program=true --multiple-func-merging-coalescing=false --multiple-func-merging-hyfm-nw -multiple-func-merging-hyfm-profitability=true -o %t.mfm3-hyfm.bc %s
 ; RUN: %llc --filetype=obj %t.mfm2-hyfm.bc -o %t.mfm2-hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm3-hyfm.bc -o %t.mfm3-hyfm.o
-; RUN: test $(stat -c%%s %t.mfm3-hyfm.o) -le $(stat -c%%s %t.mfm2-hyfm.o)
+; RUN: test $(stat -c%%s %t.mfm3-hyfm.o) -gt $(stat -c%%s %t.mfm2-hyfm.o)
 
 ; ModuleID = '/home/katei/ghq/github.com/kateinoigakukun/llvm-next-function-merging/test/Transforms/NextFM/HyFM/spec2006/433.milc/main_._all_._files_._linked.ll'
 source_filename = "llvm-link"

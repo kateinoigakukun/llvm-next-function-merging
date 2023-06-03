@@ -3,6 +3,8 @@
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Object/ELFObjectFile.h"
+#include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -143,5 +145,36 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     PM.run(*NewM);
   }
 
-  return ObjectCode.size();
+  Expected<std::unique_ptr<object::ObjectFile>> ObjectFile =
+      object::ObjectFile::createObjectFile(
+          MemoryBufferRef(ObjectCode, "function-size-estimation"));
+
+  if (!ObjectFile) {
+    logAllUnhandledErrors(
+        ObjectFile.takeError(), errs(),
+        "Error: cannot create object file for function size estimation\n");
+    return None;
+  }
+
+  // We don't count the size of relocations and symbol table.
+  size_t Size = 0;
+  {
+    if (auto *ELF = dyn_cast<object::ELF64LEObjectFile>(&**ObjectFile)) {
+      const auto &ELFFile = ELF->getELFFile();
+      for (auto &Sec : ELF->sections()) {
+        StringRef SecName;
+        if (auto NameOrErr = Sec.getName())
+          SecName = *NameOrErr;
+        if (SecName.startswith(".rel") || SecName.startswith(".symtab") ||
+            SecName.startswith(".strtab"))
+          continue;
+        Size += Sec.getSize();
+      }
+    } else {
+      errs() << "Error: unsupported object file format\n";
+      return None;
+    }
+  }
+
+  return Size;
 }
