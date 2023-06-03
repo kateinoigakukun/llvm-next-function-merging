@@ -3385,13 +3385,14 @@ bool FunctionMerging::runImpl(
           });
           Result.getMergedFunction()->eraseFromParent();
         } else {
-          size_t MergedSize = FSE.estimate(*Result.getMergedFunction(),
-                                           Options.SizeEstimationMethod);
+          size_t MergedSize =
+              FSE.estimate({Result.getMergedFunction()}, {F1, F2},
+                           Options.SizeEstimationMethod);
           size_t Overhead = EstimateThunkOverhead(Result, AlwaysPreserved);
 
           size_t SizeF12 = MergedSize + Overhead;
-          size_t SizeF1F2 =
-              FSE.estimate({F1, F2}, Options.SizeEstimationMethod);
+          size_t SizeF1F2 = FSE.estimate({F1, F2}, {Result.getMergedFunction()},
+                                         Options.SizeEstimationMethod);
 
           match.MergedSize = SizeF12;
           match.Profitable = (SizeF12 + MergingOverheadThreshold) < SizeF1F2;

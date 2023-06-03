@@ -1906,9 +1906,10 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 MSAMergePlan::Score MSAMergePlan::computeScore(FunctionSizeEstimation &FSE) {
-  size_t MergedSize = FSE.estimate(Merged, Options.SizeEstimationMethod);
+  size_t MergedSize =
+      FSE.estimate({&Merged}, Functions, Options.SizeEstimationMethod);
   size_t OriginalTotalSize =
-      FSE.estimate(Functions, Options.SizeEstimationMethod);
+      FSE.estimate(Functions, {&Merged}, Options.SizeEstimationMethod);
   // This magic number respects `EstimateThunkOverhead`
   size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
 

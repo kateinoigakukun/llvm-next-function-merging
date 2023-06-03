@@ -45,7 +45,8 @@ PreservedAnalyses DumpFunctionSizePass::run(Module &M,
   J.object([&] {
     for (auto &F : M) {
       J.attributeObject(F.getName(), [&] {
-        J.attribute("size", (int64_t)FSE.estimate(F, SizeEstimationMethod));
+        J.attribute("size",
+                    (int64_t)FSE.estimate({&F}, {}, SizeEstimationMethod));
       });
     }
   });

@@ -47,13 +47,14 @@ size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 size_t
 FunctionSizeEstimation::estimate(const std::vector<Function *> &Functions,
+                                 const std::vector<Function *> &Exclusions,
                                  EstimationMethod Method) {
 
   PrettyStackTraceFunctionsAnalysis X("estimating function size", Functions);
 
   switch (Method) {
   case EstimationMethod::Exact: {
-    auto MaybeSize = estimateExactFunctionSize(Functions);
+    auto MaybeSize = estimateExactFunctionSize(Functions, Exclusions);
     if (MaybeSize) {
       return *MaybeSize;
     } else {
@@ -106,20 +107,21 @@ public:
 }; // namespace
 
 Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
-    const std::vector<Function *> &Functions) {
+    const std::vector<Function *> &Functions,
+    const std::vector<Function *> &Exclusions) {
   // This estimation actually emits the object code for the given function
   // and counts the number of bytes in the emitted object code.
   // This is a very expensive operation, but useful for further research.
 
-  // First, extract the function from the module.
+  // First, extract the un-counted function from the module.
 
   legacy::PassManager PM;
   std::unique_ptr<Module> NewM = CloneModule(*Functions[0]->getParent());
-  std::vector<GlobalValue *> PreservedGVs;
+  std::vector<GlobalValue *> RemovingGVs;
 
-  for (auto *F : Functions) {
+  for (auto *F : Exclusions) {
     Function *NewF = NewM->getFunction(F->getName());
-    PreservedGVs.push_back(NewF);
+    RemovingGVs.push_back(NewF);
   }
 
   std::string Error;
@@ -132,7 +134,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
   auto Target = std::unique_ptr<TargetMachine>(TheTarget->createTargetMachine(
       NewM->getTargetTriple(), codegen::getCPUStr(), codegen::getFeaturesStr(),
       TargetOptions(), Reloc::PIC_));
-  PM.add(createGVExtraction2Pass(PreservedGVs, false));
+  PM.add(createGVExtraction2Pass(RemovingGVs, true));
 
   std::string ObjectCode;
   {
