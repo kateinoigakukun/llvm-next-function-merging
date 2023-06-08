@@ -14,7 +14,7 @@ class FunctionSizeEstimation {
 public:
   FunctionSizeEstimation(FunctionAnalysisManager &FAM) : FAM(FAM) {}
 
-  enum class EstimationMethod { Approximate, Exact };
+  enum class EstimationMethod { Approximate, Exact, GlobalExact };
 
   size_t estimate(const std::vector<Function *> &Functions,
                   const std::vector<Function *> &Exclusions,
@@ -22,7 +22,8 @@ public:
   size_t estimateApproximateFunctionSize(Function &F);
   static Optional<size_t>
   estimateExactFunctionSize(const std::vector<Function *> &Functions,
-                            const std::vector<Function *> &Exclusions);
+                            const std::vector<Function *> &Exclusions,
+                            bool GlobalExact);
 };
 } // end namespace llvm
 

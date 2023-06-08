@@ -155,7 +155,7 @@ static cl::list<std::string>
     OnlyFunctions("func-merging-only", cl::Hidden,
                   cl::desc("Merge only the specified functions"));
 
-static cl::opt<unsigned> ExplorationThreshold(
+cl::opt<unsigned> ExplorationThreshold(
     "func-merging-explore", cl::init(1), cl::Hidden,
     cl::desc("Exploration threshold of evaluated functions"));
 

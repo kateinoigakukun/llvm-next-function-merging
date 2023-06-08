@@ -53,9 +53,26 @@ FunctionSizeEstimation::estimate(const std::vector<Function *> &Functions,
   PrettyStackTraceFunctionsAnalysis X("estimating function size", Functions);
 
   switch (Method) {
+  case EstimationMethod::GlobalExact:
   case EstimationMethod::Exact: {
-    auto MaybeSize = estimateExactFunctionSize(Functions, Exclusions);
+    bool GlobalExact = Method == EstimationMethod::GlobalExact;
+    if (!GlobalExact && Functions.size() == 1) {
+      // If we are estimating the size of a single function, we can check
+      // the cache first.
+      auto It = SizeCache.find(Functions[0]);
+      if (It != SizeCache.end()) {
+        return It->second;
+      }
+    }
+
+    auto MaybeSize =
+        estimateExactFunctionSize(Functions, Exclusions, GlobalExact);
     if (MaybeSize) {
+      if (!GlobalExact && Functions.size() == 1) {
+        // If we are estimating the size of a single function, we can cache
+        // the result.
+        SizeCache[Functions[0]] = *MaybeSize;
+      }
       return *MaybeSize;
     } else {
       llvm::errs() << "Warning: exact function size estimation failed, "
@@ -108,7 +125,7 @@ public:
 
 Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     const std::vector<Function *> &Functions,
-    const std::vector<Function *> &Exclusions) {
+    const std::vector<Function *> &Exclusions, bool GlobalExact) {
   // This estimation actually emits the object code for the given function
   // and counts the number of bytes in the emitted object code.
   // This is a very expensive operation, but useful for further research.
@@ -117,11 +134,13 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
 
   legacy::PassManager PM;
   std::unique_ptr<Module> NewM = CloneModule(*Functions[0]->getParent());
-  std::vector<GlobalValue *> RemovingGVs;
+  std::vector<GlobalValue *> GVs;
 
-  for (auto *F : Exclusions) {
-    Function *NewF = NewM->getFunction(F->getName());
-    RemovingGVs.push_back(NewF);
+  {
+    for (auto *F : GlobalExact ? Exclusions : Functions) {
+      Function *NewF = NewM->getFunction(F->getName());
+      GVs.push_back(NewF);
+    }
   }
 
   std::string Error;
@@ -134,7 +153,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
   auto Target = std::unique_ptr<TargetMachine>(TheTarget->createTargetMachine(
       NewM->getTargetTriple(), codegen::getCPUStr(), codegen::getFeaturesStr(),
       TargetOptions(), Reloc::PIC_));
-  PM.add(createGVExtraction2Pass(RemovingGVs, true));
+  PM.add(createGVExtraction2Pass(GVs, GlobalExact));
 
   std::string ObjectCode;
   {

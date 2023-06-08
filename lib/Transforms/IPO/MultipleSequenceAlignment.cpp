@@ -2,6 +2,7 @@
 #include "FunctionMergingUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/ImmutableList.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SequenceAlignment.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -55,6 +56,7 @@
 
 using namespace llvm;
 
+extern cl::opt<unsigned> ExplorationThreshold;
 static cl::opt<size_t> DefaultShapeSizeLimit(
     "multiple-func-merging-shape-limit", cl::init(24 * 1024 * 1024), cl::Hidden,
     cl::desc("The shape size limit for the multiple function merging"));
@@ -108,7 +110,30 @@ static cl::opt<FunctionSizeEstimation::EstimationMethod> SizeEstimationMethod(
     cl::values(clEnumValN(FunctionSizeEstimation::EstimationMethod::Approximate,
                           "approximate", "Approximate estimation"),
                clEnumValN(FunctionSizeEstimation::EstimationMethod::Exact,
-                          "exact", "Exact estimation")));
+                          "exact", "Exact estimation"),
+               clEnumValN(FunctionSizeEstimation::EstimationMethod::GlobalExact,
+                          "global-exact", "Exact estimation")));
+
+enum class MergeExplorationMethod {
+  Auto,
+  Exhaustive,
+  F3M,
+  Manual,
+};
+
+static cl::opt<MergeExplorationMethod> ExplorationMethod(
+    "multiple-func-merging-explore", cl::Hidden,
+    cl::desc("Merge set exploration method"),
+    cl::init(MergeExplorationMethod::Auto),
+    cl::values(
+        clEnumValN(MergeExplorationMethod::Auto, "auto",
+                   "Automatic exploration method selection"),
+        clEnumValN(MergeExplorationMethod::Exhaustive, "exhaustive",
+                   "Exhaustive exploration (slow)"),
+        clEnumValN(MergeExplorationMethod::F3M, "f3m", "F3M exploration"),
+        clEnumValN(
+            MergeExplorationMethod::Manual, "manual",
+            "Manual exploration specified by --multiple-func-merging-only")));
 
 namespace {
 
@@ -1850,10 +1875,8 @@ Optional<MSACallReplacement> MSACallReplacement::create(
 
 void MSACallReplacement::applyReplacements(Function *MergedFunction) {
 
-  for (auto V : Calls) {
-    if (!V) {
-      continue;
-    }
+  SmallVector<Instruction *, 4> ToErase;
+  for (auto V : SrcFunction->users()) {
 
     auto *CI = cast<CallBase>(V);
     // Insert the new call after the old one. The old call will be
@@ -1898,7 +1921,10 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
       assert(CI->getNumUses() == 0 && "void function should not have any uses");
     }
 
-    CI->eraseFromParent();
+    ToErase.push_back(CI);
+  }
+  for (auto *I : ToErase) {
+    I->eraseFromParent();
   }
   SrcFunction->eraseFromParent();
 }
@@ -2260,17 +2286,237 @@ public:
   }
 };
 
+using FunctionSet = SmallPtrSet<Function *, 4>;
+
+template <> struct DenseMapInfo<FunctionSet> {
+  static inline FunctionSet getEmptyKey() { return FunctionSet(); }
+
+  static inline FunctionSet getTombstoneKey() {
+    return FunctionSet{reinterpret_cast<Function *>(-1)};
+  }
+
+  static unsigned getHashValue(const FunctionSet &Key) {
+    unsigned Hash = 0;
+    for (auto *F : Key) {
+      Hash ^= DenseMapInfo<Function *>::getHashValue(F);
+    }
+    return Hash;
+  }
+
+  static bool isEqual(const FunctionSet &LHS, const FunctionSet &RHS) {
+    return LHS == RHS;
+  }
+};
+
+class ExhaustiveMergeExploration : public ModuleGlobalMergeExploration {
+
+  struct ScoredMergePlan {
+    MSAMergePlan Plan;
+    MSAMergePlan::Score Score;
+    bool IsDead = false;
+
+    ScoredMergePlan(MSAMergePlan &&Plan, MSAMergePlan::Score Score)
+        : Plan(std::move(Plan)), Score(Score) {}
+
+    bool operator<(const ScoredMergePlan &Other) const {
+      return Other.Score.isBetterThan(Score);
+    }
+
+    void markDead() {
+      if (IsDead)
+        return;
+      IsDead = true;
+      Plan.discard();
+    }
+  };
+
+  /// The set of functions that are eligible to be merged.
+  std::vector<Function *> Candidates;
+
+  /// Set of merge plans keyed by the set of source functions.
+  DenseSet<FunctionSet> SeenSets;
+
+  /// Set of merge plans that are ready to be applied.
+  std::vector<std::unique_ptr<ScoredMergePlan>> SortedMergePlans;
+
+  /// List of functions that depend on the key function.
+  DenseMap<Function *, SmallPtrSet<ScoredMergePlan *, 4>> Dependents;
+
+public:
+  ExhaustiveMergeExploration(FunctionAnalysisManager &FAM, MSAOptions Options,
+                             FunctionMerger &PairMerger,
+                             FunctionSizeEstimation &FSE)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE) {}
+
+  PreservedAnalyses run(Module &M) override {
+    {
+      SmallVector<Function *, 16> SourceFunctions;
+      for (auto &F : M) {
+        if (!isEligibleToBeMergeCandidate(F))
+          continue;
+        SourceFunctions.push_back(&F);
+      }
+      for (Function *F : SourceFunctions) {
+        tryPlanWithAllCandidates(F);
+        Candidates.push_back(F);
+      }
+    }
+
+    while (true) {
+      std::unique_ptr<ScoredMergePlan> bestPlan =
+          std::move(pickBestMergePlan());
+      if (!bestPlan)
+        break;
+      auto plan = bestPlan->Plan;
+      auto score = bestPlan->Score;
+
+      auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(
+          *plan.getFunctions()[0]);
+      score.emitPassedRemark(plan, ORE);
+      for (auto *F : plan.getFunctions()) {
+        Candidates.erase(std::remove(Candidates.begin(), Candidates.end(), F),
+                         Candidates.end());
+      }
+      erasePlan(bestPlan.get());
+      auto &Merged = plan.applyMerge(ORE);
+
+      tryPlanWithAllCandidates(&Merged);
+      Candidates.push_back(&Merged);
+    }
+
+    return PreservedAnalyses::none();
+  }
+
+  /// Try to plan merges for a given new function with all combinations of
+  /// existing candidates.
+  void tryPlanWithAllCandidates(Function *NewFunction) {
+    // Build functions set from candidates up to ExplorationThreshold
+    struct Work {
+      SmallVector<Function *, 4> Functions;
+      unsigned Index;
+
+      Work(SmallVector<Function *, 4> Functions, unsigned Index)
+          : Functions(std::move(Functions)), Index(Index) {}
+    };
+
+    size_t MaxMergeSize = ExplorationThreshold + 1;
+    SmallVector<Work, 4> WorkList;
+    WorkList.push_back(Work({NewFunction}, 0));
+
+    while (!WorkList.empty()) {
+      auto W = std::move(WorkList.back());
+      WorkList.pop_back();
+
+      if (W.Functions.size() <= MaxMergeSize && W.Functions.size() > 1) {
+        tryPlanMerge(W.Functions);
+      }
+
+      if (W.Index >= Candidates.size() || W.Functions.size() >= MaxMergeSize)
+        continue;
+
+      SmallVector<Function *, 4> PickingFunctions(W.Functions.begin(),
+                                                  W.Functions.end());
+      PickingFunctions.push_back(Candidates[W.Index]);
+      WorkList.push_back(Work(PickingFunctions, W.Index + 1));
+      WorkList.push_back(Work(W.Functions, W.Index + 1));
+    }
+  }
+
+  void tryPlanMerge(SmallVector<Function *, 4> Functions) {
+    auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+
+    MSAOptions Opt = Options;
+    Opt.Base.matchOnlyIdenticalTypes(false);
+    Opt.Base.EnableHyFMAlignment = EnableHyFMNW;
+
+    auto maybePlan = FM.planMerge(Opt.Base);
+    if (!maybePlan) {
+      return;
+    }
+    MSAMergePlan plan = std::move(*maybePlan);
+    auto score = plan.computeScore(FSE);
+
+    if (!score.isProfitableMerge())
+      return;
+
+    auto SP = std::make_unique<ScoredMergePlan>(std::move(plan), score);
+    FunctionSet FSet;
+    for (auto *F : Functions) {
+      FSet.insert(F);
+      Dependents[F].insert(SP.get());
+    }
+
+    auto Seen = SeenSets.insert(FSet);
+    assert(Seen.second && "Merge plan already exists!?");
+
+    insertMergePlan(std::move(SP));
+  }
+
+  void insertMergePlan(std::unique_ptr<ScoredMergePlan> Plan) {
+    auto I = std::upper_bound(SortedMergePlans.begin(), SortedMergePlans.end(),
+                              Plan);
+
+    SortedMergePlans.insert(I, std::move(Plan));
+  }
+
+  void markDeadPlans(ArrayRef<Function *> DeadFunctions,
+                     ScoredMergePlan *Except = nullptr) {
+    for (auto *F : DeadFunctions) {
+      for (auto *Dependent : Dependents[F]) {
+        if (Dependent == Except)
+          continue;
+        Dependent->markDead();
+      }
+      Dependents.erase(F);
+    }
+  }
+
+  void erasePlan(ScoredMergePlan *Plan) {
+    for (auto *F : Plan->Plan.getFunctions()) {
+      Dependents[F].erase(Plan);
+    }
+    markDeadPlans(Plan->Plan.getFunctions(), Plan);
+  }
+
+  std::unique_ptr<ScoredMergePlan> pickBestMergePlan() {
+    if (SortedMergePlans.empty())
+      return nullptr;
+    while (!SortedMergePlans.empty()) {
+      std::unique_ptr<ScoredMergePlan> Plan(std::move(SortedMergePlans.back()));
+      SortedMergePlans.pop_back();
+      if (Plan->IsDead) {
+        erasePlan(Plan.get());
+        continue;
+      }
+      return std::move(Plan);
+    }
+    return nullptr;
+  }
+};
+
 std::unique_ptr<ModuleGlobalMergeExploration>
 ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
                                      MSAOptions Options,
                                      FunctionMerger &PairMerger,
                                      FunctionSizeEstimation &FSE) {
-  if (OnlyFunctions.empty()) {
+  MergeExplorationMethod Method = ExplorationMethod;
+  if (Method == MergeExplorationMethod::Auto) {
+    Method = OnlyFunctions.empty() ? MergeExplorationMethod::F3M
+                                   : MergeExplorationMethod::Manual;
+  }
+  switch (Method) {
+  case MergeExplorationMethod::F3M:
     return std::make_unique<MatchFinderExploration>(FAM, Options, PairMerger,
                                                     FSE);
-  } else {
+  case MergeExplorationMethod::Exhaustive:
+    return std::make_unique<ExhaustiveMergeExploration>(FAM, Options,
+                                                        PairMerger, FSE);
+  case MergeExplorationMethod::Manual:
     return std::make_unique<ManualMergeExploration>(OnlyFunctions, FAM, Options,
                                                     PairMerger, FSE);
+  case MergeExplorationMethod::Auto:
+    llvm_unreachable("Invalid merge exploration method");
   }
 }
 
