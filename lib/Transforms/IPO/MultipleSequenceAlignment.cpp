@@ -2132,12 +2132,24 @@ public:
 };
 
 class ModuleGlobalMergeExploration {
+protected:
+  FunctionAnalysisManager &FAM;
+  MSAOptions Options;
+  FunctionMerger &PairMerger;
+  FunctionSizeEstimation &FSE;
 public:
-  virtual PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
-                                MSAOptions Options, FunctionMerger &PairMerger,
-                                FunctionSizeEstimation &FSE) = 0;
+  ModuleGlobalMergeExploration(FunctionAnalysisManager &FAM, MSAOptions Options,
+                               FunctionMerger &PairMerger,
+                               FunctionSizeEstimation &FSE)
+      : FAM(FAM), Options(Options), PairMerger(PairMerger), FSE(FSE) {}
 
-  static std::unique_ptr<ModuleGlobalMergeExploration> derive();
+  virtual ~ModuleGlobalMergeExploration() = default;
+
+  virtual PreservedAnalyses run(Module &M) = 0;
+
+  static std::unique_ptr<ModuleGlobalMergeExploration>
+  derive(FunctionAnalysisManager &FAM, MSAOptions Options,
+         FunctionMerger &PairMerger, FunctionSizeEstimation &FSE);
 };
 
 class ManualMergeExploration : public ModuleGlobalMergeExploration {
@@ -2145,12 +2157,14 @@ class ManualMergeExploration : public ModuleGlobalMergeExploration {
   ArrayRef<std::string> OnlyFunctions;
 
 public:
-  ManualMergeExploration(ArrayRef<std::string> OnlyFunctions)
-      : ModuleGlobalMergeExploration(), OnlyFunctions(OnlyFunctions) {}
+  ManualMergeExploration(ArrayRef<std::string> OnlyFunctions,
+                         FunctionAnalysisManager &FAM, MSAOptions Options,
+                         FunctionMerger &PairMerger,
+                         FunctionSizeEstimation &FSE)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE),
+        OnlyFunctions(OnlyFunctions) {}
 
-  PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
-                        MSAOptions Options, FunctionMerger &PairMerger,
-                        FunctionSizeEstimation &FSE) override {
+  PreservedAnalyses run(Module &M) override {
     SmallVector<Function *, 16> Functions;
     for (auto &FuncName : this->OnlyFunctions) {
       auto *F = M.getFunction(FuncName);
@@ -2176,9 +2190,15 @@ public:
 };
 
 class MatchFinderExploration : public ModuleGlobalMergeExploration {
-  PreservedAnalyses run(Module &M, FunctionAnalysisManager &FAM,
-                        MSAOptions Options, FunctionMerger &PairMerger,
-                        FunctionSizeEstimation &FSE) override {
+
+public:
+
+  MatchFinderExploration(FunctionAnalysisManager &FAM, MSAOptions Options,
+                         FunctionMerger &PairMerger,
+                         FunctionSizeEstimation &FSE)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE) {}
+
+  PreservedAnalyses run(Module &M) override {
     std::unique_ptr<Matcher<Function *>> MatchFinder;
     {
       TimeTraceScope TimeScope("CreateMatcher");
@@ -2241,11 +2261,16 @@ class MatchFinderExploration : public ModuleGlobalMergeExploration {
 };
 
 std::unique_ptr<ModuleGlobalMergeExploration>
-ModuleGlobalMergeExploration::derive() {
+ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
+                                     MSAOptions Options,
+                                     FunctionMerger &PairMerger,
+                                     FunctionSizeEstimation &FSE) {
   if (OnlyFunctions.empty()) {
-    return std::make_unique<MatchFinderExploration>();
+    return std::make_unique<MatchFinderExploration>(FAM, Options, PairMerger,
+                                                    FSE);
   } else {
-    return std::make_unique<ManualMergeExploration>(OnlyFunctions);
+    return std::make_unique<ManualMergeExploration>(OnlyFunctions, FAM, Options,
+                                                    PairMerger, FSE);
   }
 }
 
@@ -2262,9 +2287,9 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   Options.Base.SizeEstimationMethod = SizeEstimationMethod;
   FunctionSizeEstimation FSE(FAM);
 
-  auto Exploration = ModuleGlobalMergeExploration::derive();
+  auto Exploration = ModuleGlobalMergeExploration::derive(FAM, Options, PairMerger, FSE);
 
-  auto Result = Exploration->run(M, FAM, Options, PairMerger, FSE);
+  auto Result = Exploration->run(M);
 
   timeTraceProfilerEnd();
 
