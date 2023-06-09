@@ -1932,6 +1932,7 @@ void MSACallReplacement::applyReplacements(Function *MergedFunction) {
 size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 MSAMergePlan::Score MSAMergePlan::computeScore(FunctionSizeEstimation &FSE) {
+  TimeTraceScope TimeScope("ComputeScore");
   size_t MergedSize =
       FSE.estimate({&Merged}, Functions, Options.SizeEstimationMethod);
   size_t OriginalTotalSize =
@@ -2391,6 +2392,7 @@ public:
   /// existing candidates.
   void tryPlanWithAllCandidates(Function *NewFunction) {
     // Build functions set from candidates up to ExplorationThreshold
+    TimeTraceScope TimeScope("TryPlanWithAllCandidates");
     struct Work {
       SmallVector<Function *, 4> Functions;
       unsigned Index;
@@ -2423,6 +2425,7 @@ public:
   }
 
   void tryPlanMerge(SmallVector<Function *, 4> Functions) {
+    TimeTraceScope TimeScope("TryPlanMerge");
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
     MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
 

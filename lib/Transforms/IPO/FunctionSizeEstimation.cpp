@@ -133,7 +133,11 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
   // First, extract the un-counted function from the module.
 
   legacy::PassManager PM;
-  std::unique_ptr<Module> NewM = CloneModule(*Functions[0]->getParent());
+  std::unique_ptr<Module> NewM;
+  {
+    TimeTraceScope TimeScope("CloneModule");
+    NewM = CloneModule(*Functions[0]->getParent());
+  }
   std::vector<GlobalValue *> GVs;
 
   {
@@ -180,6 +184,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
   // We don't count the size of relocations and symbol table.
   size_t Size = 0;
   {
+    TimeTraceScope TimeScope("CountSize");
     if (auto *ELF = dyn_cast<object::ELF64LEObjectFile>(&**ObjectFile)) {
       const auto &ELFFile = ELF->getELFFile();
       for (auto &Sec : ELF->sections()) {
