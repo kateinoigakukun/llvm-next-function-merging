@@ -2334,9 +2334,6 @@ class ExhaustiveMergeExploration : public ModuleGlobalMergeExploration {
   /// The set of functions that are eligible to be merged.
   std::vector<Function *> Candidates;
 
-  /// Set of merge plans keyed by the set of source functions.
-  DenseSet<FunctionSet> SeenSets;
-
   /// Set of merge plans that are ready to be applied.
   std::vector<std::unique_ptr<ScoredMergePlan>> SortedMergePlans;
 
@@ -2444,14 +2441,9 @@ public:
       return;
 
     auto SP = std::make_unique<ScoredMergePlan>(std::move(plan), score);
-    FunctionSet FSet;
     for (auto *F : Functions) {
-      FSet.insert(F);
       Dependents[F].insert(SP.get());
     }
-
-    auto Seen = SeenSets.insert(FSet);
-    assert(Seen.second && "Merge plan already exists!?");
 
     insertMergePlan(std::move(SP));
   }
