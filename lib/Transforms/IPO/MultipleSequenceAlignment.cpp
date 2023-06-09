@@ -2289,7 +2289,7 @@ public:
 
 using FunctionSet = SmallPtrSet<Function *, 4>;
 
-template <> struct DenseMapInfo<FunctionSet> {
+template <> struct llvm::DenseMapInfo<FunctionSet> {
   static inline FunctionSet getEmptyKey() { return FunctionSet(); }
 
   static inline FunctionSet getTombstoneKey() {
