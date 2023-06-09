@@ -180,7 +180,7 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::align(
   SmallVector<BlockAlignment, 16> BlockAlignments;
   bool HasAtLeastOneMerge =
       alignBasicBlocks(Functions, FingerprintsByFunction, BlockAlignments);
-  if (!HasAtLeastOneMerge) {
+  if (!HasAtLeastOneMerge && EnableHyFMBlockProfitabilityEstimation) {
     isProfitable = false;
     if (ORE) {
       ORE->emit([&]() {
@@ -212,7 +212,11 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::align(
       appendAlignmentEntries(BA, Alignment);
     }
   }
-  isProfitable = this->isProfitable(BlockAlignments);
+  if (EnableHyFMBlockProfitabilityEstimation) {
+    isProfitable = this->isProfitable(BlockAlignments);
+  } else {
+    isProfitable = true;
+  }
 
   LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); });
   return true;

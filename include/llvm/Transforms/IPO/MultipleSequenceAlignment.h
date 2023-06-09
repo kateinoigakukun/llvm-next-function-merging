@@ -85,6 +85,9 @@ public:
     void emitMissedRemark(ArrayRef<Function *> Functions,
                           OptimizationRemarkEmitter &ORE);
     void emitPassedRemark(MSAMergePlan &plan, OptimizationRemarkEmitter &ORE);
+    size_t scalarScore() const {
+      return OriginalTotalSize - MergedSize - ThunkOverhead;
+    }
 
     void composite(const Score &Other);
   };
