@@ -2335,6 +2335,7 @@ class ExhaustiveMergeExploration : public ModuleGlobalMergeExploration {
   std::vector<Function *> Candidates;
 
   /// Set of merge plans that are ready to be applied.
+  /// Sorted by the score, the best plan is at the end.
   std::vector<std::unique_ptr<ScoredMergePlan>> SortedMergePlans;
 
   /// List of functions that depend on the key function.
@@ -2437,8 +2438,10 @@ public:
     MSAMergePlan plan = std::move(*maybePlan);
     auto score = plan.computeScore(FSE);
 
-    if (!score.isProfitableMerge())
+    if (!score.isProfitableMerge()) {
+      plan.discard();
       return;
+    }
 
     auto SP = std::make_unique<ScoredMergePlan>(std::move(plan), score);
     for (auto *F : Functions) {
@@ -2449,8 +2452,11 @@ public:
   }
 
   void insertMergePlan(std::unique_ptr<ScoredMergePlan> Plan) {
-    auto I = std::upper_bound(SortedMergePlans.begin(), SortedMergePlans.end(),
-                              Plan);
+    typeof(SortedMergePlans.begin()) I;
+    for (I = SortedMergePlans.begin(); I != SortedMergePlans.end(); ++I) {
+      if (*Plan < **I)
+        break;
+    }
 
     SortedMergePlans.insert(I, std::move(Plan));
   }
