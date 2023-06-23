@@ -135,6 +135,9 @@ static cl::opt<MergeExplorationMethod> ExplorationMethod(
             MergeExplorationMethod::Manual, "manual",
             "Manual exploration specified by --multiple-func-merging-only")));
 
+static cl::opt<size_t> ExhaustiveThreshold(
+    "multiple-func-merging-exhaustive-threshold", cl::init(0), cl::Hidden,
+    cl::desc("Maximum number of allowed merge exploration. 0 means no limit"));
 namespace {
 
 static OptimizationRemarkMissed
@@ -2361,6 +2364,8 @@ public:
       }
     }
 
+    size_t Iteration = 0;
+
     while (true) {
       std::unique_ptr<ScoredMergePlan> bestPlan =
           std::move(pickBestMergePlan());
@@ -2381,6 +2386,10 @@ public:
 
       tryPlanWithAllCandidates(&Merged);
       Candidates.push_back(&Merged);
+
+      Iteration++;
+      if (ExhaustiveThreshold != 0 && Iteration >= ExhaustiveThreshold)
+        break;
     }
 
     return PreservedAnalyses::none();
