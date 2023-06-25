@@ -186,7 +186,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
         if (auto NameOrErr = Sec.getName())
           SecName = *NameOrErr;
         if (SecName.startswith(".rel") || SecName.startswith(".symtab") ||
-            SecName.startswith(".strtab"))
+            SecName.startswith(".strtab") || SecName.equals(".comment"))
           continue;
         Size += Sec.getSize();
       }

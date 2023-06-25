@@ -1817,8 +1817,9 @@ MSAThunkFunction::create(Function *MergedFunction, Function *SrcFunction,
                          unsigned int FuncId,
                          ValueMap<Argument *, unsigned int> &ArgToMergedArgNo) {
   auto *M = MergedFunction->getParent();
+  std::string ThunkName = "__mf_thunk_" + SrcFunction->getName().str();
   auto *thunk = Function::Create(SrcFunction->getFunctionType(),
-                                 SrcFunction->getLinkage(), "");
+                                 SrcFunction->getLinkage(), ThunkName);
   M->getFunctionList().insertAfter(SrcFunction->getIterator(), thunk);
   // In order to preserve function order, we move Clone after old Function
   thunk->setCallingConv(SrcFunction->getCallingConv());
