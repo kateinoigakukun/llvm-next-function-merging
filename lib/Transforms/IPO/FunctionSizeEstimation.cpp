@@ -11,14 +11,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-
-namespace llvm {
-// See ExtractGV2.cpp header for the reason why we need '2'.
-ModulePass *createGVExtraction2Pass(std::vector<GlobalValue *> &GVs,
-                                    bool deleteFn = false,
-                                    bool keepConstInit = false);
-}; // namespace llvm
 
 using namespace llvm;
 

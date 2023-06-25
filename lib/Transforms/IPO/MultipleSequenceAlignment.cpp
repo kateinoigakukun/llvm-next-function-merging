@@ -25,12 +25,14 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
@@ -94,6 +96,10 @@ static cl::opt<bool>
 static cl::list<std::string>
     OnlyFunctions("multiple-func-merging-only", cl::Hidden,
                   cl::desc("Merge only the specified functions"));
+
+static cl::list<std::string> ExtractFunctions(
+    "multiple-func-merging-extract", cl::Hidden,
+    cl::desc("Extract the specified functions first before exploring"));
 
 static cl::opt<bool> DisablePostOpt(
     "multiple-func-merging-disable-post-opt", cl::init(false), cl::Hidden,
@@ -1748,8 +1754,13 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   }
   auto *Sig = createFunctionType(MergedArgs, RetTy);
 
-  auto *MergedF = Function::Create(Sig, llvm::GlobalValue::InternalLinkage,
-                                   getFunctionName(), M);
+  GlobalValue::LinkageTypes Linkage = GlobalValue::InternalLinkage;
+  // To avoid the function being optimized away, we need to set the linkage when
+  // we are counting for the subset of the object file.
+  if (!ExtractFunctions.empty()) {
+    Linkage = GlobalValue::ExternalLinkage;
+  }
+  auto *MergedF = Function::Create(Sig, Linkage, getFunctionName(), M);
   if (auto PersonalityFn = computePersonalityFn()) {
     MergedF->setPersonalityFn(*PersonalityFn);
   } else {
@@ -1936,16 +1947,24 @@ size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI);
 
 MSAMergePlan::Score MSAMergePlan::computeScore(FunctionSizeEstimation &FSE) {
   TimeTraceScope TimeScope("ComputeScore");
-  size_t MergedSize =
-      FSE.estimate({&Merged}, Functions, Options.SizeEstimationMethod);
-  size_t OriginalTotalSize =
-      FSE.estimate(Functions, {&Merged}, Options.SizeEstimationMethod);
+  std::vector<Function *> MFunctions{&Merged};
   // This magic number respects `EstimateThunkOverhead`
   size_t ThunkOverhead = Thunks.empty() ? 0 : 2;
-
   for (auto &thunk : Thunks) {
     ThunkOverhead += Merged.getFunctionType()->getNumParams();
   }
+  if (Options.SizeEstimationMethod ==
+      FunctionSizeEstimation::EstimationMethod::Exact) {
+    for (auto &thunk : Thunks) {
+      MFunctions.push_back(thunk.getFunction());
+    }
+    ThunkOverhead = 0;
+  }
+  size_t MergedSize =
+      FSE.estimate(MFunctions, Functions, Options.SizeEstimationMethod);
+  size_t OriginalTotalSize =
+      FSE.estimate(Functions, MFunctions, Options.SizeEstimationMethod);
+
   return Score{
       .MergedSize = MergedSize,
       .ThunkOverhead = ThunkOverhead,
@@ -2532,6 +2551,17 @@ ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
 
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
+
+  if (!ExtractFunctions.empty()) {
+    llvm::legacy::PassManager PM;
+    std::vector<GlobalValue *> GVs;
+    for (auto FName : ExtractFunctions) {
+      Function *NewF = M.getFunction(FName);
+      GVs.push_back(NewF);
+    }
+    PM.add(createGVExtraction2Pass(GVs, false));
+    PM.run(M);
+  }
 
   timeTraceProfilerBegin("MultipleFunctionMergingPass", "run");
   FunctionAnalysisManager &FAM =
