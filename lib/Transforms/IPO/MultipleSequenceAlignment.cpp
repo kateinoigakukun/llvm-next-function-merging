@@ -32,6 +32,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
@@ -2561,6 +2562,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       GVs.push_back(NewF);
     }
     PM.add(createGVExtraction2Pass(GVs, false));
+    PM.add(createGlobalDCEPass());
     PM.run(M);
   }
 
