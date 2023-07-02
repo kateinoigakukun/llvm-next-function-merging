@@ -2562,6 +2562,10 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       GVs.push_back(NewF);
     }
     PM.add(createGVExtraction2Pass(GVs, false));
+    // NOTE: This DCE pass is needed to call Constant::removeDeadConstantUsers
+    // which updates the constant users list of the global variables.
+    // This information affects hasAddressTaken and whether a thunk is needed or
+    // not.
     PM.add(createGlobalDCEPass());
     PM.run(M);
   }
