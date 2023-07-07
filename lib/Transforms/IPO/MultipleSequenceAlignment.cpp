@@ -997,11 +997,11 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     auto *BB = BasicBlock::Create(Parent.C, BBName, MergedFunc, AggregateBB);
 
     IRBuilder<> BuilderBB(BB);
-    BuilderBB.CreateBr(AggregateBB);
-    Switch->addCase(Case, BB);
     auto *V = Values[FuncId];
     assert(V != nullptr && "value should not be null!");
     V = tryBitcast(BuilderBB, V, PHI->getType(), "switch.select.bitcast");
+    BuilderBB.CreateBr(AggregateBB);
+    Switch->addCase(Case, BB);
     PHI->addIncoming(V, BB);
   }
 

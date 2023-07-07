@@ -1,5 +1,5 @@
 ; RUN: %opt -multiple-func-merging-whole-program=true -func-merging-whole-program=true --passes="mergefunc,multiple-func-merging" -multiple-func-merging-coalescing=false -pass-remarks-filter=multiple-func-merging -func-merging-explore=3 -multiple-func-merging-hyfm-profitability=false -multiple-func-merging-hyfm-nw=true -multiple-func-merging-size-estimation=exact -multiple-func-merging-explore=manual --multiple-func-merging-only=_ZN10xalanc_1_822doAppendSiblingToChildINS_22XalanSourceTreeElementEEEvPNS_31XalanSourceTreeDocumentFragmentERPNS_9XalanNodeEPT_ --multiple-func-merging-only=_ZN10xalanc_1_815doAppendSiblingINS_19XalanSourceTreeTextEEEvPT_RPNS_9XalanNodeES5_ --multiple-func-merging-only=_ZN10xalanc_1_822doAppendSiblingToChildINS_22XalanSourceTreeCommentEEEvPNS_31XalanSourceTreeDocumentFragmentERPNS_9XalanNodeEPT_ -pass-remarks-output=- %s -S -o /dev/null | FileCheck %s
-; CHECK: Reason:          Something went wrong
+; CHECK-NOT: Reason:          Something went wrong
 
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
