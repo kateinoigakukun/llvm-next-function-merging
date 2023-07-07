@@ -2347,13 +2347,10 @@ class ExhaustiveMergeExploration : public ModuleGlobalMergeExploration {
       return Other.Score.isBetterThan(Score);
     }
 
-    void markDead(FunctionAnalysisManager &FAM) {
+    void markDead() {
       if (IsDead)
         return;
       IsDead = true;
-      auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(
-          *Plan.getFunctions()[0]);
-      Score.emitMissedRemark(Plan.getFunctions(), ORE);
       Plan.discard();
     }
   };
@@ -2500,7 +2497,7 @@ public:
       for (auto *Dependent : Dependents[F]) {
         if (Dependent == Except)
           continue;
-        Dependent->markDead(FAM);
+        Dependent->markDead();
       }
       Dependents.erase(F);
     }
