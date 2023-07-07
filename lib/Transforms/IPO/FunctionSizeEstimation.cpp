@@ -51,23 +51,10 @@ FunctionSizeEstimation::estimate(const std::vector<Function *> &Functions,
   case EstimationMethod::GlobalExact:
   case EstimationMethod::Exact: {
     bool GlobalExact = Method == EstimationMethod::GlobalExact;
-    if (!GlobalExact && Functions.size() == 1) {
-      // If we are estimating the size of a single function, we can check
-      // the cache first.
-      auto It = SizeCache.find(Functions[0]);
-      if (It != SizeCache.end()) {
-        return It->second;
-      }
-    }
 
     auto MaybeSize =
         estimateExactFunctionSize(Functions, Exclusions, GlobalExact);
     if (MaybeSize) {
-      if (!GlobalExact && Functions.size() == 1) {
-        // If we are estimating the size of a single function, we can cache
-        // the result.
-        SizeCache[Functions[0]] = *MaybeSize;
-      }
       return *MaybeSize;
     } else {
       llvm::errs() << "Warning: exact function size estimation failed, "
