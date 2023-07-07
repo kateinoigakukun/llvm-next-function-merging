@@ -153,6 +153,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
       NewM->getTargetTriple(), codegen::getCPUStr(), codegen::getFeaturesStr(),
       TargetOptions(), Reloc::PIC_));
   PM.add(createGVExtraction2Pass(GVs, GlobalExact));
+  PM.add(createGlobalDCEPass());
 
   std::string ObjectCode;
   {
