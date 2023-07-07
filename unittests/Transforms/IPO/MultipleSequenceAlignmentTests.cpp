@@ -412,6 +412,12 @@ attributes #6 = { nounwind optsize }
       *M, {"foo", "bar", "baz"},
       [&](auto Alignment, auto) {
         LLVM_DEBUG(for (auto &Entry : Alignment) { Entry.dump(); });
+        // Check that all things are matched.
+        for (MSAAlignmentEntry<> &Entry : Alignment) {
+          for (auto *V : Entry.getValues()) {
+            ASSERT_NE(V, nullptr);
+          }
+        }
       },
       Options);
 }

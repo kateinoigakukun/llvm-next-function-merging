@@ -82,7 +82,6 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
       if (Used.count(BaseBF.BB))
         continue;
 
-      double MinDistance = std::numeric_limits<double>::max();
       BlockAlignment BestAlignment(Functions.size());
       BestAlignment[BaseFuncId] = BaseBF.BB;
 
@@ -95,6 +94,7 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
         LLVM_DEBUG(
             dbgs() << "Comparing Base=" << Functions[BaseFuncId]->getName()
                    << ", Other=" << Functions[OtherFuncId]->getName() << "\n");
+        double MinDistance = std::numeric_limits<double>::max();
         auto &OtherFingerprints = FingerprintsByFunction[OtherFuncId];
         for (auto &OtherBF : OtherFingerprints) {
           if (Used.count(OtherBF.BB))
