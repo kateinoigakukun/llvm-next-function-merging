@@ -6,6 +6,7 @@
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
@@ -173,6 +174,26 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
         ObjectFile.takeError(), errs(),
         "Error: cannot create object file for function size estimation\n");
     return None;
+  }
+
+  // check env var LLVM_FSE_DUMP_DIR
+  if (const char *DumpDir = getenv("LLVM_FSE_DUMP_DIR")) {
+    std::error_code EC;
+    size_t i = 0;
+    auto fileName = [&]() {
+      return std::string(DumpDir) + "/" + Functions[0]->getName().str() + "." +
+             std::to_string(i) + ".o";
+    };
+    while (sys::fs::exists(fileName())) ++i;
+
+    raw_fd_ostream OS(fileName(), EC, sys::fs::OF_None);
+    if (EC) {
+      errs() << "Error: cannot open file for dumping\n";
+      return None;
+    }
+    OS << ObjectCode;
+    OS.close();
+    dbgs() << "Dumped object file to " << fileName() << "\n";
   }
 
   // We don't count the size of relocations and symbol table.
