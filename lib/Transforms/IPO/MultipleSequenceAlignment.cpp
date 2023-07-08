@@ -2554,22 +2554,6 @@ ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
 PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
                                                    ModuleAnalysisManager &MAM) {
 
-  if (!ExtractFunctions.empty()) {
-    llvm::legacy::PassManager PM;
-    std::vector<GlobalValue *> GVs;
-    for (auto FName : ExtractFunctions) {
-      Function *NewF = M.getFunction(FName);
-      GVs.push_back(NewF);
-    }
-    PM.add(createGVExtraction2Pass(GVs, false));
-    // NOTE: This DCE pass is needed to call Constant::removeDeadConstantUsers
-    // which updates the constant users list of the global variables.
-    // This information affects hasAddressTaken and whether a thunk is needed or
-    // not.
-    PM.add(createGlobalDCEPass());
-    PM.run(M);
-  }
-
   timeTraceProfilerBegin("MultipleFunctionMergingPass", "run");
   FunctionAnalysisManager &FAM =
       MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
