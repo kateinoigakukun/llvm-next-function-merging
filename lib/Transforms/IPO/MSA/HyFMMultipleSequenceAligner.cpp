@@ -112,6 +112,15 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
         }
       }
 
+      LLVM_DEBUG(dbgs() << "  Best match: ";
+                 for (size_t i = 0; i < Functions.size(); i++) {
+                   if (BestAlignment[i])
+                     dbgs() << BestAlignment[i]->getName() << " ";
+                   else
+                     dbgs() << "null ";
+                 };
+                 dbgs() << "\n");
+
       LLVM_DEBUG(dbgs() << "  Checking if the alignment is profitable..\n");
 
       // 3. Okay, we have the best match for the base basic block.
