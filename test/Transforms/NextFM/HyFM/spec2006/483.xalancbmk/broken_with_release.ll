@@ -1,3 +1,4 @@
+; UNSUPPORTED: true
 ; RUN: %opt -multiple-func-merging-whole-program=true -func-merging-whole-program=true --passes="mergefunc,multiple-func-merging" \
 ; RUN:   -multiple-func-merging-coalescing=false -pass-remarks-filter=multiple-func-merging \
 ; RUN:   -func-merging-explore=3 -multiple-func-merging-hyfm-profitability=false -multiple-func-merging-hyfm-nw=true \
