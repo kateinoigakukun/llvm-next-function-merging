@@ -14,6 +14,8 @@
 ; RUN: %llc --filetype=obj %t.mfm-hyfm-approx3.ll -o %t.mfm-hyfm-approx3.o
 ; RUN: %llc --filetype=obj %t.mfm-hyfm-approx4.ll -o %t.mfm-hyfm-approx4.o
 
+; REQUIRES: long_test
+
 ; ModuleID = 'benchmarks/spec2006/483.xalancbmk/_main_._all_._files_._linked_.bc'
 source_filename = "llvm-link"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
