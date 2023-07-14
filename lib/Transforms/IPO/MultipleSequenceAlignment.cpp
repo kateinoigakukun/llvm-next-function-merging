@@ -35,6 +35,7 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
+#include "llvm/Transforms/IPO/FunctionMergingOptions.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
@@ -2253,7 +2254,10 @@ public:
     std::unique_ptr<Matcher<Function *>> MatchFinder;
     {
       TimeTraceScope TimeScope("CreateMatcher");
-      MatchFinder = createMatcherLSH(PairMerger, Options.Base, Options.LSHRows,
+      FunctionMergingOptions MatcherOptions = Options.Base;
+      MatcherOptions.matchOnlyIdenticalTypes(false);
+
+      MatchFinder = createMatcherLSH(PairMerger, MatcherOptions, Options.LSHRows,
                                      Options.LSHBands);
     }
 
