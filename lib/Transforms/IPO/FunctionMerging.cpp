@@ -1302,8 +1302,8 @@ static bool validMergePair(Function *F1, Function *F2) {
 
   if (F1->hasComdat() != F2->hasComdat())
     return false;
-  if (F1->hasComdat() && F1->getComdat() != F2->getComdat())
-    return false;
+  // if (F1->hasComdat() && F1->getComdat() != F2->getComdat())
+  //   return false;
 
   if (F1->hasPersonalityFn() != F2->hasPersonalityFn())
     return false;
