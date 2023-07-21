@@ -15,6 +15,8 @@
 #include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
+#define DEBUG_TYPE "function-size-estimation"
+
 using namespace llvm;
 
 namespace {
@@ -51,6 +53,11 @@ FunctionSizeEstimation::estimate(const std::vector<Function *> &Functions,
   case EstimationMethod::GlobalExact:
   case EstimationMethod::Exact: {
     bool GlobalExact = Method == EstimationMethod::GlobalExact;
+    LLVM_DEBUG(dbgs() << "[FunctionSizeEstimation] Estimating " << (GlobalExact ? "global " : "")
+           << "exact function size for " << Functions.size() << " functions\n");
+    for (auto *F : Functions) {
+      LLVM_DEBUG(dbgs() << "[FunctionSizeEstimation]   " << F->getName() << "\n");
+    }
 
     auto MaybeSize =
         estimateExactFunctionSize(Functions, Exclusions, GlobalExact);
@@ -125,6 +132,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
   {
     for (auto *F : GlobalExact ? Exclusions : Functions) {
       Function *NewF = NewM->getFunction(F->getName());
+      LLVM_DEBUG(dbgs() << "[FunctionSizeEstimation] Extracting function " << F->getName() << "\n");
       GVs.push_back(NewF);
     }
   }
@@ -181,7 +189,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     }
     OS << ObjectCode;
     OS.close();
-    dbgs() << "Dumped object file to " << fileName() << "\n";
+    errs() << "Dumped object file to " << fileName() << "\n";
   }
 
   // We don't count the size of relocations and symbol table.
@@ -197,6 +205,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
         if (SecName.startswith(".rel") || SecName.startswith(".symtab") ||
             SecName.startswith(".strtab") || SecName.equals(".comment"))
           continue;
+
         Size += Sec.getSize();
       }
     } else {
