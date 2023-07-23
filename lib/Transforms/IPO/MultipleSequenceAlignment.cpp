@@ -30,8 +30,10 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Remarks/RemarkParser.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
@@ -111,6 +113,10 @@ static cl::opt<bool> EnableStats(
     "multiple-func-merging-stats", cl::init(false), cl::Hidden,
     cl::desc("Enable statistics for the multiple function merging"));
 
+static cl::opt<std::string> ReplayRemarkFile(
+    "multiple-func-merging-replay-remark", cl::Hidden,
+    cl::desc("Replay exploration from the specified remark file"));
+
 static cl::opt<FunctionSizeEstimation::EstimationMethod> SizeEstimationMethod(
     "multiple-func-merging-size-estimation", cl::Hidden,
     cl::desc("Function size estimation method"),
@@ -127,6 +133,7 @@ enum class MergeExplorationMethod {
   Exhaustive,
   F3M,
   Manual,
+  ReplayRemark,
 };
 
 static cl::opt<MergeExplorationMethod> ExplorationMethod(
@@ -141,7 +148,9 @@ static cl::opt<MergeExplorationMethod> ExplorationMethod(
         clEnumValN(MergeExplorationMethod::F3M, "f3m", "F3M exploration"),
         clEnumValN(
             MergeExplorationMethod::Manual, "manual",
-            "Manual exploration specified by --multiple-func-merging-only")));
+            "Manual exploration specified by --multiple-func-merging-only"),
+        clEnumValN(MergeExplorationMethod::ReplayRemark, "replay",
+                   "Replay exploration from remarks")));
 
 static cl::opt<size_t> ExhaustiveThreshold(
     "multiple-func-merging-exhaustive-threshold", cl::init(0), cl::Hidden,
@@ -2530,6 +2539,105 @@ public:
   }
 };
 
+class ReplayingMergeExploration : public ModuleGlobalMergeExploration {
+
+  std::string ReplayFilename;
+
+public:
+  ReplayingMergeExploration(std::string ReplayFilename,
+                            FunctionAnalysisManager &FAM, MSAOptions Options,
+                            FunctionMerger &PairMerger,
+                            FunctionSizeEstimation &FSE)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE),
+        ReplayFilename(ReplayFilename) {}
+
+  PreservedAnalyses run(Module &M) override {
+    auto BufferOrErr = MemoryBuffer::getFile(ReplayFilename);
+    if (!BufferOrErr) {
+      errs() << "Failed to open " << ReplayFilename << "\n";
+      return PreservedAnalyses::none();
+    }
+
+    auto MaybeParser = remarks::createRemarkParserFromMeta(
+        remarks::Format::YAML, (*BufferOrErr)->getBuffer());
+    if (!MaybeParser) {
+      errs() << "Failed to create remark parser\n";
+      return PreservedAnalyses::none();
+    }
+
+    auto RemarkParser = std::move(*MaybeParser);
+
+    while (true) {
+      auto MaybeRemark = RemarkParser->next();
+      if (!MaybeRemark) {
+        Error E = MaybeRemark.takeError();
+        if (E.isA<remarks::EndOfFileError>()) {
+          // EOF.
+          consumeError(std::move(E));
+          break;
+        }
+        handleAllErrors(std::move(E), [&](const ErrorInfoBase &PE) {
+          PE.log(WithColor::error());
+          errs() << '\n';
+        });
+        break;
+      }
+      auto &Remark = *MaybeRemark;
+      if (Remark->RemarkType != remarks::Type::Passed)
+        continue;
+      if (Remark->PassName != "multiple-func-merging")
+        continue;
+      if (Remark->RemarkName != "Merge")
+        continue;
+
+      SmallVector<Function *, 4> Functions;
+      bool IdenticalTypesOnly = false;
+      for (auto &Arg : Remark->Args) {
+        if (Arg.Key == "Function") {
+          auto *F = M.getFunction(Arg.Val);
+          if (!F) {
+            errs() << "Function " << Arg.Val << " not found\n";
+            continue;
+          }
+          Functions.push_back(F);
+        } else if (Arg.Key == "IdenticalTypesOnly") {
+          IdenticalTypesOnly = Arg.Val == "true";
+        }
+      }
+      if (Functions.size() < 2)
+        continue;
+
+      auto &ORE =
+          FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
+      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+
+      MSAOptions Opt = Options;
+      Opt.Base.matchOnlyIdenticalTypes(IdenticalTypesOnly);
+      Opt.Base.EnableHyFMAlignment = EnableHyFMNW;
+      auto maybePlan = FM.planMerge(Opt.Base);
+      if (!maybePlan) {
+        continue;
+      }
+      MSAMergePlan plan = std::move(*maybePlan);
+      auto score = plan.computeScore(FSE);
+
+      if (!score.isProfitableMerge()) {
+        errs() << "Unexpected unprofitable merge\n";
+        for (auto &F : Functions) {
+          errs() << "  " << F->getName() << "\n";
+        }
+        plan.discard();
+        continue;
+      }
+
+      score.emitPassedRemark(plan, ORE);
+      auto &Merged = plan.applyMerge(ORE);
+      dbgs() << "Merged " << Merged.getName() << "\n";
+    }
+    return PreservedAnalyses::none();
+  }
+};
+
 std::unique_ptr<ModuleGlobalMergeExploration>
 ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
                                      MSAOptions Options,
@@ -2550,6 +2658,9 @@ ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
   case MergeExplorationMethod::Manual:
     return std::make_unique<ManualMergeExploration>(OnlyFunctions, FAM, Options,
                                                     PairMerger, FSE);
+  case MergeExplorationMethod::ReplayRemark:
+    return std::make_unique<ReplayingMergeExploration>(
+        ReplayRemarkFile, FAM, Options, PairMerger, FSE);
   case MergeExplorationMethod::Auto:
     llvm_unreachable("Invalid merge exploration method");
   }
