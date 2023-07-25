@@ -2626,6 +2626,7 @@ public:
         for (auto &F : Functions) {
           errs() << "  " << F->getName() << "\n";
         }
+        score.emitMissedRemark(plan.getFunctions(), ORE);
         plan.discard();
         continue;
       }
