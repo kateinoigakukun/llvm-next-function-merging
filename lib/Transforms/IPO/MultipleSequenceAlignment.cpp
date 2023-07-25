@@ -2675,7 +2675,7 @@ public:
         continue;
       }
       MSAMergePlan plan = std::move(*maybePlan);
-      auto score = plan.computeScore(FSE);
+      MSAMergePlan::Score score{};
 
       score.emitPassedRemark(plan, ORE);
       auto &Merged = plan.applyMerge(ORE);
