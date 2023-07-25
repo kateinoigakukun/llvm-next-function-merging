@@ -10,6 +10,7 @@
 #include "llvm/Transforms/IPO/FunctionMergingOptions.h"
 #include "llvm/Transforms/IPO/FunctionSizeEstimation.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
+#include "llvm/Transforms/IPO/MergeAnnotation.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 
 namespace llvm {
@@ -106,13 +107,15 @@ class MSAFunctionMerger {
   FunctionMerger &PairMerger;
   OptimizationRemarkEmitter &ORE;
   FunctionAnalysisManager &FAM;
+  MergeAnnotations &Annotations;
 
   IntegerType *DiscriminatorTy;
 
 public:
   MSAFunctionMerger(ArrayRef<Function *> Functions, FunctionMerger &PM,
                     OptimizationRemarkEmitter &ORE,
-                    FunctionAnalysisManager &FAM);
+                    FunctionAnalysisManager &FAM,
+                    MergeAnnotations &Annotations);
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 

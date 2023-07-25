@@ -40,6 +40,7 @@
 #include "llvm/Transforms/IPO/FunctionMergingOptions.h"
 #include "llvm/Transforms/IPO/MSA/MSAAlignmentEntry.h"
 #include "llvm/Transforms/IPO/MSA/MultipleSequenceAligner.h"
+#include "llvm/Transforms/IPO/MergeAnnotation.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "llvm/Transforms/Scalar/InstSimplifyPass.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
@@ -129,6 +130,10 @@ static cl::opt<size_t> ReplayRemarkCount(
     cl::desc(
         "Replay the specified number of remarks from the remark file starting "
         "from the index specified by --multiple-func-merging-replay-start"));
+
+static cl::opt<std::string> AnnotationFile(
+    "multiple-func-merging-annotation", cl::Hidden,
+    cl::desc("Guide the merge decision with the specified annotation file"));
 
 static cl::opt<FunctionSizeEstimation::EstimationMethod> SizeEstimationMethod(
     "multiple-func-merging-size-estimation", cl::Hidden,
@@ -220,8 +225,10 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
 MSAFunctionMerger::MSAFunctionMerger(ArrayRef<Function *> Functions,
                                      FunctionMerger &PM,
                                      OptimizationRemarkEmitter &ORE,
-                                     FunctionAnalysisManager &FAM)
-    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM) {
+                                     FunctionAnalysisManager &FAM,
+                                     MergeAnnotations &Annotations)
+    : Functions(Functions), PairMerger(PM), ORE(ORE), FAM(FAM),
+      Annotations(Annotations) {
   assert(!Functions.empty() && "No functions to merge");
   M = Functions[0]->getParent();
   size_t noOfBits = std::ceil(std::log2(Functions.size()));
@@ -253,6 +260,15 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
 
   ValueMap<Argument *, unsigned> ArgToMergedArgNo;
   MSAGenFunction Generator(M, Alignment, Functions, DiscriminatorTy, ORE);
+
+  if (Annotations.hasAnnotation(Generator.getFunctionName(), "deny")) {
+    ORE.emit([&] {
+      return createMissedRemark("Annotation", "Annotation denied merging",
+                                Functions);
+    });
+    return None;
+  }
+
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
   if (!Merged) {
     return None;
@@ -2102,11 +2118,14 @@ private:
   FunctionMerger &PairMerger;
   OptimizationRemarkEmitter &ORE;
   FunctionAnalysisManager &FAM;
+  MergeAnnotations &Annotations;
 
 public:
   MergePlanner(const MSAOptions &BaseOpt, FunctionMerger &PairMerger,
-               OptimizationRemarkEmitter &ORE, FunctionAnalysisManager &FAM)
-      : BaseOpt(BaseOpt), PairMerger(PairMerger), ORE(ORE), FAM(FAM) {}
+               OptimizationRemarkEmitter &ORE, FunctionAnalysisManager &FAM,
+               MergeAnnotations &Annotations)
+      : BaseOpt(BaseOpt), PairMerger(PairMerger), ORE(ORE), FAM(FAM),
+        Annotations(Annotations) {}
 
   using PartitionTy = fmutils::SetPartitions::PartitionTy;
   using PartitionSetTy = fmutils::SetPartitions::PartitionSetTy;
@@ -2136,7 +2155,7 @@ public:
       for (auto Idx : Partition) {
         Functions.push_back(Sources[Idx]);
       }
-      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM, Annotations);
       auto maybePlan = FM.planMerge(Opt.Base);
       if (!maybePlan) {
         continue;
@@ -2211,11 +2230,15 @@ protected:
   MSAOptions Options;
   FunctionMerger &PairMerger;
   FunctionSizeEstimation &FSE;
+  MergeAnnotations &Annotations;
+
 public:
   ModuleGlobalMergeExploration(FunctionAnalysisManager &FAM, MSAOptions Options,
                                FunctionMerger &PairMerger,
-                               FunctionSizeEstimation &FSE)
-      : FAM(FAM), Options(Options), PairMerger(PairMerger), FSE(FSE) {}
+                               FunctionSizeEstimation &FSE,
+                               MergeAnnotations &Annotations)
+      : FAM(FAM), Options(Options), PairMerger(PairMerger), FSE(FSE),
+        Annotations(Annotations) {}
 
   virtual ~ModuleGlobalMergeExploration() = default;
 
@@ -2223,7 +2246,8 @@ public:
 
   static std::unique_ptr<ModuleGlobalMergeExploration>
   derive(FunctionAnalysisManager &FAM, MSAOptions Options,
-         FunctionMerger &PairMerger, FunctionSizeEstimation &FSE);
+         FunctionMerger &PairMerger, FunctionSizeEstimation &FSE,
+         MergeAnnotations &Annotations);
 };
 
 class ManualMergeExploration : public ModuleGlobalMergeExploration {
@@ -2234,8 +2258,10 @@ public:
   ManualMergeExploration(ArrayRef<std::string> OnlyFunctions,
                          FunctionAnalysisManager &FAM, MSAOptions Options,
                          FunctionMerger &PairMerger,
-                         FunctionSizeEstimation &FSE)
-      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE),
+                         FunctionSizeEstimation &FSE,
+                         MergeAnnotations &Annotations)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE,
+                                     Annotations),
         OnlyFunctions(OnlyFunctions) {}
 
   PreservedAnalyses run(Module &M) override {
@@ -2249,10 +2275,10 @@ public:
       Functions.push_back(F);
     }
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
-    MergePlanner Planner(Options, PairMerger, ORE, FAM);
+    MergePlanner Planner(Options, PairMerger, ORE, FAM, Annotations);
     Planner.tryPlanMerge(Functions, false);
     Planner.tryPlanMerge(Functions, true);
-    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM, Annotations);
     if (auto result = Planner.getBestPlan()) {
       auto &plan = result->Plan[0];
       auto score = plan.computeScore(FSE);
@@ -2266,11 +2292,12 @@ public:
 class MatchFinderExploration : public ModuleGlobalMergeExploration {
 
 public:
-
   MatchFinderExploration(FunctionAnalysisManager &FAM, MSAOptions Options,
                          FunctionMerger &PairMerger,
-                         FunctionSizeEstimation &FSE)
-      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE) {}
+                         FunctionSizeEstimation &FSE,
+                         MergeAnnotations &Annotations)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE,
+                                     Annotations) {}
 
   PreservedAnalyses run(Module &M) override {
     std::unique_ptr<Matcher<Function *>> MatchFinder;
@@ -2306,7 +2333,7 @@ public:
         continue;
 
       auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
-      MergePlanner Planner(Options, PairMerger, ORE, FAM);
+      MergePlanner Planner(Options, PairMerger, ORE, FAM, Annotations);
       Planner.exploreProfitableSet(Functions, IdenticalType);
 
       if (auto bestPlan = Planner.getBestPlan()) {
@@ -2394,8 +2421,10 @@ class ExhaustiveMergeExploration : public ModuleGlobalMergeExploration {
 public:
   ExhaustiveMergeExploration(FunctionAnalysisManager &FAM, MSAOptions Options,
                              FunctionMerger &PairMerger,
-                             FunctionSizeEstimation &FSE)
-      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE) {}
+                             FunctionSizeEstimation &FSE,
+                             MergeAnnotations &Annotations)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE,
+                                     Annotations) {}
 
   PreservedAnalyses run(Module &M) override {
     {
@@ -2481,7 +2510,7 @@ public:
   void tryPlanMerge(SmallVector<Function *, 4> Functions) {
     TimeTraceScope TimeScope("TryPlanMerge");
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
-    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+    MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM, Annotations);
 
     MSAOptions Opt = Options;
     Opt.Base.matchOnlyIdenticalTypes(false);
@@ -2560,8 +2589,10 @@ public:
   ReplayingMergeExploration(std::string ReplayFilename,
                             FunctionAnalysisManager &FAM, MSAOptions Options,
                             FunctionMerger &PairMerger,
-                            FunctionSizeEstimation &FSE)
-      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE),
+                            FunctionSizeEstimation &FSE,
+                            MergeAnnotations &Annotations)
+      : ModuleGlobalMergeExploration(FAM, Options, PairMerger, FSE,
+                                     Annotations),
         ReplayFilename(ReplayFilename) {}
 
   PreservedAnalyses run(Module &M) override {
@@ -2634,7 +2665,7 @@ public:
 
       auto &ORE =
           FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
-      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM);
+      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM, Annotations);
 
       MSAOptions Opt = Options;
       Opt.Base.matchOnlyIdenticalTypes(IdenticalTypesOnly);
@@ -2658,7 +2689,8 @@ std::unique_ptr<ModuleGlobalMergeExploration>
 ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
                                      MSAOptions Options,
                                      FunctionMerger &PairMerger,
-                                     FunctionSizeEstimation &FSE) {
+                                     FunctionSizeEstimation &FSE,
+                                     MergeAnnotations &Annotations) {
   MergeExplorationMethod Method = ExplorationMethod;
   if (Method == MergeExplorationMethod::Auto) {
     Method = OnlyFunctions.empty() ? MergeExplorationMethod::F3M
@@ -2667,16 +2699,16 @@ ModuleGlobalMergeExploration::derive(FunctionAnalysisManager &FAM,
   switch (Method) {
   case MergeExplorationMethod::F3M:
     return std::make_unique<MatchFinderExploration>(FAM, Options, PairMerger,
-                                                    FSE);
+                                                    FSE, Annotations);
   case MergeExplorationMethod::Exhaustive:
-    return std::make_unique<ExhaustiveMergeExploration>(FAM, Options,
-                                                        PairMerger, FSE);
+    return std::make_unique<ExhaustiveMergeExploration>(
+        FAM, Options, PairMerger, FSE, Annotations);
   case MergeExplorationMethod::Manual:
-    return std::make_unique<ManualMergeExploration>(OnlyFunctions, FAM, Options,
-                                                    PairMerger, FSE);
+    return std::make_unique<ManualMergeExploration>(
+        OnlyFunctions, FAM, Options, PairMerger, FSE, Annotations);
   case MergeExplorationMethod::ReplayRemark:
     return std::make_unique<ReplayingMergeExploration>(
-        ReplayRemarkFile, FAM, Options, PairMerger, FSE);
+        ReplayRemarkFile, FAM, Options, PairMerger, FSE, Annotations);
   case MergeExplorationMethod::Auto:
     llvm_unreachable("Invalid merge exploration method");
   }
@@ -2695,7 +2727,22 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
   Options.Base.SizeEstimationMethod = SizeEstimationMethod;
   FunctionSizeEstimation FSE(FAM);
 
-  auto Exploration = ModuleGlobalMergeExploration::derive(FAM, Options, PairMerger, FSE);
+  std::unique_ptr<MergeAnnotations> Annotations;
+  std::unique_ptr<MemoryBuffer> MABuffer;
+  if (!AnnotationFile.empty()) {
+    auto BufferOrErr = MemoryBuffer::getFile(AnnotationFile);
+    if (!BufferOrErr) {
+      errs() << "Failed to open " << AnnotationFile << "\n";
+      return PreservedAnalyses::none();
+    }
+    MABuffer = std::move(*BufferOrErr);
+    Annotations = MergeAnnotations::create(MABuffer->getBuffer());
+  } else {
+    Annotations = MergeAnnotations::createEmpty();
+  }
+
+  auto Exploration = ModuleGlobalMergeExploration::derive(
+      FAM, Options, PairMerger, FSE, *Annotations);
 
   auto Result = Exploration->run(M);
 

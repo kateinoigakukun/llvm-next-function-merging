@@ -10,6 +10,7 @@ add_library(LLVMNextFMObjects OBJECT
   Transforms/IPO/FunctionSizeEstimation.cpp
   Transforms/IPO/MatchingUtils.h
   Transforms/IPO/MergeSimilarFunctions.cpp
+  Transforms/IPO/MergeAnnotation.cpp
   Transforms/IPO/MinSizeAttr.cpp
   Transforms/IPO/MultipleSequenceAlignment.cpp
   Transforms/IPO/SALSSACodeGen.cpp

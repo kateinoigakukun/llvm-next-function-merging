@@ -12,6 +12,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/FunctionMergingOptions.h"
+#include "llvm/Transforms/IPO/MergeAnnotation.h"
 #include "llvm/Transforms/IPO/MultipleSequenceAlignment.h"
 #include "llvm/Transforms/IPO/SALSSACodeGen.h"
 #include "gtest/gtest.h"
@@ -39,7 +40,8 @@ protected:
     }
     OptimizationRemarkEmitter ORE(Functions[0]);
     FunctionAnalysisManager FAM;
-    MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM);
+    MergeAnnotations Annotations;
+    MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM, Annotations);
     std::vector<MSAAlignmentEntry<>> Alignment;
     bool _isProfitable = true;
     Merger.align(Alignment, _isProfitable, Options);
