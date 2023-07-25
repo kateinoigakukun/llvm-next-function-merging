@@ -2621,16 +2621,6 @@ public:
       MSAMergePlan plan = std::move(*maybePlan);
       auto score = plan.computeScore(FSE);
 
-      if (!score.isProfitableMerge()) {
-        errs() << "Unexpected unprofitable merge\n";
-        for (auto &F : Functions) {
-          errs() << "  " << F->getName() << "\n";
-        }
-        score.emitMissedRemark(plan.getFunctions(), ORE);
-        plan.discard();
-        continue;
-      }
-
       score.emitPassedRemark(plan, ORE);
       auto &Merged = plan.applyMerge(ORE);
       dbgs() << "Merged " << Merged.getName() << "\n";
