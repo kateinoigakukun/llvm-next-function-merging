@@ -117,6 +117,19 @@ static cl::opt<std::string> ReplayRemarkFile(
     "multiple-func-merging-replay-remark", cl::Hidden,
     cl::desc("Replay exploration from the specified remark file"));
 
+static cl::opt<size_t> ReplayRemarkStart(
+    "multiple-func-merging-replay-start", cl::Hidden, cl::init(0),
+    cl::desc(
+        "Start from the specified remark index in the given remark file (0 "
+        "means the first remark)"));
+
+static cl::opt<size_t> ReplayRemarkCount(
+    "multiple-func-merging-replay-count", cl::Hidden,
+    cl::init(std::numeric_limits<size_t>::max()),
+    cl::desc(
+        "Replay the specified number of remarks from the remark file starting "
+        "from the index specified by --multiple-func-merging-replay-start"));
+
 static cl::opt<FunctionSizeEstimation::EstimationMethod> SizeEstimationMethod(
     "multiple-func-merging-size-estimation", cl::Hidden,
     cl::desc("Function size estimation method"),
@@ -2567,6 +2580,8 @@ public:
 
     auto RemarkParser = std::move(*MaybeParser);
 
+    size_t RemarksCount = 0;
+
     while (true) {
       auto MaybeRemark = RemarkParser->next();
       if (!MaybeRemark) {
@@ -2590,6 +2605,16 @@ public:
       if (Remark->RemarkName != "Merge")
         continue;
 
+      if (RemarksCount < ReplayRemarkStart) {
+        RemarksCount++;
+        continue;
+      }
+
+      if (RemarksCount >= ReplayRemarkStart + ReplayRemarkCount) {
+        break;
+      }
+
+      RemarksCount++;
       SmallVector<Function *, 4> Functions;
       bool IdenticalTypesOnly = false;
       for (auto &Arg : Remark->Args) {
