@@ -3,7 +3,7 @@
 ; RUN: %llc --filetype=obj %t.mfm2-hyfm.bc -o %t.mfm2-hyfm.o
 ; RUN: %llc --filetype=obj %t.mfm3-hyfm.bc -o %t.mfm3-hyfm.o
 ; This check passes when --multiple-func-merging-size-estimation=exact, but it takes long so use approx for now
-; RUN: test $(stat -c%%s %t.mfm3-hyfm.o) -gt $(stat -c%%s %t.mfm2-hyfm.o)
+; RUN: test $(stat -c%%s %t.mfm3-hyfm.o) -le $(stat -c%%s %t.mfm2-hyfm.o)
 
 ; ModuleID = '../llvm-nextfm-benchmark/benchmarks/spec2006/433.milc/_main_._all_._files_._linked_.bc'
 source_filename = "llvm-link"

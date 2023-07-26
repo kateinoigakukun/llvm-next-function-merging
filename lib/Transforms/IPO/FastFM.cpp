@@ -726,19 +726,19 @@ static  bool matchLandingPad(LandingPadInst *LP1, LandingPadInst *LP2) {
 
 static bool matchLoadInsts(const LoadInst *LI1, const LoadInst *LI2) {
   return LI1->isVolatile() == LI2->isVolatile() &&
-         LI1->getAlignment() == LI2->getAlignment() &&
+         LI1->getAlign() == LI2->getAlign() &&
          LI1->getOrdering() == LI2->getOrdering();
 }
 
 static bool matchStoreInsts(const StoreInst *SI1, const StoreInst *SI2) {
   return SI1->isVolatile() == SI2->isVolatile() &&
-         SI1->getAlignment() == SI2->getAlignment() &&
+         SI1->getAlign() == SI2->getAlign() &&
          SI1->getOrdering() == SI2->getOrdering();
 }
 
 static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2) {
   if (AI1->getArraySize() != AI2->getArraySize() ||
-      AI1->getAlignment() != AI2->getAlignment())
+      AI1->getAlign() != AI2->getAlign())
     return false;
 
   /*
@@ -814,9 +814,9 @@ static bool matchCallInsts(const CallBase *CI1, const CallBase *CI2) {
     }
   }
 
-  return CI1->getNumArgOperands() == CI2->getNumArgOperands()
-      && CI1->getCallingConv() == CI2->getCallingConv()
-      && CI1->getAttributes() == CI2->getAttributes();
+  return CI1->arg_size() == CI2->arg_size() &&
+         CI1->getCallingConv() == CI2->getCallingConv() &&
+         CI1->getAttributes() == CI2->getAttributes();
 }
 
 static bool matchInvokeInsts(const InvokeInst *II1, const InvokeInst *II2) {
@@ -1027,10 +1027,11 @@ static void MergeArguments(LLVMContext &Context, Function *F1, Function *F2,
     // otherwise try to match by type only
     for (unsigned i = 0; i < ArgsList1.size(); i++) {
       if (ArgsList1[i]->getType() == (*I).getType()) {
-	
-	auto AttrSet1 = AttrList1.getParamAttributes( ArgsList1[i]->getArgNo() );
-	auto AttrSet2 = AttrList2.getParamAttributes( (*I).getArgNo() );
-	if (AttrSet1!=AttrSet2) continue;
+
+        auto AttrSet1 = AttrList1.getParamAttrs(ArgsList1[i]->getArgNo());
+        auto AttrSet2 = AttrList2.getParamAttrs((*I).getArgNo());
+        if (AttrSet1 != AttrSet2)
+          continue;
 
         bool hasConflict = false; // check for conflict from a previous matching
         for (auto ParamPair : ParamMap2) {
@@ -1257,7 +1258,7 @@ static Function *RemoveFuncIdArg(Function *F, std::vector<Argument *> &ArgsList)
    // Since we have now created the new function, splice the body of the old
    // function right into the new function, leaving the old rotting hulk of the
    // function empty.
-   NF->getBasicBlockList().splice(NF->begin(), F->getBasicBlockList());
+   NF->splice(NF->begin(), F);
 
    std::vector<Argument *> NewArgsList;
    for (Argument &arg : NF->args()) {
@@ -1412,7 +1413,8 @@ FunctionMergeResult FunctionMerger::merge(Function *F1, Function *F2, std::strin
     errs() << "No blocks were matched\n";
     return ErrorResponse;
   }
-  if ((CountMergedInsts/AlignedBlocks.size())==1 && (F1->getBasicBlockList().size()>1 || F2->getBasicBlockList().size()>1) ) {
+  if ((CountMergedInsts / AlignedBlocks.size()) == 1 &&
+      (F1->size() > 1 || F2->size() > 1)) {
     errs() << "Only tiny blocks merged\n";
     return ErrorResponse;
   }
@@ -1500,8 +1502,8 @@ FunctionMergeResult FunctionMerger::merge(Function *F1, Function *F2, std::strin
   for (auto I = F1->arg_begin(), E = F1->arg_end(); I != E; I++) {
     VMap[&(*I)] = ArgsList[ParamMap1[ArgId]];
 
-    auto AttrSet1 = AttrList1.getParamAttributes( (*I).getArgNo() );
-    AttrBuilder Attrs(AttrSet1);
+    auto AttrSet1 = AttrList1.getParamAttrs((*I).getArgNo());
+    AttrBuilder Attrs(Context, AttrSet1);
     AttrListM = AttrListM.addParamAttributes(Context, ArgsList[ParamMap1[ArgId]]->getArgNo(), Attrs );
 
     ArgId++;
@@ -1511,8 +1513,8 @@ FunctionMergeResult FunctionMerger::merge(Function *F1, Function *F2, std::strin
   for (auto I = F2->arg_begin(), E = F2->arg_end(); I != E; I++) {
     VMap[&(*I)] = ArgsList[ParamMap2[ArgId]];
 
-    auto AttrSet2 = AttrList2.getParamAttributes( (*I).getArgNo() );
-    AttrBuilder Attrs(AttrSet2);
+    auto AttrSet2 = AttrList2.getParamAttrs((*I).getArgNo());
+    AttrBuilder Attrs(Context, AttrSet2);
     AttrListM = AttrListM.addParamAttributes(Context, ArgsList[ParamMap2[ArgId]]->getArgNo(), Attrs );
 
     ArgId++;
@@ -1547,7 +1549,7 @@ FunctionMergeResult FunctionMerger::merge(Function *F1, Function *F2, std::strin
     }
   };
 
-  SALSSACodeGen<Function::BasicBlockListType> CG(F1->getBasicBlockList(),F2->getBasicBlockList());
+  SALSSACodeGen<Function> CG(*F1, *F2);
   Gen(CG);
 
   /*
@@ -1623,7 +1625,7 @@ void FunctionMerger::replaceByCall(Function *F, FunctionMergeResult &MFR, const 
       Value *AddrCI = Builder.CreateAlloca(CI->getType());
       Builder.CreateStore(CI,AddrCI);
       Value *CastedAddr = Builder.CreatePointerCast(AddrCI, PointerType::get(F->getReturnType(), DL->getAllocaAddrSpace()));
-      CastedV = Builder.CreateLoad(CastedAddr);
+      CastedV = Builder.CreateLoad(F->getReturnType(), CastedAddr);
     } else {
       CastedV = createCastIfNeeded(CI, F->getReturnType(), Builder, IntPtrTy, Options);
     }
@@ -1699,7 +1701,7 @@ bool FunctionMerger::replaceCallsWith(Function *F, FunctionMergeResult &MFR, con
         Value *AddrCI = Builder.CreateAlloca(NewCB->getType());
         Builder.CreateStore(NewCB,AddrCI);
         Value *CastedAddr = Builder.CreatePointerCast(AddrCI, PointerType::get(F->getReturnType(), DL->getAllocaAddrSpace()));
-        CastedV = Builder.CreateLoad(CastedAddr);
+        CastedV = Builder.CreateLoad(F->getReturnType(), CastedAddr);
       } else {
         CastedV = createCastIfNeeded(NewCB, F->getReturnType(), Builder, IntPtrTy, Options);
       }
@@ -2073,7 +2075,9 @@ static size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI) {
       break;
     default:
       size += TTI->getInstructionCost(
-        &I, TargetTransformInfo::TargetCostKind::TCK_CodeSize).getValue().getValue();
+                     &I, TargetTransformInfo::TargetCostKind::TCK_CodeSize)
+                  .getValue()
+                  .value();
     }
   }
   
@@ -3438,7 +3442,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(std::vector<Matching
   auto MemfyInst = [&](std::set<Instruction *> &InstSet) -> AllocaInst* {
     if (InstSet.empty()) return nullptr;
     IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
-    AllocaInst *Addr = Builder.CreateAlloca((*InstSet.begin())->getType());
+    Type *AddrType = (*InstSet.begin())->getType();
+    AllocaInst *Addr = Builder.CreateAlloca(AddrType);
 
     for (Instruction *I : InstSet) {
       for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
@@ -3450,10 +3455,10 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(std::vector<Matching
         if (PHINode *PHI = dyn_cast<PHINode>(User)) {
           ///TODO: make sure getOperandNo is getting the correct incoming edge
           IRBuilder<> Builder(PHI->getIncomingBlock(UI.getOperandNo())->getTerminator());
-          UI.set(Builder.CreateLoad(Addr));
+          UI.set(Builder.CreateLoad(AddrType, Addr));
         } else {
           IRBuilder<> Builder(User);
-          UI.set(Builder.CreateLoad(Addr));
+          UI.set(Builder.CreateLoad(AddrType, Addr));
         }
       }
     }

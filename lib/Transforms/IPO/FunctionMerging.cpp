@@ -874,13 +874,13 @@ static bool matchLandingPad(LandingPadInst *LP1, LandingPadInst *LP2) {
 
 static bool matchLoadInsts(const LoadInst *LI1, const LoadInst *LI2) {
   return LI1->isVolatile() == LI2->isVolatile() &&
-         LI1->getAlignment() == LI2->getAlignment() &&
+         LI1->getAlign() == LI2->getAlign() &&
          LI1->getOrdering() == LI2->getOrdering();
 }
 
 static bool matchStoreInsts(const StoreInst *SI1, const StoreInst *SI2) {
   return SI1->isVolatile() == SI2->isVolatile() &&
-         SI1->getAlignment() == SI2->getAlignment() &&
+         SI1->getAlign() == SI2->getAlign() &&
          SI1->getOrdering() == SI2->getOrdering();
 }
 
@@ -888,7 +888,7 @@ static bool matchAllocaInsts(const AllocaInst *AI1, const AllocaInst *AI2,
                              const DataLayout *DL,
                              const FunctionMergingOptions &Options) {
   if (AI1->getArraySize() != AI2->getArraySize() ||
-      AI1->getAlignment() != AI2->getAlignment())
+      AI1->getAlign() != AI2->getAlign())
     return false;
 
   /*
@@ -974,7 +974,7 @@ static bool matchCallInsts(const CallBase *CI1, const CallBase *CI2) {
     }
   }
 
-  return CI1->getNumArgOperands() == CI2->getNumArgOperands() &&
+  return CI1->arg_size() == CI2->arg_size() &&
          CI1->getCallingConv() == CI2->getCallingConv() &&
          CI1->getAttributes() == CI2->getAttributes();
 }
@@ -1347,8 +1347,8 @@ static void MergeArguments(LLVMContext &Context, Function *F1, Function *F2,
         continue;
       }
 
-      auto AttrSet1 = AttrList1.getParamAttributes(F1->getArg(i)->getArgNo());
-      auto AttrSet2 = AttrList2.getParamAttributes((*I).getArgNo());
+      auto AttrSet1 = AttrList1.getParamAttrs(F1->getArg(i)->getArgNo());
+      auto AttrSet2 = AttrList2.getParamAttrs((*I).getArgNo());
       if (AttrSet1 != AttrSet2)
         continue;
 
@@ -2487,8 +2487,7 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
     }
   };
 
-  SALSSACodeGen<Function::BasicBlockListType> CG(F1->getBasicBlockList(),
-                                                 F2->getBasicBlockList());
+  SALSSACodeGen<Function> CG(*F1, *F2);
   Gen(CG);
 
   /*
@@ -2767,7 +2766,7 @@ size_t EstimateFunctionSize(Function *F, TargetTransformInfo *TTI) {
     default:
       auto cost = TTI->getInstructionCost(
           &I, TargetTransformInfo::TargetCostKind::TCK_CodeSize);
-      size += cost.getValue().getValue();
+      size += cost.getValue().value();
     }
   }
   return size_t(std::ceil(size));
@@ -2827,7 +2826,7 @@ unsigned instToInt(Instruction *I) {
 
     const LoadInst *LI = dyn_cast<LoadInst>(I);
     uint32_t lValue = LI->isVolatile() ? 1 : 10;        // Volatility
-    lValue += LI->getAlignment();                       // Alignment
+    lValue += LI->getAlign().value();                   // Alignment
     lValue += static_cast<unsigned>(LI->getOrdering()); // Ordering
 
     value = value * lValue;
@@ -2839,7 +2838,7 @@ unsigned instToInt(Instruction *I) {
 
     const StoreInst *SI = dyn_cast<StoreInst>(I);
     uint32_t sValue = SI->isVolatile() ? 2 : 20;        // Volatility
-    sValue += SI->getAlignment();                       // Alignment
+    sValue += SI->getAlign().value();                   // Alignment
     sValue += static_cast<unsigned>(SI->getOrdering()); // Ordering
 
     value = value * sValue;
@@ -2849,7 +2848,7 @@ unsigned instToInt(Instruction *I) {
 
   case Instruction::Alloca: {
     const AllocaInst *AI = dyn_cast<AllocaInst>(I);
-    uint32_t aValue = AI->getAlignment(); // Alignment
+    uint32_t aValue = AI->getAlign().value(); // Alignment
 
     if (AI->getArraySize() && !Deterministic) {
       aValue += reinterpret_cast<std::uintptr_t>(AI->getArraySize());

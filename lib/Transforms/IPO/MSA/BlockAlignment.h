@@ -16,10 +16,11 @@ struct BlockAlignmentStats {
 
 template <MSAAlignmentEntryType Type> class BlockAlignment {
   SmallVector<BasicBlock *, 4> Blocks;
-  Optional<std::vector<MSAAlignmentEntry<Type>>> InstAlignment;
+  std::optional<std::vector<MSAAlignmentEntry<Type>>> InstAlignment;
 
 public:
-  BlockAlignment(size_t Size) : Blocks(Size, nullptr), InstAlignment(None) {
+  BlockAlignment(size_t Size)
+      : Blocks(Size, nullptr), InstAlignment(std::nullopt) {
     assert(Size > 0 && "BlockAlignment must have at least one block");
   }
 
@@ -35,7 +36,7 @@ public:
 
   bool isMatched() const {
     // fast-path for the case after alignment is done.
-    if (InstAlignment.hasValue())
+    if (InstAlignment.has_value())
       return true;
     return std::all_of(Blocks.begin(), Blocks.end(),
                        [](BasicBlock *BB) { return BB != nullptr; });

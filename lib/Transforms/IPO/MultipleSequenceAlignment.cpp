@@ -30,9 +30,12 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Remarks/Remark.h"
 #include "llvm/Remarks/RemarkParser.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/ExtractGV2.h"
@@ -53,6 +56,7 @@
 #include <functional>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -246,14 +250,14 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
     ORE.emit([&] {
       return createMissedRemark("Align", "Failed to align functions", Functions);
     });
-    return None;
+    return std::nullopt;
   }
   if (!isProfitable && !AllowUnprofitableMerge) {
     ORE.emit([&] {
       return createMissedRemark("UnprofitableMerge", "Unprofitable alignment",
                                 Functions);
     });
-    return None;
+    return std::nullopt;
   }
 
   LLVM_DEBUG(for (auto &AE : Alignment) { AE.dump(); };);
@@ -266,12 +270,12 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
       return createMissedRemark("Annotation", "Annotation denied merging",
                                 Functions);
     });
-    return None;
+    return std::nullopt;
   }
 
   auto *Merged = Generator.emit(Options, Stats, ArgToMergedArgNo);
   if (!Merged) {
-    return None;
+    return std::nullopt;
   }
 
   {
@@ -285,7 +289,7 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
         return createMissedRemark("CodeGen", "Invalid merged function",
                                   Functions);
       });
-      return None;
+      return std::nullopt;
     }
   }
 
@@ -1321,8 +1325,8 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
     if (InstSet.empty())
       return nullptr;
     IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
-    AllocaInst *Addr =
-        Builder.CreateAlloca((*InstSet.begin())->getType(), nullptr, "memfy");
+    Type *AddrTy = (*InstSet.begin())->getType();
+    AllocaInst *Addr = Builder.CreateAlloca(AddrTy, nullptr, "memfy");
 
     for (Instruction *I : InstSet) {
       for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
@@ -1342,12 +1346,10 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
           if (InsertionPt == I)
             continue;
           IRBuilder<> Builder(InsertionPt);
-          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(),
-                                    Addr));
+          UI.set(Builder.CreateLoad(AddrTy, Addr));
         } else {
           IRBuilder<> Builder(User);
-          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(),
-                                    Addr));
+          UI.set(Builder.CreateLoad(AddrTy, Addr));
         }
       }
     }
@@ -1675,7 +1677,7 @@ void MSAGenFunction::layoutParameters(
     std::set<unsigned> usedArgIndices;
 
     for (auto &arg : F->args()) {
-      auto argAttr = attrList.getParamAttributes(arg.getArgNo());
+      auto argAttr = attrList.getParamAttrs(arg.getArgNo());
       if (auto found = FindReusableArg(&arg, argAttr, usedArgIndices)) {
         LLVM_DEBUG(dbgs() << "Reuse arg %" << *found << " for " << arg << " of "
                           << F->getName() << "\n");
@@ -1765,7 +1767,7 @@ Optional<Constant *> MSAGenFunction::computePersonalityFn() const {
     if (PersonalityFn == nullptr) {
       PersonalityFn = F->getPersonalityFn();
     } else if (PersonalityFn != F->getPersonalityFn()) {
-      return None;
+      return std::nullopt;
     }
   }
   return PersonalityFn;
@@ -1909,11 +1911,11 @@ Optional<MSACallReplacement> MSACallReplacement::create(
   for (User *U : SrcFunction->users()) {
     if (auto *Call = dyn_cast<CallBase>(U)) {
       if (Call->getCalledFunction() != SrcFunction) {
-        return None;
+        return std::nullopt;
       }
       Calls.emplace_back(Call);
     } else {
-      return None;
+      return std::nullopt;
     }
   }
 
@@ -2628,7 +2630,7 @@ public:
         });
         break;
       }
-      auto &Remark = *MaybeRemark;
+      std::unique_ptr<remarks::Remark> &Remark = *MaybeRemark;
       if (Remark->RemarkType != remarks::Type::Passed)
         continue;
       if (Remark->PassName != "multiple-func-merging")

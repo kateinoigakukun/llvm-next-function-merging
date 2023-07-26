@@ -16,7 +16,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "mergesimilarfunc"
 #include "llvm/InitializePasses.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/DenseSet.h"
@@ -44,10 +43,11 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
-#include <vector>
 #include <list>
+#include <vector>
 using namespace llvm;
 
+#define DEBUG_TYPE "mergesimilarfunc"
 #define DEBUG(_X_)
 
 STATISTIC(NumFunctionsMerged, "Number of functions merged");
@@ -175,7 +175,8 @@ static void SplitBlockAndInsertSwitch(
   // Move instructions into the blocks
   if (Inst1->isTerminator()) {
     Inst1->removeFromParent();
-    DefaultBlock->getInstList().push_back(Inst1);
+    IRBuilder<> Builder(DefaultBlock);
+    Builder.Insert(Inst1);
     Ret.push_back(cast<Instruction>(Inst1));
   } else {
     Instruction *DefaultTerm = BranchInst::Create(Tail, DefaultBlock);
@@ -213,7 +214,8 @@ static void SplitBlockAndInsertSwitch(
     if (Inst2->isTerminator()) {
       assert(Inst1->isTerminator() &&
         "Inst1 and Inst2 must both be terminators or non-terminators!");
-      CaseBlock->getInstList().push_back(Inst2);
+      IRBuilder<> Builder(CaseBlock);
+      Builder.Insert(Inst2);
       Ret.push_back(cast<Instruction>(Inst2));
     } else {
       Instruction *CaseTerm = BranchInst::Create(Tail, CaseBlock);
@@ -601,22 +603,22 @@ bool FunctionComparator::isEquivalentOperation(const Instruction *I1,
   if (const LoadInst *LI = dyn_cast<LoadInst>(I1)) {
     const LoadInst *LI2 = cast<LoadInst>(I2);
     return LI->isVolatile() == LI2->isVolatile() &&
-           LI->getAlignment() == LI2->getAlignment() &&
+           LI->getAlign() == LI2->getAlign() &&
            LI->getOrdering() == LI2->getOrdering() &&
-           //LI->getSynchScope() == LI2->getSynchScope() &&
+           // LI->getSynchScope() == LI2->getSynchScope() &&
            LI->getSyncScopeID() == LI2->getSyncScopeID() &&
-           LI->getMetadata(LLVMContext::MD_range)
-             == LI2->getMetadata(LLVMContext::MD_range);
+           LI->getMetadata(LLVMContext::MD_range) ==
+               LI2->getMetadata(LLVMContext::MD_range);
   }
   if (const StoreInst *SI = dyn_cast<StoreInst>(I1))
     return SI->isVolatile() == cast<StoreInst>(I2)->isVolatile() &&
-           SI->getAlignment() == cast<StoreInst>(I2)->getAlignment() &&
+           SI->getAlign() == cast<StoreInst>(I2)->getAlign() &&
            SI->getOrdering() == cast<StoreInst>(I2)->getOrdering() &&
-           //SI->getSynchScope() == cast<StoreInst>(I2)->getSynchScope();
+           // SI->getSynchScope() == cast<StoreInst>(I2)->getSynchScope();
            SI->getSyncScopeID() == cast<StoreInst>(I2)->getSyncScopeID();
   if (const AllocaInst *AI = dyn_cast<AllocaInst>(I1)) {
     if (AI->getArraySize() != cast<AllocaInst>(I2)->getArraySize() ||
-        AI->getAlignment() != cast<AllocaInst>(I2)->getAlignment())
+        AI->getAlign() != cast<AllocaInst>(I2)->getAlign())
       return false;
 
     // If size is known, I2 can be seen as equivalent to I1 if it allocates
@@ -1143,12 +1145,8 @@ static bool isComparisonCandidate(Function *F) {
   if (Opt::MergeLevel == Opt::size) {
     // Only consider functions that are to be optimized for size.
     // By default, that is all functions at -Os/-Oz and nothing at -O2.
-    bool Os = F->getAttributes().
-      //hasAttribute(AttributeSet::FunctionIndex, Attribute::OptimizeForSize);
-      hasAttribute(AttributeList::FunctionIndex, Attribute::OptimizeForSize);
-    bool Oz = F->getAttributes().
-     //hasAttribute(AttributeSet::FunctionIndex, Attribute::MinSize);
-      hasAttribute(AttributeList::FunctionIndex, Attribute::MinSize);
+    bool Os = F->getAttributes().hasFnAttr(Attribute::OptimizeForSize);
+    bool Oz = F->getAttributes().hasFnAttr(Attribute::MinSize);
     if (!Os && !Oz)
       return false;
   }
@@ -1516,7 +1514,7 @@ void MergeSimilarFunctions::writeAlias(Function *F, Function *G) {
   }
 
   PointerType *PTy = G->getType();
-  auto *GA = GlobalAlias::create(PTy->getElementType(), PTy->getAddressSpace(),
+  auto *GA = GlobalAlias::create(G->getFunctionType(), PTy->getAddressSpace(),
                                  G->getLinkage(), "", F);
   F->setAlignment(Align(std::max(F->getAlignment(), G->getAlignment())));
   GA->takeName(G);
@@ -1832,7 +1830,7 @@ static bool rewriteRecursiveCall(
 
   // Replace NewFI by recursive call to NewF with additional choice argument
   SmallVector<Value *, 16> Args;
-  for (unsigned AI = 0, End = NewFI->getNumArgOperands(); AI < End; ++AI) {
+  for (unsigned AI = 0, End = NewFI->arg_size(); AI < End; ++AI) {
     Value *Arg = NewFI->getArgOperand(AI);
 
     // Check if F1 or F2 is one of the arguments (veeery unusual case, don't

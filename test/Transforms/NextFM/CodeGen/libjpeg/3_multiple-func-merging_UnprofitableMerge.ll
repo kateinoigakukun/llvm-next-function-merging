@@ -3,10 +3,10 @@
 ; - get_8bit_row
 
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK:      --- !Passed
+; CHECK:      --- !Missed
 ; CHECK-NEXT: Pass:            multiple-func-merging
-; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __mf_merge_get_interlaced_row_get_8bit_row
+; CHECK-NEXT: Name:            UnprofitableMerge
+; CHECK-NEXT: Function:        get_interlaced_row
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"

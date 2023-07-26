@@ -20,7 +20,7 @@ public:
                   const std::vector<Function *> &Exclusions,
                   EstimationMethod Method);
   size_t estimateApproximateFunctionSize(Function &F);
-  static Optional<size_t>
+  static std::optional<size_t>
   estimateExactFunctionSize(const std::vector<Function *> &Functions,
                             const std::vector<Function *> &Exclusions,
                             bool GlobalExact);
