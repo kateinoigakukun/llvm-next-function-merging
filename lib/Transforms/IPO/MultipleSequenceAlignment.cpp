@@ -2646,6 +2646,12 @@ public:
       }
 
       RemarksCount++;
+
+      // Check if the remark is disabled.
+      if (Annotations.hasAnnotation(Remark->FunctionName, "deny")) {
+        continue;
+      }
+
       SmallVector<Function *, 4> Functions;
       bool IdenticalTypesOnly = false;
       for (auto &Arg : Remark->Args) {
@@ -2663,15 +2669,44 @@ public:
       if (Functions.size() < 2)
         continue;
 
-      auto &ORE =
-          FAM.getResult<OptimizationRemarkEmitterAnalysis>(*Functions[0]);
-      MSAFunctionMerger FM(Functions, PairMerger, ORE, FAM, Annotations);
-
       MSAOptions Opt = Options;
       Opt.Base.matchOnlyIdenticalTypes(IdenticalTypesOnly);
       Opt.Base.EnableHyFMAlignment = EnableHyFMNW;
+      replayMergeWithMaxN(Opt, ExplorationThreshold + 1, Functions);
+    }
+    return PreservedAnalyses::none();
+  }
+
+  void replayMergeWithMaxN(MSAOptions Opt, size_t N,
+                           ArrayRef<Function *> Functions) {
+    dbgs() << "Replay merge with max N = " << N << "\n";
+    dbgs() << "Functions:\n";
+    for (auto *F : Functions) {
+      dbgs() << "  " << F->getName() << "\n";
+    }
+
+    SmallVector<Function *, 4> Sources;
+    for (auto I = Functions.rbegin(); I != Functions.rend(); ++I) {
+      auto *F = *I;
+      Sources.push_back(F);
+    }
+
+    while (Sources.size() >= 2) {
+      size_t MergeN = std::min(N, Sources.size());
+      SmallVector<Function *, 4> FunctionsToMerge;
+
+      for (size_t i = 0; i < MergeN; i++) {
+        FunctionsToMerge.push_back(Sources.back());
+        Sources.pop_back();
+      }
+
+      auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(
+          *FunctionsToMerge[0]);
+      MSAFunctionMerger FM(FunctionsToMerge, PairMerger, ORE, FAM, Annotations);
+
       auto maybePlan = FM.planMerge(Opt.Base);
       if (!maybePlan) {
+        dbgs() << "Failed to plan merge\n";
         continue;
       }
       MSAMergePlan plan = std::move(*maybePlan);
@@ -2680,8 +2715,8 @@ public:
       score.emitPassedRemark(plan, ORE);
       auto &Merged = plan.applyMerge(ORE);
       dbgs() << "Merged " << Merged.getName() << "\n";
+      Sources.push_back(&Merged);
     }
-    return PreservedAnalyses::none();
   }
 };
 
