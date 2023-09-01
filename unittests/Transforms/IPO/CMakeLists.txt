@@ -7,6 +7,7 @@ add_executable(LLVMNextFMTests
 llvm_map_components_to_libnames(LLVM_LINK_LIBS Passes Core Analysis CodeGen)
 target_link_libraries(LLVMNextFMTests
   LLVMNextFMObjects
+  LLVMExtractGV2Objects
   gtest_main
   ${LLVM_LINK_LIBS})
 

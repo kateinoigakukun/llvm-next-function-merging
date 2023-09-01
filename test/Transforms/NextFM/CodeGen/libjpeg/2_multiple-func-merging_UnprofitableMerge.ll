@@ -3,10 +3,10 @@
 ; - preload_image
 
 ; RUN: %opt -S --passes="multiple-func-merging" -func-merging-explore 2 -o /dev/null -pass-remarks-output=- -pass-remarks-filter=multiple-func-merging < %s | FileCheck %s
-; CHECK:      --- !Passed
+; CHECK:      --- !Missed
 ; CHECK-NEXT: Pass:            multiple-func-merging
-; CHECK-NEXT: Name:            Merge
-; CHECK-NEXT: Function:        __mf_merge_preload_image_load_interlaced_image
+; CHECK-NEXT: Name:            UnprofitableMerge
+; CHECK-NEXT: Function:        preload_image
 
 ; ModuleID = '../bench-play/libjpeg.bc'
 source_filename = "llvm-link"

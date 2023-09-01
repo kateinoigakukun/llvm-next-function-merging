@@ -16,7 +16,9 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <algorithm>
 #include <set>
@@ -56,7 +58,7 @@ static bool HandleMissedRemark(const remarks::Remark &Remark,
 
   legacy::PassManager PM;
   std::vector<GlobalValue *> GVs(GVSet.begin(), GVSet.end());
-  PM.add(createGVExtractionPass(GVs, false));
+  PM.add(createGVExtraction2Pass(GVs, false));
 
   std::error_code EC;
   SmallString<128> OutputFilePath(OutputDir);

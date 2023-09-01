@@ -48,7 +48,7 @@ class MSACallReplacement {
         SrcArgNoToMergedArgNo(SrcArgNoToMergedArgNo) {}
 
 public:
-  static Optional<MSACallReplacement>
+  static std::optional<MSACallReplacement>
   create(size_t FuncId, Function *SrcFunction,
          ValueMap<Argument *, unsigned int> &ArgToMergedArgNo);
   void applyReplacements(Function *MergedFunction);
@@ -119,7 +119,7 @@ public:
 
   FunctionMerger &getPairMerger() { return PairMerger; }
 
-  Optional<MSAMergePlan> planMerge(FunctionMergingOptions Options = {});
+  std::optional<MSAMergePlan> planMerge(FunctionMergingOptions Options = {});
 
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
@@ -134,7 +134,7 @@ class MSAGenFunction {
   LLVMContext &C;
   const std::vector<MSAAlignmentEntry<>> &Alignment;
   const ArrayRef<Function *> &Functions;
-  Optional<std::string> NameCache;
+  std::optional<std::string> NameCache;
   IntegerType *DiscriminatorTy;
 
   IRBuilder<> Builder;
@@ -159,7 +159,7 @@ public:
   // Returns None if functions are not compatible.
   // Returns nullptr if no personality function is found.
   // Otherwise, returns a personality function pointer.
-  Optional<Constant *> computePersonalityFn() const;
+  std::optional<Constant *> computePersonalityFn() const;
 
   FunctionType *
   createFunctionType(ArrayRef<std::pair<Type *, AttributeSet>> Args,

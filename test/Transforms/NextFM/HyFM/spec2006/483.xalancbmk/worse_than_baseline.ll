@@ -7,14 +7,14 @@
 ; RUN: %opt -S -multiple-func-merging-whole-program=true -func-merging-whole-program=true --passes="mergefunc,multiple-func-merging" -multiple-func-merging-coalescing=false -pass-remarks-filter=multiple-func-merging -func-merging-explore=3 -multiple-func-merging-hyfm-profitability=true -multiple-func-merging-hyfm-nw=true -pass-remarks-output=%t.mfm-hyfm-approx4.yaml -o %t.mfm-hyfm-approx4.bc %s
 
 
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %s -o %t.baseline.clangxx.o
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact2.bc -o %t.mfm-hyfm-exact2.clangxx.s -S
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact2.bc -o %t.mfm-hyfm-exact2.clangxx.o
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact3.bc -o %t.mfm-hyfm-exact3.clangxx.o
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact4.bc -o %t.mfm-hyfm-exact4.clangxx.o
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-approx2.bc -o %t.mfm-hyfm-approx2.clangxx.o
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-approx3.bc -o %t.mfm-hyfm-approx3.clangxx.o
-; RUN: clang++-13 -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-approx4.bc -o %t.mfm-hyfm-approx4.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %s -o %t.baseline.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact2.bc -o %t.mfm-hyfm-exact2.clangxx.s -S
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact2.bc -o %t.mfm-hyfm-exact2.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact3.bc -o %t.mfm-hyfm-exact3.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-exact4.bc -o %t.mfm-hyfm-exact4.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-approx2.bc -o %t.mfm-hyfm-approx2.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-approx3.bc -o %t.mfm-hyfm-approx3.clangxx.o
+; RUN: %clang++ -O2 -Xclang -disable-llvm-passes -std=gnu++98 -v -B /usr/bin -DSPEC -DNDEBUG -x ir -c %t.mfm-hyfm-approx4.bc -o %t.mfm-hyfm-approx4.clangxx.o
 
 ; RUN: %llc --filetype=obj %s -o %t.baseline.llc.o
 ; RUN: %llc --filetype=asm %t.mfm-hyfm-exact2.bc -o %t.mfm-hyfm-exact2.llc.s

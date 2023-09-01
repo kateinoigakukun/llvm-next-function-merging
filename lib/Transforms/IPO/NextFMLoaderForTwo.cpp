@@ -18,8 +18,8 @@ llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
       LLVM_PLUGIN_API_VERSION, "NextFMForTwo", LLVM_VERSION_STRING,
       [](PassBuilder &PB) {
         PB.registerOptimizerLastEPCallback(
-            [](ModulePassManager &MPM, PassBuilder::OptimizationLevel Level) {
-              if (Level == PassBuilder::OptimizationLevel::Oz)
+            [](ModulePassManager &MPM, OptimizationLevel Level) {
+              if (Level == OptimizationLevel::Oz)
                 MPM.addPass(FunctionMergingPass());
             });
         PB.registerPipelineParsingCallback(

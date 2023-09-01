@@ -3,12 +3,12 @@
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO.h"
@@ -112,7 +112,7 @@ public:
 };
 }; // namespace
 
-Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
+std::optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     const std::vector<Function *> &Functions,
     const std::vector<Function *> &Exclusions, bool GlobalExact) {
   // This estimation actually emits the object code for the given function
@@ -142,7 +142,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
       TargetRegistry::lookupTarget(NewM->getTargetTriple(), Error);
   if (!TheTarget) {
     errs() << "Error: " << Error << "\n";
-    return None;
+    return std::nullopt;
   }
   auto Target = std::unique_ptr<TargetMachine>(TheTarget->createTargetMachine(
       NewM->getTargetTriple(), codegen::getCPUStr(), codegen::getFeaturesStr(),
@@ -156,7 +156,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     buffer_ostream POS(OS);
     if (Target->addPassesToEmitFile(PM, POS, nullptr, CGFT_ObjectFile)) {
       errs() << "Error: cannot emit a file of this type\n";
-      return None;
+      return std::nullopt;
     }
     PM.run(*NewM);
   }
@@ -169,7 +169,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     logAllUnhandledErrors(
         ObjectFile.takeError(), errs(),
         "Error: cannot create object file for function size estimation\n");
-    return None;
+    return std::nullopt;
   }
 
   // check env var LLVM_FSE_DUMP_DIR
@@ -185,7 +185,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
     raw_fd_ostream OS(fileName(), EC, sys::fs::OF_None);
     if (EC) {
       errs() << "Error: cannot open file for dumping\n";
-      return None;
+      return std::nullopt;
     }
     OS << ObjectCode;
     OS.close();
@@ -210,7 +210,7 @@ Optional<size_t> FunctionSizeEstimation::estimateExactFunctionSize(
       }
     } else {
       errs() << "Error: unsupported object file format\n";
-      return None;
+      return std::nullopt;
     }
   }
 

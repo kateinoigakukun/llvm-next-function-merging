@@ -1,7 +1,9 @@
+add_library(LLVMExtractGV2Objects OBJECT
+  Transforms/IPO/ExtractGV2.cpp)
+
 add_library(LLVMNextFMObjects OBJECT
   Analysis/DumpFunctionSize.cpp
   Analysis/InstCount2.cpp
-  Transforms/IPO/ExtractGV2.cpp
   Transforms/IPO/FastFM.cpp
   Transforms/IPO/FMSA.cpp
   Transforms/IPO/FunctionMerging.cpp
@@ -25,15 +27,15 @@ set_property(TARGET LLVMNextFMObjects PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_llvm_pass_plugin(LLVMNextFM
   Transforms/IPO/NextFMLoader.cpp
-  LINK_LIBS LLVMNextFMObjects
+  LINK_LIBS LLVMNextFMObjects LLVMExtractGV2Objects
   NO_INSTALL_RPATH)
 
 add_llvm_pass_plugin(LLVMNextFMForTwo
   Transforms/IPO/NextFMLoaderForTwo.cpp
-  LINK_LIBS LLVMNextFMObjects
+  LINK_LIBS LLVMNextFMObjects LLVMExtractGV2Objects
   NO_INSTALL_RPATH)
 
 add_llvm_pass_plugin(LLVMNextFMForMore
   Transforms/IPO/NextFMLoaderForMore.cpp
-  LINK_LIBS LLVMNextFMObjects
+  LINK_LIBS LLVMNextFMObjects LLVMExtractGV2Objects
   NO_INSTALL_RPATH)

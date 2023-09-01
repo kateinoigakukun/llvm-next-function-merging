@@ -14,15 +14,14 @@
 using namespace llvm;
 
 llvm::PassPluginLibraryInfo getNextFMPluginInfo() {
-  return {
-      LLVM_PLUGIN_API_VERSION, "NextFM", LLVM_VERSION_STRING,
-      [](PassBuilder &PB) {
-        PB.registerOptimizerLastEPCallback(
-            [](ModulePassManager &MPM, PassBuilder::OptimizationLevel Level) {
-              if (Level == PassBuilder::OptimizationLevel::Oz)
-                MPM.addPass(MultipleFunctionMergingPass());
-            });
-      }};
+  return {LLVM_PLUGIN_API_VERSION, "NextFM", LLVM_VERSION_STRING,
+          [](PassBuilder &PB) {
+            PB.registerOptimizerLastEPCallback(
+                [](ModulePassManager &MPM, OptimizationLevel Level) {
+                  if (Level == OptimizationLevel::Oz)
+                    MPM.addPass(MultipleFunctionMergingPass());
+                });
+          }};
 }
 
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo

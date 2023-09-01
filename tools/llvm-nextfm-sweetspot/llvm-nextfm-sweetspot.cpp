@@ -1,4 +1,3 @@
-#include "llvm/ADT/None.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
@@ -11,6 +10,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IRReader/IRReader.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Remarks/Remark.h"
 #include "llvm/Remarks/RemarkParser.h"
@@ -24,16 +24,18 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/ExtractGV2.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -102,7 +104,7 @@ DeleteFunctions(SetVector<StringRef> &DeletedFunctions, Module *M) {
 
   legacy::PassManager PM;
   std::vector<GlobalValue *> GVs(GVSet.begin(), GVSet.end());
-  PM.add(createGVExtractionPass(GVs, true));
+  PM.add(createGVExtraction2Pass(GVs, true));
 
   PM.add(createGlobalDCEPass());           // Delete unreachable globals
   PM.add(createStripDeadDebugInfoPass());  // Remove dead debug info
@@ -250,7 +252,7 @@ static bool DeletedObjectFunctions(SetVector<StringRef> &DeletedFunctions,
 
   TargetOptions opt;
   auto TM = Target->createTargetMachine(M->getTargetTriple(), "generic", "",
-                                        opt, None);
+                                        opt, std::nullopt);
 
   auto NewM = DeleteFunctions(DeletedFunctions, M);
 

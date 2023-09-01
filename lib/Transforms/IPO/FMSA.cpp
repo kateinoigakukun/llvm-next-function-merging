@@ -330,10 +330,10 @@ static Value *createCast(IRBuilder<> &Builder, Value *V, Type *DestTy) {
     Value *Result = UndefValue::get(DestTy);
     for (unsigned int I = 0, E = SrcTy->getStructNumElements(); I < E; ++I) {
       Value *Element =
-          createCast(Builder, Builder.CreateExtractValue(V, makeArrayRef(I)),
+          createCast(Builder, Builder.CreateExtractValue(V, ArrayRef(I)),
                      DestTy->getStructElementType(I));
 
-      Result = Builder.CreateInsertValue(Result, Element, makeArrayRef(I));
+      Result = Builder.CreateInsertValue(Result, Element, ArrayRef(I));
     }
     return Result;
   }
@@ -435,7 +435,7 @@ static int estimateFunctionSize(Function &F, TargetTransformInfo *TTI) {
     size += TTI->getInstructionCost(
         &I, TargetTransformInfo::TargetCostKind::TCK_CodeSize);
   }
-  return size.getValue().getValue();
+  return size.getValue().value();
 }
 
 static bool fixNotDominatedUses(Function *F, DominatorTree &DT) {
@@ -496,7 +496,7 @@ static bool fixNotDominatedUses(Function *F, DominatorTree &DT) {
     for (auto &kv : kv1.second) {
       Instruction *UI = kv.first;
       IRBuilder<> Builder(UI);
-      Value *V = Builder.CreateLoad(StoredAddress[I]);
+      Value *V = Builder.CreateLoad(I->getType(), StoredAddress[I]);
       for (unsigned i : kv.second) {
         UI->setOperand(i, V);
       }
@@ -1108,7 +1108,7 @@ static bool match(Instruction *I1, Instruction *I2) {
     const LoadInst *LI = dyn_cast<LoadInst>(I1);
     const LoadInst *LI2 = cast<LoadInst>(I2);
     return LI->isVolatile() == LI2->isVolatile() &&
-           LI->getAlignment() == LI2->getAlignment() &&
+           LI->getAlign() == LI2->getAlign() &&
            LI->getOrdering() == LI2->getOrdering(); // &&
     // LI->getSyncScopeID() == LI2->getSyncScopeID() &&
     // LI->getMetadata(LLVMContext::MD_range)
@@ -1117,14 +1117,14 @@ static bool match(Instruction *I1, Instruction *I2) {
   case Instruction::Store: {
     const StoreInst *SI = dyn_cast<StoreInst>(I1);
     return SI->isVolatile() == cast<StoreInst>(I2)->isVolatile() &&
-           SI->getAlignment() == cast<StoreInst>(I2)->getAlignment() &&
+           SI->getAlign() == cast<StoreInst>(I2)->getAlign() &&
            SI->getOrdering() == cast<StoreInst>(I2)->getOrdering(); // &&
     // SI->getSyncScopeID() == cast<StoreInst>(I2)->getSyncScopeID();
   }
   case Instruction::Alloca: {
     const AllocaInst *AI = dyn_cast<AllocaInst>(I1);
     if (AI->getArraySize() != cast<AllocaInst>(I2)->getArraySize() ||
-        AI->getAlignment() != cast<AllocaInst>(I2)->getAlignment())
+        AI->getAlign() != cast<AllocaInst>(I2)->getAlign())
       return false;
 
     /*

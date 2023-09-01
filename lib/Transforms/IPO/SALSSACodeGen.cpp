@@ -5,6 +5,7 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/FunctionMerging.h"
 #include "llvm/Transforms/Scalar.h"
@@ -874,8 +875,8 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
     if (InstSet.empty())
       return nullptr;
     IRBuilder<> Builder(&*PreBB->getFirstInsertionPt());
-    AllocaInst *Addr =
-        Builder.CreateAlloca((*InstSet.begin())->getType(), nullptr, "memfy");
+    Type *AddrTy = (*InstSet.begin())->getType();
+    AllocaInst *Addr = Builder.CreateAlloca(AddrTy, nullptr, "memfy");
 
     for (Instruction *I : InstSet) {
       for (auto UIt = I->use_begin(), E = I->use_end(); UIt != E;) {
@@ -893,10 +894,10 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
           if (InsertionPt == I)
             continue;
           IRBuilder<> Builder(InsertionPt);
-          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(), Addr));
+          UI.set(Builder.CreateLoad(AddrTy, Addr));
         } else {
           IRBuilder<> Builder(User);
-          UI.set(Builder.CreateLoad(Addr->getType()->getPointerElementType(), Addr));
+          UI.set(Builder.CreateLoad(AddrTy, Addr));
         }
       }
     }
@@ -997,4 +998,4 @@ bool FunctionMerger::SALSSACodeGen<BlockListType>::generate(
   return MergedFunc != nullptr;
 }
 
-template class FunctionMerger::SALSSACodeGen<llvm::SymbolTableList<llvm::BasicBlock>>;
+template class FunctionMerger::SALSSACodeGen<llvm::Function>;
