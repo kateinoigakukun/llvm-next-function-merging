@@ -164,6 +164,21 @@ private:
   void groupCombinationsN(const IndicesTy &Items, size_t N);
   void iterateOverPartitionsImpl();
 };
+
+/// Check whether \p F is eligible to be a function merging candidate.
+static inline bool isEligibleToBeMergeCandidate(Function &F, bool hasWholeProgram) {
+  if (F.isDeclaration() || F.hasAvailableExternallyLinkage()) {
+    return false;
+  }
+  if (F.isVarArg()) {
+    return false;
+  }
+  if (!hasWholeProgram && F.hasAvailableExternallyLinkage()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace fmutils
 } // namespace llvm
 #endif

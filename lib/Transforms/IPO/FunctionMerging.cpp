@@ -53,6 +53,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/IPO/FunctionMerging.h"
+#include "FunctionMergingUtils.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
@@ -3185,9 +3186,9 @@ bool FunctionMerging::runImpl(
   // Check whether to use a linear scan instead
   int size = 0;
   for (auto &F : M) {
-    if (F.isDeclaration() || F.isVarArg() ||
-        (!HasWholeProgram && F.hasAvailableExternallyLinkage()))
+    if (!fmutils::isEligibleToBeMergeCandidate(F, HasWholeProgram)) {
       continue;
+    }
     size++;
   }
 
@@ -3246,9 +3247,9 @@ bool FunctionMerging::runImpl(
   SearchStrategy strategy(LSHRows, LSHBands);
   size_t count = 0;
   for (auto &F : M) {
-    if (F.isDeclaration() || F.isVarArg() ||
-        (!HasWholeProgram && F.hasAvailableExternallyLinkage()))
+    if (!fmutils::isEligibleToBeMergeCandidate(F, HasWholeProgram)) {
       continue;
+    }
     if (ignoreFunction(F))
       continue;
     matcher->add_candidate(&F, FSE.estimateApproximateFunctionSize(F));
