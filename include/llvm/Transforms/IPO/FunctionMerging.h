@@ -177,7 +177,8 @@ public:
 class FunctionMerger;
 
 std::unique_ptr<Matcher<Function *>>
-createMatcherLSH(FunctionMerger &FM, FunctionMergingOptions &Options, size_t rows, size_t bands);
+createMatcherLSH(FunctionMerger &FM, FunctionMergingOptions &Options,
+                 size_t bands);
 
 FunctionMergeResult MergeFunctions(Function *F1, Function *F2,
                                    const FunctionMergingOptions &Options = {});

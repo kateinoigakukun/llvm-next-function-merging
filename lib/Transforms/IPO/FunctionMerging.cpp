@@ -1942,9 +1942,8 @@ private:
 
 public:
   MatcherLSH() = default;
-  MatcherLSH(FunctionMerger &FM, FunctionMergingOptions &Options, size_t rows,
-             size_t bands)
-      : rows(rows), bands(bands), FM(FM), Options(Options),
+  MatcherLSH(FunctionMerger &FM, FunctionMergingOptions &Options, size_t bands)
+      : rows(Options.LSHRows), bands(bands), FM(FM), Options(Options),
         strategy(rows, bands){};
 
   virtual ~MatcherLSH() = default;
@@ -2150,8 +2149,8 @@ private:
 
 std::unique_ptr<Matcher<Function *>>
 llvm::createMatcherLSH(FunctionMerger &FM, FunctionMergingOptions &Options,
-                       size_t rows, size_t bands) {
-  return std::make_unique<MatcherLSH<Function *>>(FM, Options, rows, bands);
+                       size_t bands) {
+  return std::make_unique<MatcherLSH<Function *>>(FM, Options, bands);
 }
 
 template <class T> class MatcherReport {
@@ -3140,6 +3139,7 @@ bool FunctionMerging::runImpl(
           .enableUnifiedReturnTypes(EnableUnifiedReturnType);
   Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
   Options.SizeEstimationMethod = SizeEstimationMethod;
+  Options.LSHRows = LSHRows;
   // auto *PSI = &this->getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   // auto LookupBFI = [this](Function &F) {
   //  return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
@@ -3234,8 +3234,7 @@ bool FunctionMerging::runImpl(
     }
     matcher = std::make_unique<MatcherManual>(Functions);
   } else if (EnableF3M) {
-    matcher = std::make_unique<MatcherLSH<Function *>>(FM, Options, LSHRows,
-                                                       LSHBands);
+    matcher = std::make_unique<MatcherLSH<Function *>>(FM, Options, LSHBands);
     if (Verbose)
       errs() << "LSH MH\n";
   } else {

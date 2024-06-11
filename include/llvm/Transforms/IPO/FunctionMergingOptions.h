@@ -11,6 +11,7 @@ struct FunctionMergingOptions {
   bool EnableOperandReordering;
   bool EnableHyFMAlignment;
   bool EnableHyFMBlockProfitabilityEstimation;
+  size_t LSHRows = 2;
   llvm::FunctionSizeEstimation::EstimationMethod SizeEstimationMethod =
       llvm::FunctionSizeEstimation::EstimationMethod::Approximate;
 

@@ -321,7 +321,6 @@ namespace {
 
 struct MSAOptions {
   FunctionMergingOptions Base;
-  size_t LSHRows = 2;
   size_t LSHBands = 100;
 
   MSAOptions() : Base() { Base.EnableUnifiedReturnType = false; }
@@ -2306,8 +2305,8 @@ public:
       FunctionMergingOptions MatcherOptions = Options.Base;
       MatcherOptions.matchOnlyIdenticalTypes(false);
 
-      MatchFinder = createMatcherLSH(PairMerger, MatcherOptions, Options.LSHRows,
-                                     Options.LSHBands);
+      MatchFinder =
+          createMatcherLSH(PairMerger, MatcherOptions, Options.LSHBands);
     }
 
     {
