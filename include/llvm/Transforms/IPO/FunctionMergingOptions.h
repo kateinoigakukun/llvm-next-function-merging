@@ -35,6 +35,8 @@ struct FunctionMergingOptions {
             EnableHyFMBlockProfitabilityEstimation),
         SizeEstimationMethod(SizeEstimationMethod) {}
 
+  static FunctionMergingOptions derive(size_t numberOfFunctions);
+
   void dump(llvm::raw_ostream &OS = llvm::errs()) const {
     OS << "Threshold: " << RankingDistance << "\n";
     OS << "LSHRows: " << LSHRows << "\n";

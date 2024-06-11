@@ -215,29 +215,9 @@ static cl::opt<bool>
     EnableF3M("func-merging-f3m", cl::init(false), cl::Hidden,
               cl::desc("Enable function pairing based on MinHashes and LSH"));
 
-static cl::opt<unsigned>
-    LSHRows("hyfm-f3m-rows", cl::init(2), cl::Hidden,
-            cl::desc("Number of rows in the LSH structure"));
-
-static cl::opt<unsigned>
-    LSHBands("hyfm-f3m-bands", cl::init(100), cl::Hidden,
-             cl::desc("Number of bands in the LSH structure"));
-
 static cl::opt<bool>
     ShingleCrossBBs("shingling-cross-basic-blocks", cl::init(true), cl::Hidden,
                     cl::desc("Do shingles in MinHash cross basic blocks"));
-
-static cl::opt<bool> AdaptiveThreshold(
-    "adaptive-threshold", cl::init(false), cl::Hidden,
-    cl::desc("Adaptively define a new threshold based on the application"));
-
-static cl::opt<bool> AdaptiveBands(
-    "adaptive-bands", cl::init(false), cl::Hidden,
-    cl::desc("Adaptively define the LSH geometry based on the application"));
-
-static cl::opt<double>
-    RankingDistance("ranking-distance", cl::init(1.0), cl::Hidden,
-                    cl::desc("Define a threshold to be used"));
 
 static cl::opt<bool> EnableThunkPrediction(
     "thunk-predictor", cl::init(false), cl::Hidden,
@@ -1932,7 +1912,7 @@ private:
   const size_t rows{2};
   const size_t bands{100};
   FunctionMerger &FM;
-  FunctionMergingOptions &Options;
+  FunctionMergingOptions Options;
   SearchStrategy strategy;
 
   std::list<MatcherEntry> candidates;
@@ -3132,15 +3112,13 @@ bool FunctionMerging::runImpl(
   srand(time(nullptr));
 
   FunctionMergingOptions Options =
-      FunctionMergingOptions()
+      FunctionMergingOptions::derive(
+          fmutils::numberOfMergeCandidates(M, HasWholeProgram))
           .maximizeParameterScore(MaxParamScore)
           .matchOnlyIdenticalTypes(IdenticalType)
           .enableUnifiedReturnTypes(EnableUnifiedReturnType);
   Options.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
   Options.SizeEstimationMethod = SizeEstimationMethod;
-  Options.LSHRows = LSHRows;
-  Options.LSHBands = LSHBands;
-  Options.RankingDistance = RankingDistance;
   // auto *PSI = &this->getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   // auto LookupBFI = [this](Function &F) {
   //  return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
@@ -3153,7 +3131,8 @@ bool FunctionMerging::runImpl(
   FunctionMerger FM(&M);
 
   if (ReportStats) {
-    MatcherReport<Function *> reporter(LSHRows, LSHBands, FM, Options);
+    MatcherReport<Function *> reporter(Options.LSHRows, Options.LSHBands, FM,
+                                       Options);
     for (auto &F : M) {
       if (F.isDeclaration() || F.isVarArg() ||
           (!HasWholeProgram && F.hasAvailableExternallyLinkage()))
@@ -3184,38 +3163,6 @@ bool FunctionMerging::runImpl(
 
   std::unique_ptr<Matcher<Function *>> matcher;
 
-  // Check whether to use a linear scan instead
-  int size = 0;
-  for (auto &F : M) {
-    if (!fmutils::isEligibleToBeMergeCandidate(F, HasWholeProgram)) {
-      continue;
-    }
-    size++;
-  }
-
-  // Create a threshold based on the application's size
-  if (AdaptiveThreshold || AdaptiveBands) {
-    double x = std::log10(size) / 10;
-    RankingDistance = (double)(x - 0.3);
-    if (RankingDistance < 0.05)
-      RankingDistance = 0.05;
-    if (RankingDistance > 0.4)
-      RankingDistance = 0.4;
-
-    if (AdaptiveBands) {
-      float target_probability = 0.9;
-      float offset = 0.1;
-      unsigned tempBands = std::ceil(
-          std::log(1.0 - target_probability) /
-          std::log(1.0 - std::pow(RankingDistance + offset, LSHRows)));
-      if (tempBands < LSHBands)
-        LSHBands = tempBands;
-    }
-    if (AdaptiveThreshold)
-      RankingDistance = 1 - RankingDistance;
-    else
-      RankingDistance = 1.0;
-  }
   if (Verbose) {
     Options.dump();
   }
@@ -3242,7 +3189,7 @@ bool FunctionMerging::runImpl(
       errs() << "LIN SCAN FP\n";
   }
 
-  SearchStrategy strategy(LSHRows, LSHBands);
+  SearchStrategy strategy(Options.LSHRows, Options.LSHBands);
   size_t count = 0;
   for (auto &F : M) {
     if (!fmutils::isEligibleToBeMergeCandidate(F, HasWholeProgram)) {

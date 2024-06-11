@@ -179,6 +179,17 @@ static inline bool isEligibleToBeMergeCandidate(Function &F, bool hasWholeProgra
   return true;
 }
 
+static inline size_t numberOfMergeCandidates(Module &M, bool HasWholeProgram) {
+  // Check whether to use a linear scan instead
+  int size = 0;
+  for (auto &F : M) {
+    if (fmutils::isEligibleToBeMergeCandidate(F, HasWholeProgram))
+      continue;
+    size++;
+  }
+  return size;
+}
+
 } // namespace fmutils
 } // namespace llvm
 #endif

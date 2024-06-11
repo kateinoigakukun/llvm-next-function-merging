@@ -322,7 +322,10 @@ namespace {
 struct MSAOptions {
   FunctionMergingOptions Base;
 
-  MSAOptions() : Base() { Base.EnableUnifiedReturnType = false; }
+  MSAOptions(size_t numberOfFunctions)
+      : Base(FunctionMergingOptions::derive(numberOfFunctions)) {
+    Base.EnableUnifiedReturnType = false;
+  }
 };
 
 } // namespace
@@ -2754,7 +2757,8 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
 
   FunctionMerger PairMerger(&M);
-  auto Options = MSAOptions();
+  auto Options =
+      MSAOptions(fmutils::numberOfMergeCandidates(M, HasWholeProgram));
   Options.Base.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
   Options.Base.SizeEstimationMethod = SizeEstimationMethod;
   FunctionSizeEstimation FSE(FAM);
