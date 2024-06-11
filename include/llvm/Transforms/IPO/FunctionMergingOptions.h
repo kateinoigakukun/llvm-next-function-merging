@@ -2,6 +2,7 @@
 #define LLVM_TRANSFORMS_IPO_FUNCTIONMERGINGOPTIONS_H
 
 #include "llvm/Transforms/IPO/FunctionSizeEstimation.h"
+#include <llvm-13/llvm/Support/raw_ostream.h>
 
 /// A set of parameters used to control the transforms by MergeFunctions.
 struct FunctionMergingOptions {
@@ -33,6 +34,12 @@ struct FunctionMergingOptions {
         EnableHyFMBlockProfitabilityEstimation(
             EnableHyFMBlockProfitabilityEstimation),
         SizeEstimationMethod(SizeEstimationMethod) {}
+
+  void dump(llvm::raw_ostream &OS = llvm::errs()) const {
+    OS << "Threshold: " << RankingDistance << "\n";
+    OS << "LSHRows: " << LSHRows << "\n";
+    OS << "LSHBands: " << LSHBands << "\n";
+  }
 
   FunctionMergingOptions &maximizeParameterScore(bool MPS) {
     MaximizeParamScore = MPS;

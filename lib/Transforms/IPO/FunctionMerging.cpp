@@ -3217,9 +3217,7 @@ bool FunctionMerging::runImpl(
       RankingDistance = 1.0;
   }
   if (Verbose) {
-    errs() << "Threshold: " << RankingDistance << "\n";
-    errs() << "LSHRows: " << LSHRows << "\n";
-    errs() << "LSHBands: " << LSHBands << "\n";
+    Options.dump();
   }
 
   if (!OnlyFunctions.empty()) {
