@@ -1843,7 +1843,7 @@ private:
         CountCandidates++;
       }
       if (best_match.candidate != nullptr)
-        if (!EnableF3M || best_match.Distance < RankingDistance)
+        if (!EnableF3M || best_match.Distance < Options.RankingDistance)
           /*if (EnableThunkPrediction)
           {
               if (std::max(best_match.size, best_match.OtherSize) +
@@ -1866,7 +1866,7 @@ private:
       new_match.OtherSize = it->size;
       new_match.OtherMagnitude = it->FP.magnitude;
       new_match.Magnitude = entry.FP.magnitude;
-      if (!EnableF3M || new_match.Distance < RankingDistance)
+      if (!EnableF3M || new_match.Distance < Options.RankingDistance)
         matches.push_back(std::move(new_match));
       if (RankingThreshold && (CountCandidates > RankingThreshold))
         break;
@@ -2110,10 +2110,10 @@ private:
         new_match.OtherMagnitude = FP.magnitude;
         new_match.Magnitude = match_it->FP.magnitude;
         if (new_match.Distance < best_match.Distance &&
-            new_match.Distance < RankingDistance)
+            new_match.Distance < Options.RankingDistance)
           best_match = new_match;
         if (ExplorationThreshold > 1)
-          if (new_match.Distance < RankingDistance)
+          if (new_match.Distance < Options.RankingDistance)
             matches.push_back(new_match);
         cache.emplace_back(match_it->candidate, match_it);
         if (RankingThreshold && (CountCandidates > RankingThreshold))
