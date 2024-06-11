@@ -13,6 +13,8 @@ struct FunctionMergingOptions {
   bool EnableHyFMBlockProfitabilityEstimation;
   size_t LSHRows = 2;
   size_t LSHBands = 100;
+  double RankingDistance = 1.0;
+
   llvm::FunctionSizeEstimation::EstimationMethod SizeEstimationMethod =
       llvm::FunctionSizeEstimation::EstimationMethod::Approximate;
 

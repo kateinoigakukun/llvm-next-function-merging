@@ -3140,6 +3140,7 @@ bool FunctionMerging::runImpl(
   Options.SizeEstimationMethod = SizeEstimationMethod;
   Options.LSHRows = LSHRows;
   Options.LSHBands = LSHBands;
+  Options.RankingDistance = RankingDistance;
   // auto *PSI = &this->getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   // auto LookupBFI = [this](Function &F) {
   //  return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
