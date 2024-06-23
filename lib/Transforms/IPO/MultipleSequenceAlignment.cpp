@@ -51,6 +51,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <llvm-13/llvm/Support/JSON.h>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -203,7 +204,22 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                               bool &isProfitable,
                               FunctionMergingOptions Options) {
-  TimeTraceScope TimeScope("Align");
+  TimeTraceScope TimeScope("Align", [&] {
+    // Emit a JSON object with the functions to be merged.
+    std::string Out;
+    raw_string_ostream OS(Out);
+    json::OStream J(OS);
+    J.object([&] {
+      J.attributeBegin("functions");
+      J.array([&] {
+        for (auto *F : Functions) {
+          J.value(F->getName());
+        }
+      });
+    });
+    OS.flush();
+    return Out;
+  });
 
   constexpr auto Ty = MSAAlignmentEntryType::Variable;
   std::unique_ptr<MultipleSequenceAligner<Ty>> Aligner;
