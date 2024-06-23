@@ -344,6 +344,8 @@ bool NeedlemanWunschMultipleSequenceAligner<Type>::align(
     return false;
   }
 
+  this->updateStats(ShapeSize);
+
   NeedlemanWunschMultipleSequenceAlignerImpl Aligner(Scoring, Shape,
                                                      InstrVecList, Options);
   Aligner.align(Alignment, isProfitable);
@@ -383,10 +385,20 @@ bool NeedlemanWunschMultipleSequenceAligner<Type>::alignBasicBlocks(
     return false;
   }
 
+  this->updateStats(ShapeSize);
+
   NeedlemanWunschMultipleSequenceAlignerImpl Aligner(Scoring, Shape,
                                                      InstrVecList, Options);
   Aligner.align(Alignment, isProfitable);
   return true;
+}
+
+template <MSAAlignmentEntryType Type>
+void NeedlemanWunschMultipleSequenceAligner<Type>::updateStats(
+    size_t ShapeSize) const {
+  this->Stats.TotalAlignmentShapeSize += ShapeSize;
+  this->Stats.MaxAlignmentShapeSize =
+      std::max(this->Stats.MaxAlignmentShapeSize, ShapeSize);
 }
 
 template class llvm::NeedlemanWunschMultipleSequenceAligner<

@@ -177,13 +177,15 @@ namespace {
 
 static OptimizationRemarkMissed
 createMissedRemark(StringRef RemarkName, StringRef Reason,
-                   ArrayRef<Function *> Functions) {
+                   ArrayRef<Function *> Functions, const MSAStats &Stats) {
   auto remark = OptimizationRemarkMissed(DEBUG_TYPE, RemarkName, Functions[0]);
   if (!Reason.empty())
     remark << ore::NV("Reason", Reason);
   for (auto *F : Functions) {
     remark << ore::NV("Function", F);
   }
+  remark << ore::NV("TotalAlignmentShapeSize", Stats.TotalAlignmentShapeSize)
+         << ore::NV("MaxAlignmentShapeSize", Stats.MaxAlignmentShapeSize);
   return remark;
 }
 
@@ -201,7 +203,7 @@ createAnalysisRemark(StringRef RemarkName, ArrayRef<Function *> Functions) {
 }; // namespace
 
 bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
-                              bool &isProfitable,
+                              bool &isProfitable, MSAStats &Stats,
                               FunctionMergingOptions Options) {
   TimeTraceScope TimeScope("Align", [&] {
     // Emit a JSON object with the functions to be merged.
@@ -215,12 +217,12 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                         /*Mismatch*/ fmutils::OptionalScore::min());
   if (Options.EnableHyFMAlignment) {
     NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-        Scoring, DefaultShapeSizeLimit, Options);
+        Scoring, DefaultShapeSizeLimit, Stats, Options);
     Aligner = std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
         *NWAligner.get(), Options);
   } else {
     Aligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-        Scoring, DefaultShapeSizeLimit, Options);
+        Scoring, DefaultShapeSizeLimit, Stats, Options);
   }
   return Aligner->align(Functions, Alignment, isProfitable, &ORE);
 }
@@ -245,16 +247,17 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   MSAStats Stats;
   std::vector<MSAAlignmentEntry<>> Alignment;
   bool isProfitable = true;
-  if (!align(Alignment, isProfitable, Options)) {
+  if (!align(Alignment, isProfitable, Stats, Options)) {
     ORE.emit([&] {
-      return createMissedRemark("Align", "Failed to align functions", Functions);
+      return createMissedRemark("Align", "Failed to align functions", Functions,
+                                Stats);
     });
     return None;
   }
   if (!isProfitable && !AllowUnprofitableMerge) {
     ORE.emit([&] {
       return createMissedRemark("UnprofitableMerge", "Unprofitable alignment",
-                                Functions);
+                                Functions, Stats);
     });
     return None;
   }
@@ -267,7 +270,7 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
   if (Annotations.hasAnnotation(Generator.getFunctionName(), "deny")) {
     ORE.emit([&] {
       return createMissedRemark("Annotation", "Annotation denied merging",
-                                Functions);
+                                Functions, Stats);
     });
     return None;
   }
@@ -286,7 +289,7 @@ MSAFunctionMerger::planMerge(FunctionMergingOptions Options) {
 
       ORE.emit([&] {
         return createMissedRemark("CodeGen", "Invalid merged function",
-                                  Functions);
+                                  Functions, Stats);
       });
       return None;
     }
@@ -1245,7 +1248,7 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
         if (I.getOperand(i) == nullptr) {
           Parent.ORE.emit([&]() {
             return createMissedRemark("CodeGen", "PHICoalescing: Null operand",
-                                      Parent.Functions)
+                                      Parent.Functions, Stats)
                    << ore::NV("Instruction", &I);
           });
           return false;
@@ -1421,7 +1424,7 @@ bool MSAGenFunctionBody::fixupCoalescingPHI() {
   if (((float)OffendingInsts.size()) / ((float)Parent.Alignment.size()) > 4.5) {
     Parent.ORE.emit([&] {
       return createMissedRemark("FixupCoalescingPHI", "Too many OffendingInsts",
-                                Parent.Functions);
+                                Parent.Functions, Stats);
     });
     return false;
   }
@@ -1467,7 +1470,7 @@ bool MSAGenFunctionBody::assignOperands() {
     Parent.ORE.emit([&] {
       return createMissedRemark(
           "CodeGen", "AssignLabelOperands: Failed to assign label operands",
-          Parent.Functions);
+          Parent.Functions, Stats);
     });
     return false;
   }
@@ -1477,7 +1480,7 @@ bool MSAGenFunctionBody::assignOperands() {
     Parent.ORE.emit([&] {
       return createMissedRemark(
           "CodeGen", "AssignValueOperands: Failed to assign value operands",
-          Parent.Functions);
+          Parent.Functions, Stats);
     });
     return false;
   }
@@ -1848,7 +1851,8 @@ MSAGenFunction::emit(const FunctionMergingOptions &Options, MSAStats &Stats,
   if (!BodyEmitter.emit()) {
     MergedF->eraseFromParent();
     ORE.emit([&] {
-      return createMissedRemark("CodeGen", "Something went wrong", Functions);
+      return createMissedRemark("CodeGen", "Something went wrong", Functions,
+                                Stats);
     });
     return nullptr;
   }
@@ -2041,7 +2045,7 @@ void MSAMergePlan::Score::composite(const Score &Other) {
 
 void MSAMergePlan::Score::emitMissedRemark(ArrayRef<Function *> Functions,
                                            OptimizationRemarkEmitter &ORE) {
-  auto remark = createMissedRemark("UnprofitableMerge", "", Functions)
+  auto remark = createMissedRemark("UnprofitableMerge", "", Functions, Stats)
                 << ore::NV("MergedSize", MergedSize)
                 << ore::NV("ThunkOverhead", ThunkOverhead)
                 << ore::NV("OriginalTotalSize", OriginalTotalSize)
@@ -2060,7 +2064,9 @@ void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
     remark << ore::NV("MergedSize", MergedSize)
            << ore::NV("ThunkOverhead", ThunkOverhead)
            << ore::NV("OriginalTotalSize", OriginalTotalSize)
-           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly);
+           << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
+           << ore::NV("TotalAlignmentShapeSize", Stats.TotalAlignmentShapeSize)
+           << ore::NV("MaxAlignmentShapeSize", Stats.MaxAlignmentShapeSize);
     return remark;
   });
 }

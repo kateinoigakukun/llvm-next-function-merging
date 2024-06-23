@@ -2269,10 +2269,12 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
   std::unique_ptr<NeedlemanWunschMultipleSequenceAligner<Ty>> NWAligner;
   ScoringSystem Scoring(/*Gap*/ -1, /*Match*/ 2,
                         /*Mismatch*/ fmutils::OptionalScore::min());
+  MSAStats Stats;
+
   if (EnableHyFMNW) {
     if (EnableCodeSharing) {
       NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-          Scoring, 24 * 1024 * 1024, Options);
+          Scoring, 24 * 1024 * 1024, Stats, Options);
       Aligner = std::make_unique<MSAAlignerAdapter>(
           std::make_unique<HyFMMultipleSequenceAligner<Ty>>(*NWAligner.get(),
                                                             Options));
@@ -2285,7 +2287,7 @@ FunctionMerger::merge(Function *F1, Function *F2, std::string Name,
     if (EnableCodeSharing) {
       Aligner = std::make_unique<MSAAlignerAdapter>(
           std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-              Scoring, 24 * 1024 * 1024, Options));
+              Scoring, 24 * 1024 * 1024, Stats, Options));
     } else {
       Aligner = std::make_unique<SALSSAAligner>();
     }

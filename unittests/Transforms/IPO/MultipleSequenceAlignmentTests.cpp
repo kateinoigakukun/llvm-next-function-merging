@@ -44,7 +44,8 @@ protected:
     MSAFunctionMerger Merger(Functions, PairMerger, ORE, FAM, Annotations);
     std::vector<MSAAlignmentEntry<>> Alignment;
     bool _isProfitable = true;
-    Merger.align(Alignment, _isProfitable, Options);
+    MSAStats Stats;
+    Merger.align(Alignment, _isProfitable, Stats, Options);
     std::reverse(Alignment.begin(), Alignment.end());
     Test(Alignment, Functions);
   }

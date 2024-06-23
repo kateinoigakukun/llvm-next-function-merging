@@ -18,6 +18,12 @@
 
 namespace llvm {
 
+struct MSAStats {
+  size_t NumSelection = 0;
+  size_t TotalAlignmentShapeSize = 0;
+  size_t MaxAlignmentShapeSize = 0;
+};
+
 namespace fmutils {
 
 /// Nullable 31-bit signed integer.
@@ -106,6 +112,7 @@ class NeedlemanWunschMultipleSequenceAligner
     : public MultipleSequenceAligner<Type> {
   ScoringSystem &Scoring;
   size_t ShapeSizeLimit;
+  MSAStats &Stats;
   const FunctionMergingOptions &Options;
 
 public:
@@ -137,9 +144,13 @@ public:
                         OptimizationRemarkEmitter *ORE) const;
 
   NeedlemanWunschMultipleSequenceAligner(
-      ScoringSystem &Scoring, size_t ShapeSizeLimit,
+      ScoringSystem &Scoring, size_t ShapeSizeLimit, MSAStats &Stats,
       const FunctionMergingOptions &Options = {})
-      : Scoring(Scoring), ShapeSizeLimit(ShapeSizeLimit), Options(Options){};
+      : Scoring(Scoring), ShapeSizeLimit(ShapeSizeLimit), Stats(Stats),
+        Options(Options){};
+
+private:
+  void updateStats(size_t ShapeSize) const;
 };
 
 template <MSAAlignmentEntryType Type>

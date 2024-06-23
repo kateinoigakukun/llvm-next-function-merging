@@ -15,10 +15,6 @@
 
 namespace llvm {
 
-struct MSAStats {
-  size_t NumSelection = 0;
-};
-
 class MSAThunkFunction {
   Function *SrcFunction;
   Function *Thunk;
@@ -124,7 +120,7 @@ public:
   /// Returns `true` if successful and set Alignment. Otherwise, returns
   /// `false`.
   bool align(std::vector<MSAAlignmentEntry<>> &Alignment, bool &isProfitable,
-             const FunctionMergingOptions Options = {});
+             MSAStats &Stats, const FunctionMergingOptions Options = {});
 };
 
 class MSAGenFunctionBody;
