@@ -51,7 +51,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <llvm-13/llvm/Support/JSON.h>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -206,19 +205,7 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                               FunctionMergingOptions Options) {
   TimeTraceScope TimeScope("Align", [&] {
     // Emit a JSON object with the functions to be merged.
-    std::string Out;
-    raw_string_ostream OS(Out);
-    json::OStream J(OS);
-    J.object([&] {
-      J.attributeBegin("functions");
-      J.array([&] {
-        for (auto *F : Functions) {
-          J.value(F->getName());
-        }
-      });
-    });
-    OS.flush();
-    return Out;
+    return fmutils::emitFunctionListAsJSON(Functions);
   });
 
   constexpr auto Ty = MSAAlignmentEntryType::Variable;
@@ -2336,7 +2323,6 @@ public:
     }
 
     while (MatchFinder->size() > 0) {
-      TimeTraceScope TimeScope("ProcessSimilarSet");
       Function *F1 = MatchFinder->next_candidate();
       auto &Rank = MatchFinder->get_matches(F1);
       MatchFinder->remove_candidate(F1);
@@ -2347,6 +2333,10 @@ public:
       }
       if (Functions.size() < 2)
         continue;
+
+      TimeTraceScope TimeScope("ProcessSimilarSet", [&] {
+        return fmutils::emitFunctionListAsJSON(Functions);
+      });
 
       auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F1);
       MergePlanner Planner(Options, PairMerger, ORE, FAM, Annotations);
@@ -2777,6 +2767,7 @@ PreservedAnalyses MultipleFunctionMergingPass::run(Module &M,
       MSAOptions(fmutils::numberOfMergeCandidates(M, HasWholeProgram));
   Options.Base.EnableHyFMBlockProfitabilityEstimation = HyFMProfitability;
   Options.Base.SizeEstimationMethod = SizeEstimationMethod;
+  LLVM_DEBUG(Options.Base.dump(llvm::dbgs()));
   FunctionSizeEstimation FSE(FAM);
 
   std::unique_ptr<MergeAnnotations> Annotations;

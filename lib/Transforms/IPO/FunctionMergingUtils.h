@@ -4,6 +4,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <functional>
@@ -188,6 +189,23 @@ static inline size_t numberOfMergeCandidates(Module &M, bool HasWholeProgram) {
     size++;
   }
   return size;
+}
+
+static inline std::string
+emitFunctionListAsJSON(ArrayRef<Function *> Functions) {
+  std::string Out;
+  raw_string_ostream OS(Out);
+  json::OStream J(OS);
+  J.object([&] {
+    J.attributeBegin("functions");
+    J.array([&] {
+      for (auto *F : Functions) {
+        J.value(F->getName());
+      }
+    });
+  });
+  OS.flush();
+  return std::move(Out);
 }
 
 } // namespace fmutils
