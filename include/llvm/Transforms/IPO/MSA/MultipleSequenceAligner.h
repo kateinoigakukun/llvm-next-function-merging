@@ -140,7 +140,7 @@ public:
 
   bool alignBasicBlocks(ArrayRef<BasicBlock *> BBs,
                         std::vector<MSAAlignmentEntry<Type>> &Alignment,
-                        bool &isProfitable,
+                        bool &isProfitable, bool &hasCancelled,
                         OptimizationRemarkEmitter *ORE) const;
 
   NeedlemanWunschMultipleSequenceAligner(

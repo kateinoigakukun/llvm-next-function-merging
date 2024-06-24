@@ -30,7 +30,8 @@ public:
 
   using BlockAlignment = llvm::BlockAlignment<Type>;
 
-  /// Returns true if the given BBs have at least one profitable BB merge.
+  /// Returns true if we should continue the alignment, false if we should
+  /// cancel the alignment.
   bool alignBasicBlocks(ArrayRef<Function *> Functions,
                         const SmallVectorImpl<std::vector<BlockFingerprint>>
                             &FingerprintsByFunction,
@@ -43,7 +44,8 @@ public:
              bool &isProfitable, OptimizationRemarkEmitter *ORE);
   bool isBlockAlignmentProfitable(
       const BlockAlignment &BA,
-      std::vector<MSAAlignmentEntry<Type>> &InstAlignment) const;
+      std::vector<MSAAlignmentEntry<Type>> &InstAlignment,
+      bool &hasCancelled) const;
 
   bool isProfitable(ArrayRef<BlockAlignment> Alignments) const;
 
@@ -128,9 +130,14 @@ bool HyFMMultipleSequenceAlignerImpl<Type>::alignBasicBlocks(
       // TODO(katei): For now, we merge only if all BBs are matched. Unlcok
       // partial merge later.
       std::vector<MSAAlignmentEntry<Type>> InstAlignment;
-      bool ShouldMerge =
-          BestAlignment.isMatched() &&
-          isBlockAlignmentProfitable(BestAlignment, InstAlignment);
+      bool hasCancelled = false;
+      bool ShouldMerge = BestAlignment.isMatched() &&
+                         isBlockAlignmentProfitable(
+                             BestAlignment, InstAlignment, hasCancelled);
+      if (hasCancelled) {
+        LLVM_DEBUG(dbgs() << "The alignment is cancelled.\n");
+        return false;
+      }
       if (!ShouldMerge) {
         LLVM_DEBUG(dbgs() << "The alignment is not profitable.\n");
         // If we don't merge, append the BB as a non-matched BB.
@@ -282,12 +289,14 @@ void HyFMMultipleSequenceAlignerImpl<Type>::dumpBlockAlignments(
 template <MSAAlignmentEntryType Type>
 bool HyFMMultipleSequenceAlignerImpl<Type>::isBlockAlignmentProfitable(
     const BlockAlignment &BA,
-    std::vector<MSAAlignmentEntry<Type>> &InstAlignment) const {
+    std::vector<MSAAlignmentEntry<Type>> &InstAlignment,
+    bool &hasCancelled) const {
   // Needleman Wunsch Aligner does not check the profitability, so just ignore
   // it.
   bool _isProfitable = true;
   ArrayRef<BasicBlock *> BBs(BA.begin(), BA.end());
-  if (NWAligner.alignBasicBlocks(BBs, InstAlignment, _isProfitable, ORE)) {
+  if (NWAligner.alignBasicBlocks(BBs, InstAlignment, _isProfitable,
+                                 hasCancelled, ORE)) {
     if (!EnableHyFMBlockProfitabilityEstimation) {
       return true;
     }

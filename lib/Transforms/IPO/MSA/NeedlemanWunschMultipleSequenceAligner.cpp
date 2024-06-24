@@ -355,7 +355,8 @@ bool NeedlemanWunschMultipleSequenceAligner<Type>::align(
 template <MSAAlignmentEntryType Type>
 bool NeedlemanWunschMultipleSequenceAligner<Type>::alignBasicBlocks(
     ArrayRef<BasicBlock *> BBs, std::vector<MSAAlignmentEntry<Type>> &Alignment,
-    bool &isProfitable, OptimizationRemarkEmitter *ORE) const {
+    bool &isProfitable, bool &hasCancelled,
+    OptimizationRemarkEmitter *ORE) const {
   std::vector<SmallVector<Value *, 16>> InstrVecList(BBs.size());
   std::vector<size_t> Shape;
   size_t ShapeSize = 1;
@@ -374,6 +375,7 @@ bool NeedlemanWunschMultipleSequenceAligner<Type>::alignBasicBlocks(
   // Cut off alignment based on the sum of the shape size used for a single
   // merge.
   if ((Stats.TotalAlignmentShapeSize + ShapeSize) > ShapeSizeLimit) {
+    hasCancelled = true;
     if (ORE) {
       ORE->emit([&] {
         auto remark =
