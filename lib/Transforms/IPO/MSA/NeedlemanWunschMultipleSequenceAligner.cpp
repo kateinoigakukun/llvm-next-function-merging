@@ -371,7 +371,9 @@ bool NeedlemanWunschMultipleSequenceAligner<Type>::alignBasicBlocks(
     }
   }
 
-  if (ShapeSize > ShapeSizeLimit) {
+  // Cut off alignment based on the sum of the shape size used for a single
+  // merge.
+  if ((Stats.TotalAlignmentShapeSize + ShapeSize) > ShapeSizeLimit) {
     if (ORE) {
       ORE->emit([&] {
         auto remark =
