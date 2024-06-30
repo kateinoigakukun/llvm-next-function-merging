@@ -217,7 +217,7 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                         /*Mismatch*/ fmutils::OptionalScore::min());
   if (Options.EnableHyFMAlignment) {
     NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-        Scoring, 0.4 * DefaultShapeSizeLimit, Stats, Options);
+        Scoring, 0.23 * DefaultShapeSizeLimit, Stats, Options);
     Aligner = std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
         *NWAligner.get(), Options);
   } else {
