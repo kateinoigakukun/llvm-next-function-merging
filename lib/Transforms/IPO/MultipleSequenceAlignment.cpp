@@ -65,7 +65,7 @@ using namespace llvm;
 
 extern cl::opt<unsigned> ExplorationThreshold;
 static cl::opt<size_t> DefaultShapeSizeLimit(
-    "multiple-func-merging-shape-limit", cl::init(24 * 1024 * 1024), cl::Hidden,
+    "multiple-func-merging-shape-limit", cl::init(5788139), cl::Hidden,
     cl::desc("The shape size limit for the multiple function merging"));
 
 static cl::opt<size_t>
@@ -217,7 +217,7 @@ bool MSAFunctionMerger::align(std::vector<MSAAlignmentEntry<>> &Alignment,
                         /*Mismatch*/ fmutils::OptionalScore::min());
   if (Options.EnableHyFMAlignment) {
     NWAligner = std::make_unique<NeedlemanWunschMultipleSequenceAligner<Ty>>(
-        Scoring, 0.23 * DefaultShapeSizeLimit, Stats, Options);
+        Scoring, DefaultShapeSizeLimit, Stats, Options);
     Aligner = std::make_unique<HyFMMultipleSequenceAligner<Ty>>(
         *NWAligner.get(), Options);
   } else {
