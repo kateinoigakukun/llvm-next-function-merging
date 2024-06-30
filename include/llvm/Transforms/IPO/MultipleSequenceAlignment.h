@@ -90,6 +90,7 @@ public:
   };
 
   Score computeScore(FunctionSizeEstimation &FSE);
+  MSAStats getStats() { return Stats; }
 
   Function &applyMerge(OptimizationRemarkEmitter &ORE);
   void discard();

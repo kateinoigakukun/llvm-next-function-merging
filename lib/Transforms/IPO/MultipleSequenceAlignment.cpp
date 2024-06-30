@@ -2065,6 +2065,7 @@ void MSAMergePlan::Score::emitPassedRemark(MSAMergePlan &plan,
            << ore::NV("ThunkOverhead", ThunkOverhead)
            << ore::NV("OriginalTotalSize", OriginalTotalSize)
            << ore::NV("IdenticalTypesOnly", Options.IdenticalTypesOnly)
+           << ore::NV("NumSelection", Stats.NumSelection)
            << ore::NV("TotalAlignmentShapeSize", Stats.TotalAlignmentShapeSize)
            << ore::NV("MaxAlignmentShapeSize", Stats.MaxAlignmentShapeSize);
     return remark;
@@ -2718,7 +2719,9 @@ public:
         continue;
       }
       MSAMergePlan plan = std::move(*maybePlan);
-      MSAMergePlan::Score score{};
+      MSAMergePlan::Score score{
+          .Stats = plan.getStats(),
+      };
 
       score.emitPassedRemark(plan, ORE);
       auto &Merged = plan.applyMerge(ORE);
