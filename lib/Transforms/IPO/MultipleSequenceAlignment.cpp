@@ -2365,10 +2365,6 @@ public:
               continue;
             MatchFinder->remove_candidate(F);
           }
-          // NOTE: We now use approx way to estimate the size for ranking,
-          // but we may want to use the FSE in the future.
-          MatchFinder->add_candidate(
-              &Merged, FSE.estimateApproximateFunctionSize(Merged));
         }
       }
     }
