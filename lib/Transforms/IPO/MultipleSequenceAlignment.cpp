@@ -69,7 +69,7 @@ static cl::opt<size_t> DefaultShapeSizeLimit(
     cl::desc("The shape size limit for the multiple function merging"));
 
 static cl::opt<size_t>
-    MaxNumSelection("multiple-func-merging-max-selects", cl::init(500),
+    MaxNumSelection("multiple-func-merging-max-selects", cl::init(165),
                     cl::Hidden,
                     cl::desc("Maximum number of allowed operand selection"));
 
@@ -969,6 +969,15 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
       return UndefValue::get(Values[0]->getType());
   }
 
+  Stats.NumSelection++;
+  if (Stats.NumSelection > MaxNumSelection) {
+    Parent.ORE.emit([&] {
+      return createMissedRemark("CodeGen", "Too many select instructions",
+                                Parent.Functions, Stats);
+    });
+    return nullptr;
+  }
+
   if (Values.size() == 2) {
     // TODO(katei): Extend to more than two functions.
     auto *V1 = Values[0];
@@ -990,7 +999,6 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     assert(Parent.Functions.size() == 2 && "Expected two functions!");
     auto DiscriminatorBit = BuilderBB.CreateTrunc(
         Discriminator, IntegerType::get(Parent.C, 1), "discriminator.bit");
-    Stats.NumSelection++;
     return BuilderBB.CreateSelect(DiscriminatorBit, V2, V1, "switch.select");
   }
 
@@ -1050,8 +1058,6 @@ Value *MSAGenFunctionBody::mergeOperandValues(ArrayRef<Value *> Values,
     Switch->addCase(Case, BB);
     PHI->addIncoming(V, BB);
   }
-
-  Stats.NumSelection++;
 
   return PHI;
 }
@@ -1152,6 +1158,9 @@ bool MSAGenFunctionBody::assignValueOperands() {
       for (unsigned i = 0; i < Operands.size(); i++) {
         auto Vs = Operands[i];
         Value *V = mergeOperandValues(Vs, NewI);
+        if (V == nullptr) {
+          return false;
+        }
         assert(V != nullptr && "value should not be null!");
 
         if (auto *LiteralOp = NewI->getOperand(i)) {
@@ -1189,6 +1198,9 @@ bool MSAGenFunctionBody::assignValueOperands() {
         }
 
         Value *V = mergeOperandValues(Vs, NewI);
+        if (V == nullptr) {
+          return false;
+        }
         assert(V != nullptr && "Value should NOT be null!");
 
         NewI->setOperand(OperandIdx, V);
