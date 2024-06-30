@@ -2119,6 +2119,14 @@ static bool isEligibleToBeMergeCandidate(Function &F) {
   if (!HasWholeProgram && F.hasAvailableExternallyLinkage()) {
     return false;
   }
+  // FIXME: Skip functions with CallBr instruction for now.
+  for (auto &BB : F) {
+    for (auto &I : BB) {
+      if (isa<CallBrInst>(&I)) {
+        return false;
+      }
+    }
+  }
   return true;
 }
 
