@@ -2231,17 +2231,20 @@ public:
 
   void exploreProfitableSet(SmallVectorImpl<Function *> &Functions,
                             bool IdenticalTypesOnly) {
+    if (!IdenticalType) {
+      tryPlanMerge(Functions, false);
+    }
+    tryPlanMerge(Functions, true);
+    // auto tryPlanAllSets = [&](const PartitionSetTy &PartitionIndicesSet) {
+    //   if (!IdenticalType) {
+    //     tryPlanMerge(Functions, PartitionIndicesSet, false);
+    //   }
+    //   tryPlanMerge(Functions, PartitionIndicesSet, true);
+    // };
 
-    auto tryPlanAllSets = [&](const PartitionSetTy &PartitionIndicesSet) {
-      if (!IdenticalType) {
-        tryPlanMerge(Functions, PartitionIndicesSet, false);
-      }
-      tryPlanMerge(Functions, PartitionIndicesSet, true);
-    };
-
-    fmutils::SetPartitions S(Functions.size(),
-                             [&](const auto &Set) { tryPlanAllSets(Set); });
-    S.iterateOverPartitions();
+    // fmutils::SetPartitions S(Functions.size(),
+    //                          [&](const auto &Set) { tryPlanAllSets(Set); });
+    // S.iterateOverPartitions();
   }
 
   Optional<PlanResult> getBestPlan() { return bestPlan; }
